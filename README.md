@@ -36,7 +36,8 @@ bun run modpack/pad-depth.test.ts
 
 - **便携包**：只带清单 `.pack.zip`，首次启动联网装依赖；
 - **整合包**：PAD + 版本库 + 实例，单文件 `.7z`（内置 7-Zip，`-snl` 保留 junction，收件方启动时自动重接链接）；
-- 导出支持断点续传（固定暂存目录，跳过已复制文件/已建链接）与暂停/继续。
+- 导出支持断点续传（固定暂存目录，跳过已复制文件/已建链接）与暂停/继续；
+- **单文件 PAD**：`packmaker.exe` 和 7-Zip（`7z.exe`/`7z.dll`）都嵌在 PAD 里，首次使用时释放到 `%LOCALAPPDATA%\pack-agent-dsh\tools\`，所以发行只需要一个 `pack-agent-for DSH.exe`。
 
 ## 7-Zip
 
