@@ -1,0 +1,8 @@
+﻿bin/
+obj/
+.tmp/
+.pack-launcher/
+**/bin/
+**/obj/
+node_modules/
+*.user

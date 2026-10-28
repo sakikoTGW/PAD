@@ -25,7 +25,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { packTmpDir } from '../../src/tmp-root.ts'
+import { packTmpDir } from './tmp-root.ts'
 
 function fail(msg: string): never {
   console.error(`✗ ${msg}`)
@@ -108,8 +108,12 @@ must('Core/AppState.cs', 'PackCatalog', '没有 PackCatalog 可观察集合（�
 console.log('✓ 源码回归：Models/Packs/Launcher/Cli/AppState/VersionsView 关键实现都在')
 
 // ---- 实跑前置：PACK_AGENT_REPO 指向仓库根（C# 用 <repo>/bin/packagent.js 跑 TS） ----
-if (!existsSync(join(repoRoot, 'bin', 'packagent.js')))
-  fail(`找不到 ${join(repoRoot, 'bin', 'packagent.js')}（PACK_AGENT_REPO 需要它；repoRoot=${repoRoot}）`)
+// PAD 独立仓库里没有 TS 工具链（它在 pack-agent 主仓库）；此时只跑源码回归，实跑跳过。
+if (!existsSync(join(repoRoot, 'bin', 'packagent.js'))) {
+  console.log(`· 跳过 PAD 实跑：本仓库没有 ${join(repoRoot, 'bin', 'packagent.js')}（PACK_AGENT_REPO 由主仓库提供）`)
+  console.log('✓ pad-pack（源码回归已过；PAD 实跑跳过）')
+  process.exit(0)
+}
 
 if (process.platform !== 'win32' || !existsSync(exe)) {
   console.log(`· 跳过 PAD 实跑：${process.platform === 'win32' ? '没有构建产物 ' : '非 win32 平台 '}${exe}`)

@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { packTmpDir } from '../../src/tmp-root.ts'
+import { packTmpDir } from './tmp-root.ts'
 
 function fail(msg: string): never {
   console.error(`✗ ${msg}`)
