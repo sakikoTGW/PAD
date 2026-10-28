@@ -48,4 +48,6 @@ bun run modpack/pad-depth.test.ts
 
 ## License
 
-待定（公开前补 LICENSE）。
+代码采用 **MIT License**（见 [LICENSE](LICENSE)）。
+
+随仓库附带的 7-Zip 二进制（`pad/Assets/7z/`）为 **LGPL-2.1+**，DeepSeek 名称/鲸鱼标识归其所有者所有（仅用于识别 DSH 运行时）；导出的整合包/便携包里可能包含第三方软件，按各自的许可证分发。详见 [NOTICE](NOTICE)。
