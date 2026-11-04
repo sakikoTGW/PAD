@@ -44,6 +44,16 @@ public partial class SettingsView : UserControl, IRefreshable
         if (id == "api") ShowApiList();
     }
 
+    /// <summary>托盘提示跳转：切到「其他」并滚到「关闭行为」。</summary>
+    public void OpenCloseBehavior()
+    {
+        OpenLayer("other");
+        Dispatcher.BeginInvoke(() =>
+        {
+            try { CloseBehaviorSlab.BringIntoView(); } catch { /* 布局未完成就算了 */ }
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
     public void OnShown() => Paint();
 
     void Paint()
@@ -109,6 +119,7 @@ public partial class SettingsView : UserControl, IRefreshable
         }).IsChecked = true;
         CustomAccentBox.Text = s.Ui.CustomAccent;
         AnimateBox.IsChecked = s.Ui.Animate;
+        TrayCloseBox.IsChecked = s.Ui.CloseToTray;
         BrandBox.IsChecked = s.Ui.ShowBrand;
         LogoBox.IsChecked = s.Ui.ShowLogo;
         BrandTextBox.Text = s.Ui.BrandText;
@@ -151,6 +162,8 @@ public partial class SettingsView : UserControl, IRefreshable
         RootsBox.SelectedItem = _state.Launcher.Root;
         SettingsLine.Text = _state.Launcher.SettingsPath;
         ConfirmStop.IsChecked = s.Other.ConfirmStop;
+        PickCombo(CloseXBox, s.Ui.CloseToTray ? "tray" : "quit");
+        StopInstancesOnExit.IsChecked = s.Other.StopInstancesOnExit;
         OpenLogOnError.IsChecked = s.Other.OpenLogOnError;
         BackupCorrupt.IsChecked = s.Other.BackupCorrupt;
         RefreshSecBox.Text = s.Other.RefreshSec.ToString();
@@ -159,6 +172,8 @@ public partial class SettingsView : UserControl, IRefreshable
         ShotMarketDelayBox.Text = s.Other.ShotMarketDelayMs.ToString();
         DebugBox.IsChecked = s.Other.Debug;
         PickCombo(UpdateChannelBox, s.Other.UpdateChannel);
+        UpdateFeedBox.Text = s.Other.UpdateFeed;
+        UpdateAutoBox.IsChecked = s.Other.UpdateAutoDownload;
         IdentifyLine.Text = s.Other.Identify;
 
         var ver = Assembly.GetExecutingAssembly().GetName().Version;
@@ -797,7 +812,7 @@ public partial class SettingsView : UserControl, IRefreshable
 
     void PickTui_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "dsh-tui 组合包" };
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "dsh-tui 插件" };
         if (dlg.ShowDialog() != true) return;
         var dir = dlg.FolderName;
         var nested = Path.Combine(dir, "@deepseek-harness-tui", "dsh-tui");
@@ -862,6 +877,7 @@ public partial class SettingsView : UserControl, IRefreshable
         if (_loading) return;
         var s = _state.Settings;
         s.Ui.Animate = AnimateBox.IsChecked == true;
+        s.Ui.CloseToTray = TrayCloseBox.IsChecked == true;
         s.Ui.ShowBrand = BrandBox.IsChecked == true;
         s.Ui.ShowLogo = LogoBox.IsChecked == true;
         s.Ui.BrandText = BrandTextBox.Text.Trim();
@@ -1063,6 +1079,8 @@ public partial class SettingsView : UserControl, IRefreshable
         if (_loading) return;
         var s = _state.Settings;
         s.Other.ConfirmStop = ConfirmStop.IsChecked == true;
+        s.Ui.CloseToTray = (ComboTag(CloseXBox) ?? "tray") == "tray";
+        s.Other.StopInstancesOnExit = StopInstancesOnExit.IsChecked == true;
         s.Other.OpenLogOnError = OpenLogOnError.IsChecked == true;
         s.Other.BackupCorrupt = BackupCorrupt.IsChecked == true;
         if (int.TryParse(RefreshSecBox.Text.Trim(), out var rs)) s.Other.RefreshSec = rs;
@@ -1071,7 +1089,10 @@ public partial class SettingsView : UserControl, IRefreshable
         if (int.TryParse(ShotMarketDelayBox.Text.Trim(), out var sm)) s.Other.ShotMarketDelayMs = sm;
         s.Other.Debug = DebugBox.IsChecked == true;
         s.Other.UpdateChannel = ComboTag(UpdateChannelBox) ?? "release";
+        s.Other.UpdateFeed = (UpdateFeedBox.Text ?? "").Trim();
+        s.Other.UpdateAutoDownload = UpdateAutoBox.IsChecked == true;
         Commit(s);
+        try { App.TrayIcon?.SyncCloseToTray(s.Ui.CloseToTray); } catch { /* ignore */ }
         Paint();
     }
 
@@ -1185,9 +1206,20 @@ public partial class SettingsView : UserControl, IRefreshable
         {
             var snap = await Updates.Check(_state.Launcher, _state.Settings.Download.NpmRegistry,
                 CancellationToken.None);
-            PadUpdateLine.Text = snap.PackAgentKnown
+            _padUpdate = null;
+            if (PadUpdate.Enabled(_state.Launcher))
+            {
+                var info = await PadUpdate.Check(_state.Launcher, CancellationToken.None);
+                if (info is not null && PadUpdate.IsNewer(info.Version, PadUpdate.CurrentVersion()))
+                    _padUpdate = info;
+            }
+            PadDownloadBtn.IsEnabled = _padUpdate is not null;
+            var padTail = _padUpdate is not null
+                ? $" · PAD 可更新 {_padUpdate.Version}"
+                : PadUpdate.Enabled(_state.Launcher) ? " · PAD 已最新" : " · 未配置 PAD 更新源";
+            PadUpdateLine.Text = (snap.PackAgentKnown
                 ? $"PAD {snap.PadVersion} · pack-agent npm {snap.PackAgentLatest}"
-                : $"PAD {snap.PadVersion} · npm 没查到";
+                : $"PAD {snap.PadVersion} · npm 没查到") + padTail;
             DshUpdateLine.Text = snap.DshLatest.Length == 0
                 ? (snap.DshInstalled.Length == 0 ? "版本库是空的，npm 没查到" : $"已装 {snap.DshInstalled} · npm 没查到")
                 : snap.DshNewer
@@ -1198,6 +1230,26 @@ public partial class SettingsView : UserControl, IRefreshable
         {
             PadUpdateLine.Text = PadError.Describe(ex);
             DshUpdateLine.Text = "";
+        }
+    }
+
+    PadUpdateInfo? _padUpdate;
+
+    async void DownloadPadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_padUpdate is null) return;
+        PadDownloadBtn.IsEnabled = false;
+        PadUpdateLine.Text = $"下载 {_padUpdate.Version} …";
+        try
+        {
+            await PadUpdate.Download(_state.Launcher, _padUpdate, null, CancellationToken.None);
+            PadUpdateLine.Text = $"已下载 {_padUpdate.Version}，重启 PAD 生效";
+            if (Window.GetWindow(this) is MainWindow win)
+                win.Toast($"PAD {_padUpdate.Version} 已下载，重启后自动替换");
+        }
+        catch (Exception ex)
+        {
+            PadUpdateLine.Text = PadError.Describe(ex);
         }
     }
 

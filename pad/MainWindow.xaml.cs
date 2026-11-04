@@ -36,6 +36,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(OnMdLink));
         PreviewKeyDown += Window_PreviewKeyDown;
+        AllowDrop = true;
+        DragOver += Window_DragOver;
+        Drop += Window_Drop;
         StageRailList.CollapseClicked += () => ToggleRail();
         ApplyWindowPrefs();
         ApplyBrand();
@@ -48,18 +51,18 @@ public partial class MainWindow : Window
             ApplyWindowPrefs();
             if (AppState.Current.Settings.Other.LoadWarning is { Length: > 0 } warn)
                 Toast(warn, bad: true);
-            if (App.ShotPath is null) OfferAdoptIfNeeded();
+            if (App.ShotPath is null) AutoReconcileHome();
             if (App.ShotPath is null) PickupSidecarPacks();
             if (App.ShotPage != "launch" || App.ShotPath is not null)
             {
                 var tab = App.ShotPage switch
                 {
-                    "manage" or "manage-edit" or "manage-open" => TabManage,
+                    "manage" or "manage-edit" or "manage-open" or "manage-project" => TabManage,
                     // 注意：`X or _ when G` 的 when 是整个 arm 的守卫，`relations` 本身不含
                     // "relations-" 会被守卫否决——所以这里用显式布尔，不玩模式组合。
                     _ when App.ShotPage.StartsWith("relations") => TabManage,
                     "tasks" => TabTasks,
-                    "download" or "market" or "dl-tasks" => TabDownload,
+                    "download" or "market" or "market-more" or "market-detail" or "market-ranking" or "market-growth" or "market-all" or "market-search" or "market-collapsed" or "dl-tasks" => TabDownload,
                     "settings" or "settings-ui" or "settings-download" or "settings-other"
                         or "settings-launch" or "settings-api" => TabSettings,
                     _ => TabLaunch,
@@ -70,13 +73,26 @@ public partial class MainWindow : Window
                         $"set {tab.Name} manage={TabManage.IsChecked} launch={TabLaunch.IsChecked}\n");
                 if (App.ShotPage is "versions" or "versions-open")
                     ShowInner("versions", "版本选择");
+                // 管理页的项目页也要能截图：不靠指针点侧栏，直接进第一份实例。
+                if (App.ShotPage == "manage-project" && Page("manage") is WorkbenchView shotWb)
+                    shotWb.OpenProjectForShot();
                 if (App.ShotPage == "makepack") ShowInner("makepack", "导出整合包", "versions");
-                if (App.ShotPage == "bundles") ShowInner("bundles", "实例与组合包", "manage");
+                if (App.ShotPage == "bundles") ShowInner("bundles", "实例与插件", "manage");
                 if (App.ShotPage == "relations" || App.ShotPage.StartsWith("relations-")) ShowRelations();
-                if (App.ShotPage is "instance" or "instance-settings" or "instance-plugins" or "instance-bundles")
+                if (App.ShotPage is "instance" or "instance-settings" or "instance-plugins" or "instance-bundles"
+                    or "instance-packs" or "plugin-detail")
                     ShowInner("instance", "版本设置");
-                if (App.ShotPage == "market" && Page("download") is DownloadView market)
+                if (App.ShotPage == "tray-hint") ShowTrayHintPreview();
+                if (App.ShotPage is "market" or "market-more" or "market-detail" or "market-ranking" or "market-growth" or "market-collapsed" or "market-all" or "market-search" && Page("download") is DownloadView market)
                     market.OpenShelf("plugin");
+                if (App.ShotPage == "market-growth" && Page("download") is DownloadView growth)
+                    growth.ShowGrowthShot();
+                if (App.ShotPage == "market-collapsed" && Page("download") is DownloadView collapsed)
+                    collapsed.CollapseRailForShot();
+                if (App.ShotPage == "market-all" && Page("download") is DownloadView allStore)
+                    allStore.ShowAllShot();
+                if (App.ShotPage == "market-search" && Page("download") is DownloadView searchStore)
+                    searchStore.ShowSearchShot("jingyu");
                 if (App.ShotPage == "dl-tasks" && Page("download") is DownloadView dlTasks)
                     dlTasks.OpenShelf("dltasks");
                 if (App.ShotPage is "settings-ui" or "settings-download" or "settings-other"
@@ -86,8 +102,12 @@ public partial class MainWindow : Window
                     if (Page("settings") is SettingsView sv)
                         sv.OpenLayer(App.ShotPage["settings-".Length..]);
                 }
+                // 安装概念（D107）：包库选择器 / 预检两阶段在下方统一走离屏窗口渲染。
             }
-            if (App.ShotPath is not null) ScheduleShot(App.ShotPath);
+            if (App.ShotPath is not null && App.ShotPage is "pack-picker" or "pack-preflight" or "pack-preflight-report")
+                _ = ShotPackConceptWindowAsync(App.ShotPath);
+            else if (App.ShotPath is not null)
+                ScheduleShot(App.ShotPath);
             if (App.ShotPath is null) PrewarmPages();
         };
     }
@@ -362,11 +382,97 @@ public partial class MainWindow : Window
         ChromeBar.Background = Skin.Wash(chrome, ui.ChromeOpacity);
     }
 
+    /// <summary>
+    /// --shot-page pack-picker / pack-preflight / pack-preflight-report：离屏打开安装概念窗口，
+    /// 直接 RenderTo(App.ShotPath)。picker 用真实包库 + 逐行预检；预检两阶段用真实 PreflightPack
+    /// （报告阶段用固定 fixture，保证可复现）。这些页不跑主窗口 ScheduleShot（否则会覆盖截图）。
+    /// </summary>
+    async Task ShotPackConceptWindowAsync(string path)
+    {
+        try
+        {
+            var state = AppState.Current;
+            var inst = state.SelectedInstance;
+            var profile = ProfileForShot(inst);
+            if (App.ShotPage == "pack-picker")
+            {
+                var picker = new PackPickerWindow(inst?.Name ?? "sisyphus", profile)
+                {
+                    Owner = this,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -20000,
+                    Top = -20000,
+                };
+                picker.Show();
+                if (inst is not null)
+                    await picker.LoadAsync(new Packs(state.Launcher), inst, profile, state.Launcher.Root);
+                else
+                    picker.ShowDemo();
+                // 让 ItemsControl 把最终行容器生成完再截图（预检回填走 Dispatcher）。
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                picker.UpdateLayout();
+                picker.RenderTo(path);
+                picker.Close();
+            }
+            else
+            {
+                var win = new PackPreflightWindow
+                {
+                    Owner = this,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = -20000,
+                    Top = -20000,
+                };
+                win.Show();
+                if (App.ShotPage == "pack-preflight-report")
+                {
+                    win.ShowReport(PackPreflightWindow.DemoReport("Test", inst?.Name ?? "sisyphus"));
+                }
+                else
+                {
+                    PackPreflight? preflight = null;
+                    if (inst is not null)
+                    {
+                        var packs = new Packs(state.Launcher);
+                        var cards = await packs.Catalog(AppContext.BaseDirectory, null, null, CancellationToken.None);
+                        var card = cards.FirstOrDefault(c =>
+                                       string.Equals(c.Id, "Test-0.1.0", StringComparison.OrdinalIgnoreCase))
+                                   ?? cards.FirstOrDefault(c => c.Title.Contains("Test", StringComparison.OrdinalIgnoreCase))
+                                   ?? cards.FirstOrDefault();
+                        if (card is not null)
+                            preflight = await packs.PreflightPack(inst, profile, card, null, CancellationToken.None);
+                    }
+                    win.ShowPreflight(preflight is not null
+                        ? PackPreflightWindow.ToView(preflight, inst!.Name, profile)
+                        : PackPreflightWindow.DemoPreflight("Test 0.1.0", inst?.Name ?? "sisyphus"));
+                }
+                win.UpdateLayout();
+                win.RenderTo(path);
+                win.Close();
+            }
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(path + ".txt", ex.ToString()); } catch { /* 截图失败不炸 */ }
+        }
+        finally
+        {
+            if (App.ShotExit) Close();
+        }
+    }
+
+    static string ProfileForShot(Core.Instance? inst)
+    {
+        if (inst is null) return "web";
+        return inst.LastProfile ?? AppState.Current.Launcher.Profiles(inst).FirstOrDefault()?.Name ?? "web";
+    }
     /// <summary>Render the live visual tree to a PNG, at the real device DPI.</summary>
     void ScheduleShot(string path)
     {
         var other = AppState.Current.Settings.Other;
-        var ms = App.ShotPage is "market" or "relations" || App.ShotPage.StartsWith("relations-sessions")
+        var ms = App.ShotPage is "market" or "relations" or "plugin-detail" || App.ShotPage.StartsWith("relations-sessions")
                 ? Math.Max(other.ShotMarketDelayMs, 8000)
                 : other.ShotDelayMs;
         var timer = new System.Windows.Threading.DispatcherTimer
@@ -407,7 +513,8 @@ public partial class MainWindow : Window
         : _pages[name] = name switch
         {
             "launch" => new LaunchView(this),
-            "manage" => new WorkbenchView(this),
+            // 项目轴先隐藏（不做项目了）：管理页回到启动器本体「实例与插件」。
+            "manage" => new ManageView(this),
             "bundles" => new ManageView(this),
             "relations" => new RelationsWebView(),
             "tasks" => new TaskView(this),
@@ -611,10 +718,7 @@ public partial class MainWindow : Window
     {
         switch (page)
         {
-            case WorkbenchView wb:
-                wb.AttachRail(StageRailList);
-                ShowRail(animate);
-                break;
+            // 项目侧栏随项目轴一起隐藏；管理页现在是启动器本体，不再挂项目栏。
             case RelationsWebView rw:
                 rw.AttachRail(StageRailList);
                 rw.GoBack = () => Show("manage");
@@ -780,6 +884,31 @@ public partial class MainWindow : Window
     /// that opened somewhere else, or a subprocess that failed. Never for a change the
     /// user can already see.
     /// </summary>
+    /// <summary>
+    /// PCL 式更新检查：启动后后台查 latest.json，有新版就提示，用户自己决定下载；
+    /// 设置里勾了「自动下载」才会直接下载（仍然重启才替换）。
+    /// </summary>
+    public async void ProbePadUpdate()
+    {
+        var launcher = Core.AppState.Current.Launcher;
+        if (!Core.PadUpdate.Enabled(launcher)) return;
+        Core.PadUpdateInfo? info = null;
+        try { info = await Task.Run(() => Core.PadUpdate.Check(launcher, CancellationToken.None)); }
+        catch { return; }
+        if (info is null || !Core.PadUpdate.IsNewer(info.Version, Core.PadUpdate.CurrentVersion())) return;
+        if (Core.AppState.Current.Settings.Other.UpdateAutoDownload)
+        {
+            try
+            {
+                await Core.PadUpdate.Download(launcher, info, null, CancellationToken.None);
+                Toast($"PAD {info.Version} 已下载，重启后自动替换");
+                return;
+            }
+            catch { /* 落回手动提示 */ }
+        }
+        Toast($"PAD 有新版 {info.Version}：设置 → 升级 里可以下载");
+    }
+
     public void Toast(string text, bool bad = false)
     {
         if (bad)
@@ -1185,14 +1314,37 @@ public partial class MainWindow : Window
     }
 
     /// <summary>PCL MyMsgText: in-window card. Warn puts focus on 取消 so Enter does not confirm delete.</summary>
-    public bool Ask(string title, string body, bool warn = false, string? previewPath = null) =>
-        ShowMsg(title, body, input: false, seed: "", warn, previewPath) is not null;
+    public bool Ask(string title, string body, bool warn = false, string? previewPath = null,
+        string? okText = null, string? cancelText = null) =>
+        ShowMsg(title, body, input: false, seed: "", warn, previewPath, okText, cancelText) is not null;
+
+    public enum HintChoice { Ok, Cancel, Settings }
+
+    /// <summary>托盘提示卡：好的 / 手滑了 / 点我跳转（设置）三态，带「不再提醒」复选框。</summary>
+    public HintChoice AskTrayHint(string title, string body, string linkText, string checkText,
+        out bool checkedDismiss)
+    {
+        _msgChoice = 0;
+        ShowMsg(title, body, input: false, seed: "", warn: false, previewPath: null,
+            okText: "好的", cancelText: "我只是手滑了.....", checkText: checkText,
+            linkText: linkText,
+            linkHandler: () => { EndMsg(true); _msgChoice = 3; });
+        checkedDismiss = _msgCheckResult;
+        return _msgChoice switch
+        {
+            1 => HintChoice.Ok,
+            3 => HintChoice.Settings,
+            _ => HintChoice.Cancel,
+        };
+    }
 
     /// <summary>PCL MyMsgInput: in-window card with a text box.</summary>
     public string? AskInput(string title, string? body = null, string seed = "", bool warn = false) =>
         ShowMsg(title, body ?? "", input: true, seed, warn);
 
-    string? ShowMsg(string title, string body, bool input, string seed, bool warn, string? previewPath = null)
+    string? ShowMsg(string title, string body, bool input, string seed, bool warn, string? previewPath = null,
+        string? okText = null, string? cancelText = null, string? checkText = null, bool singleButton = false,
+        string? linkText = null, Action? linkHandler = null)
     {
         if (_msgFrame is not null) return null;
         MsgTitle.Text = title;
@@ -1208,10 +1360,21 @@ public partial class MainWindow : Window
         MsgDim.Background = warn
             ? new SolidColorBrush(Color.FromArgb(0x99, 0x5A, 0x18, 0x14))
             : new SolidColorBrush(Color.FromArgb(0x99, 0x00, 0x00, 0x00));
+        MsgOk.Content = string.IsNullOrWhiteSpace(okText) ? "确定" : okText;
+        MsgCancel.Content = string.IsNullOrWhiteSpace(cancelText) ? "取消" : cancelText;
+        MsgCheck.Content = string.IsNullOrWhiteSpace(checkText) ? "不再提醒" : checkText;
+        MsgCheck.IsChecked = false;
+        MsgCheck.Visibility = checkText is null ? Visibility.Collapsed : Visibility.Visible;
+        MsgCancel.Visibility = singleButton ? Visibility.Collapsed : Visibility.Visible;
+        _msgLinkHandler = linkHandler;
+        MsgLinkButton.Inlines.Clear();
+        if (!string.IsNullOrWhiteSpace(linkText)) MsgLinkButton.Inlines.Add(new Run(linkText));
+        MsgLink.Visibility = string.IsNullOrWhiteSpace(linkText) ? Visibility.Collapsed : Visibility.Visible;
         MsgOk.Style = (Style)FindResource(warn ? "BtnDanger" : "BtnPrimary");
         MsgOk.IsDefault = !warn;
         MsgCancel.IsDefault = warn;
         _msgAccepted = false;
+        _msgCheckResult = false;
         MsgLayer.Visibility = Visibility.Visible;
         MsgCard.Opacity = 1;
         Fx.PulseIn(MsgCard, true);
@@ -1236,6 +1399,14 @@ public partial class MainWindow : Window
         MsgPreviewBox.Visibility = Visibility.Collapsed;
         MsgOk.IsDefault = false;
         MsgCancel.IsDefault = false;
+        MsgOk.Content = "确定";
+        MsgCancel.Content = "取消";
+        MsgCancel.Visibility = Visibility.Visible;
+        MsgCheck.Visibility = Visibility.Collapsed;
+        MsgCheck.IsChecked = false;
+        MsgLink.Visibility = Visibility.Collapsed;
+        MsgLinkButton.Inlines.Clear();
+        _msgLinkHandler = null;
         MsgCard.Opacity = 1;
         MsgCard.RenderTransform = null;
         if (!_msgAccepted) return null;
@@ -1250,8 +1421,23 @@ public partial class MainWindow : Window
     {
         if (_msgFrame is null) return;
         _msgAccepted = accepted;
+        _msgChoice = accepted ? 1 : 2;
+        _msgCheckResult = MsgCheck.IsChecked == true;
         _msgFrame.Continue = false;
     }
+
+    void MsgLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (_msgFrame is null) return;
+        var handler = _msgLinkHandler;
+        EndMsg(true);
+        _msgChoice = 3;
+        handler?.Invoke();
+    }
+
+    bool _msgCheckResult;
+    int _msgChoice;
+    Action? _msgLinkHandler;
 
     /// <summary>readme.md overlay on the main window. Headings render; no second HWND.</summary>
     public void ShowMd(string title, string markdown)
@@ -1371,6 +1557,13 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        // PackForge 包走 compat 引擎，和原生 .pack.zip 的投影路径分开。
+        if (LaunchPolicy.DspackPaths(e.Data).Count > 0)
+        {
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+            return;
+        }
         var images = LaunchPolicy.ImagePaths(e.Data);
         if (images.Count > 0 && _page == "instance"
             && _pages.TryGetValue("instance", out var page) && page is InstanceView iv && iv.CanTakeLogoDrop)
@@ -1386,6 +1579,12 @@ public partial class MainWindow : Window
     void Window_Drop(object sender, DragEventArgs e)
     {
         e.Handled = true;
+        var dspacks = LaunchPolicy.DspackPaths(e.Data);
+        if (dspacks.Count > 0)
+        {
+            _ = TakeDspacks(dspacks);
+            return;
+        }
         var packs = LaunchPolicy.PackPaths(e.Data);
         if (packs.Count > 0)
         {
@@ -1396,6 +1595,48 @@ public partial class MainWindow : Window
         if (images.Count > 0 && _page == "instance"
             && _pages.TryGetValue("instance", out var page) && page is InstanceView iv)
             iv.OfferDroppedLogo(images[0]);
+    }
+
+    bool _dspackImporting;
+
+    /// <summary>
+    /// Drag-dropped PackForge <c>.dspack</c>: fresh isolated instance first, then the
+    /// pack-runtime compat engine lands overrides/home/bundles (and pinned deps).
+    /// </summary>
+    public async Task TakeDspacks(IReadOnlyList<string> paths)
+    {
+        if (_dspackImporting)
+        {
+            Toast("上一个整合包还在装，等它装完再拖", bad: true);
+            return;
+        }
+        _dspackImporting = true;
+        try
+        {
+            var state = AppState.Current;
+            var packs = new Packs(state.Launcher);
+            foreach (var path in paths)
+            {
+                try
+                {
+                    Toast("正在装 " + System.IO.Path.GetFileName(path));
+                    var result = await PacksForge.ImportAuto(state.Launcher, packs, path,
+                        deps: true, log: null, CancellationToken.None);
+                    state.Reload();
+                    _ = state.ReloadPackCatalog();
+                    ShowInner("instance", "版本设置");
+                    Toast($"装好了：{result.Name}（DSH {result.Release}）");
+                }
+                catch (Exception ex)
+                {
+                    Toast(PadError.Describe(ex), bad: true);
+                }
+            }
+        }
+        finally
+        {
+            _dspackImporting = false;
+        }
     }
 
     public async Task TakePacks(IReadOnlyList<string> paths)
@@ -1470,6 +1711,44 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 启动对账（D56）：本机在用的 home 变了，就把「本机 DSH」跟着改指过去——不弹窗、不让用户点。
+    /// 只有确实能确定时才动（<see cref="Launcher.ReconcileMachineHome"/> 的判据）；
+    /// 事后仍然没有可用 home 才落回手动收编提示（那是兜底，不是常态）。
+    /// </summary>
+    void AutoReconcileHome()
+    {
+        var state = AppState.Current;
+        Task.Run(() =>
+        {
+            string? movedTo = null;
+            try
+            {
+                // 扫一遍机器（进程现场 + 壳的 asar），对账时顺手把钉的内核也对齐到在跑的那个壳。
+                Inventory? inventory = null;
+                try { inventory = Discover.Run(state.Launcher, [], CancellationToken.None); }
+                catch { /* 扫不出来就只按 pad.json + 进程 DSH_HOME 改指 */ }
+                if (state.Launcher.ReconcileMachineHome(out _, out var hit, inventory) is not null)
+                    movedTo = hit;
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.BeginInvoke(new Action(() => App.ReportPage(ex)));
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (movedTo is not null)
+                {
+                    state.Reload();
+                    Toast($"本机 DSH 已跟随到 {movedTo}");
+                }
+                OfferAdoptIfNeeded();
+            }));
+        });
+    }
+
     public void OfferAdoptIfNeeded()
     {
         var state = AppState.Current;
@@ -1533,11 +1812,113 @@ public partial class MainWindow : Window
 
     void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
-    void Close_Click(object sender, RoutedEventArgs e)
+    void Close_Click(object sender, RoutedEventArgs e) => RequestClose();
+
+    /// <summary>点关闭/Alt+F4：可缩托盘；真正退出走托盘菜单或 App.Quit。</summary>
+    public void RequestClose()
     {
+        if (App.ShotPath is null && !App.Exiting && App.CloseToTray)
+        {
+            HideToTray();
+            return;
+        }
         AppState.Current.SaveSelection();
+        if (!App.Exiting && AppState.Current.Settings.Other.StopInstancesOnExit)
+        {
+            App.ExitGracefully(this);
+            return;
+        }
         Close();
     }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (App.ShotPath is null && !App.Exiting && App.CloseToTray && IsVisible)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+        // 关闭即退出（包括 Alt+F4 / 系统关闭）时，按设置先把实例停掉再真正退出。
+        if (App.ShotPath is null && !App.Exiting && !App.CloseToTray
+            && AppState.Current.Settings.Other.StopInstancesOnExit)
+        {
+            e.Cancel = true;
+            App.ExitGracefully(this);
+            return;
+        }
+        base.OnClosing(e);
+    }
+
+    public void HideToTray()
+    {
+        try { AppState.Current.SaveSelection(); } catch { /* ignore */ }
+        var ui = AppState.Current.Settings.Ui;
+        if (!ui.TrayHintDismissed && App.ShotPath is null && IsVisible)
+        {
+            // 第一次点 X：说明只是收进托盘，并给「跳设置 / 手滑了 / 好的 + 不再提醒」。
+            var choice = AskTrayHint("⚠ 注意喵：",
+                "退出仅会把窗口收进托盘，PAD 最小化进托盘！\n\n" +
+                "想改成「关闭即退出 PAD」或者「退出时停掉所有实例」，去设置里改：",
+                "点我跳转 → 设置 · 其他 · 关闭行为",
+                "不再提醒", out var dismissed);
+            if (dismissed)
+            {
+                ui.TrayHintDismissed = true;
+                try { AppState.Current.SaveSettings(); } catch { /* ignore */ }
+            }
+            if (choice == HintChoice.Settings) { OpenSettingsCloseBehavior(); return; }
+            if (choice == HintChoice.Cancel) return; // 手滑了：窗口留着
+        }
+        Hide();
+    }
+
+    /// <summary>只把托盘提示卡摆出来（不进入 DispatcherFrame），给 --shot 截图用。</summary>
+    public void ShowTrayHintPreview()
+    {
+        MsgTitle.Text = "⚠ 注意喵：";
+        MsgTitle.Foreground = (Brush)FindResource("AccentText");
+        MsgLine.Fill = (Brush)FindResource("Accent");
+        MsgDim.Background = new SolidColorBrush(Color.FromArgb(0x99, 0x00, 0x00, 0x00));
+        MsgBody.Text = "退出仅会把窗口收进托盘，PAD 最小化进托盘！\n\n" +
+                       "想改成「关闭即退出 PAD」或者「退出时停掉所有实例」，去设置里改：";
+        MsgBody.Visibility = Visibility.Visible;
+        MsgPreviewBox.Visibility = Visibility.Collapsed;
+        MsgInput.Visibility = Visibility.Collapsed;
+        MsgOk.Content = "好的";
+        MsgOk.Style = (Style)FindResource("BtnPrimary");
+        MsgOk.Visibility = Visibility.Visible;
+        MsgCancel.Content = "我只是手滑了.....";
+        MsgCancel.Visibility = Visibility.Visible;
+        MsgCheck.Content = "不再提醒";
+        MsgCheck.IsChecked = false;
+        MsgCheck.Visibility = Visibility.Visible;
+        MsgLinkButton.Inlines.Clear();
+        MsgLinkButton.Inlines.Add(new Run("点我跳转 → 设置 · 其他 · 关闭行为"));
+        MsgLink.Visibility = Visibility.Visible;
+        MsgLayer.Visibility = Visibility.Visible;
+        MsgCard.Opacity = 1;
+    }
+
+    /// <summary>托盘提示里「点我跳转」：打开 设置 · 其他 · 关闭行为。</summary>
+    public void OpenSettingsCloseBehavior()
+    {
+        TabSettings.IsChecked = true;
+        if (Page("settings") is SettingsView sv) sv.OpenCloseBehavior();
+    }
+
+    /// <summary>从托盘/第二个实例恢复窗口。</summary>
+    public void RestoreFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        // 托盘点击/二次启动属于用户主动要求置前，短暂 Topmost 稳妥地把它带到前面。
+        Topmost = true;
+        Topmost = false;
+    }
+
+    public void SyncTrayState() => App.TrayIcon?.SyncCloseToTray(App.CloseToTray);
 }
 
 /// <summary>A page that wants a chance to reload when it becomes visible.</summary>

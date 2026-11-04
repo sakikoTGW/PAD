@@ -252,7 +252,7 @@
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="profile" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="这个 --profile 决定叠哪些组合包；形态由它体现（web → 网页端）" />
+                <TextBlock Text="profile" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="这个 --profile 决定叠哪些插件；形态由它体现（web → 网页端）" />
                 <TextBlock Grid.Column="1" x:Name="DshTuiLine" Style="{StaticResource Mono}"
                            TextWrapping="Wrap" />
               </Grid>
@@ -268,19 +268,26 @@
                 <Button Grid.Column="2" Style="{StaticResource Btn}" Content="浏览" Margin="8,0,0,0"
                         Click="BrowseDshHome_Click" v:Ico.Of="{StaticResource I.Folder}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,10">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="120" />
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="命令覆盖" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="留空 = 用发行号里的 lib/bin.js；要指到桌面端/npx 那份时才填" />
-                <TextBox Grid.Column="1" x:Name="DshCliBox" Height="28" LostFocus="Launch_Save"
-                         FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
-                         ToolTip="指向 dsh 的 lib/bin.js。留空则用发行号里的那份。app.asar 内的路径也可以。" />
-                <Button Grid.Column="2" Style="{StaticResource Btn}" Content="浏览" Margin="8,0,0,0"
-                        Click="BrowseDshCli_Click" v:Ico.Of="{StaticResource I.Folder}" />
-              </Grid>
+              <StackPanel Margin="0,0,0,10">
+                <Grid Height="28">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="命令覆盖" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="留空 = 用发行号里的 lib/bin.js；要指到桌面端/npx 那份时才填" />
+                  <TextBox Grid.Column="1" x:Name="DshCliBox" Height="28" LostFocus="Launch_Save"
+                           FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
+                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                  <Button Grid.Column="2" Style="{StaticResource Btn}" Content="浏览" Margin="8,0,0,0"
+                          Click="BrowseDshCli_Click" v:Ico.Of="{StaticResource I.Folder}" />
+                </Grid>
+                <!-- 长路径在 28px 的输入框里必然被切；在下面补一行完整的等宽只读行，避免“看起来坏了”。 -->
+                <TextBlock Style="{StaticResource Muted}" Margin="120,4,0,0"
+                           FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsMicro}"
+                           TextWrapping="Wrap" MaxHeight="34"
+                           Text="{Binding Text, ElementName=DshCliBox}" />
+              </StackPanel>
               <WrapPanel>
                 <Button x:Name="PinBinBtn" Style="{StaticResource Btn}" Content="使用本机 DSH"
                         Click="PinSniffed_Click" v:Ico.Of="{StaticResource I.Terminal}" />
@@ -532,6 +539,9 @@
               <CheckBox x:Name="BrandBox" Style="{StaticResource Switch}" Content="顶栏显示名称"
                         Click="Ui_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="LogoBox" Style="{StaticResource Switch}" Content="顶栏显示 logo"
+                        Click="Ui_Save" Margin="0,0,0,12" />
+              <CheckBox x:Name="TrayCloseBox" Style="{StaticResource Switch}"
+                        Content="关闭窗口时缩到托盘（后台继续跑，托盘菜单可退出）"
                         Click="Ui_Save" Margin="0,0,0,12" />
               <Grid Height="28" Margin="0,0,0,9">
                 <Grid.ColumnDefinitions>
@@ -971,6 +981,31 @@
             </StackPanel>
           </Border>
 
+          <Border x:Name="CloseBehaviorSlab" Style="{StaticResource Slab}">
+            <StackPanel>
+              <ContentControl Style="{StaticResource SlabHead}" Content="关闭行为"
+                              v:Ico.Of="{StaticResource I.Close}" />
+              <Grid Height="28" Margin="0,0,0,9">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="点关闭按钮时" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1" x:Name="CloseXBox" Width="170" Height="28"
+                          SelectionChanged="Other_Sel">
+                  <ComboBoxItem Tag="tray" Content="最小化到托盘" />
+                  <ComboBoxItem Tag="quit" Content="退出 PAD" />
+                </ComboBox>
+              </Grid>
+              <CheckBox x:Name="StopInstancesOnExit" Style="{StaticResource Switch}"
+                        Content="退出 PAD 时停止所有正在运行的实例"
+                        Click="Other_Save" Checked="Other_Save" Unchecked="Other_Save"
+                        Margin="0,0,0,10" />
+              <TextBlock Style="{StaticResource Muted}"
+                         Text="默认：关闭窗口只收托盘，实例继续跑。勾上后退出 PAD 会把运行时账本里的实例一起停掉。" />
+            </StackPanel>
+          </Border>
+
           <Border Style="{StaticResource Slab}">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="习惯"
@@ -1062,11 +1097,34 @@
                 <TextBlock Text="DSH 发行号" Style="{StaticResource Label}" />
                 <TextBlock Grid.Column="1" x:Name="DshUpdateLine" Style="{StaticResource Mono}" />
               </Grid>
+              <Grid Margin="0,0,0,9">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="更新源" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" x:Name="UpdateFeedBox" Height="28"
+                         LostFocus="Other_Save"
+                         ToolTip="latest.json 的 http(s) 地址或本地路径；留空 = 不检查 PAD 自身更新" />
+              </Grid>
+              <Grid Height="28" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="PAD 更新" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <CheckBox Grid.Column="1" x:Name="UpdateAutoBox" Style="{StaticResource Switch}"
+                          Content="发现新版时自动下载（仍然重启才替换）" Click="Other_Save" />
+              </Grid>
               <StackPanel Orientation="Horizontal">
                 <Button Style="{StaticResource Btn}" Content="检查升级" Click="CheckUpdate_Click"
                         v:Ico.Of="{StaticResource I.Refresh}" />
                 <Button Style="{StaticResource Btn}" Content="去下载页" Margin="8,0,0,0"
                         Click="GotoDownload_Click" v:Ico.Of="{StaticResource I.Download}" />
+                <Button Style="{StaticResource Btn}" Content="下载 PAD 更新" Margin="8,0,0,0"
+                        x:Name="PadDownloadBtn" IsEnabled="False" Click="DownloadPadUpdate_Click"
+                        ToolTip="下载并校验，重启 PAD 后自动替换；不想要就关掉更新通道"
+                        v:Ico.Of="{StaticResource I.Upload}" />
                 <Button Style="{StaticResource Btn}" Content="诊断" Margin="8,0,0,0"
                         Click="Doctor_Click" ToolTip="跑 launcher doctor"
                         v:Ico.Of="{StaticResource I.Search}" />

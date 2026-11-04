@@ -1,11 +1,17 @@
+using System.Collections.Concurrent;
+using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Pad.Core;
 
 /// <summary>One package as the npm registry reports it.</summary>
-public sealed class MarketRow
+public sealed class MarketRow : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
     public string Name { get; set; } = "";
     public string Version { get; set; } = "";
     public string Description { get; set; } = "";
@@ -17,8 +23,51 @@ public sealed class MarketRow
     /// <summary>npm's own popularity score, 0..1. Shown as-is; PAD does not re-rank.</summary>
     public double Popularity { get; set; }
 
+    /// <summary>npm 元数据里的仓库地址（插件图标的来源）。</summary>
+    public string Repository { get; set; } = "";
+
+    bool _favorite;
+    /// <summary>本地收藏（与插件页共用 Favorites 存储）。</summary>
+    public bool Favorite
+    {
+        get => _favorite;
+        set
+        {
+            if (_favorite == value) return;
+            _favorite = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Favorite)));
+        }
+    }
+
+    string _iconPath = "";
+    /// <summary>插件自己的图标：从仓库 logo / 作者头像取到后异步填入。</summary>
+    public string IconPath
+    {
+        get => _iconPath;
+        set
+        {
+            if (_iconPath == value) return;
+            _iconPath = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconPath)));
+        }
+    }
+
     /// <summary>True when the package declares itself a DSH profile layer.</summary>
     public bool IsBundle { get; set; }
+
+    /// <summary>增长榜名次（1 起）。普通搜索结果 / 0 表示不显示。</summary>
+    public int Rank { get; set; }
+
+    /// <summary>增长榜的本期增长，如 +186,498；空串表示不显示。</summary>
+    public string GrowthBadge { get; set; } = "";
+    public string GrowthTotal { get; set; } = "";
+    public string GrowthTotalLine => GrowthTotal.Length > 0 ? "本期 " + GrowthTotal : "";
+
+    /// <summary>pos / neg / zero，供模板上色。</summary>
+    public string GrowthSign { get; set; } = "zero";
+
+    public bool HasRank => Rank > 0;
+    public bool HasGrowth => GrowthBadge.Length > 0;
 
     public string Title => Name;
 
@@ -29,7 +78,7 @@ public sealed class MarketRow
 
     public string DateText => Market.RelTime(Date);
 
-    public string TagText => Keywords.Count > 0 ? Keywords[0] : "";
+    public string TagText => Keywords.FirstOrDefault(k => !PluginRow.IsNoiseTag(k)) ?? "";
 
     public bool HasTag => TagText.Length > 0;
 
@@ -65,6 +114,56 @@ public sealed record MarketPage(List<MarketRow> Rows, int Total, int From, int S
 public sealed class Market
 {
     static readonly HttpClient Http = new();
+
+    const int SearchCacheTtlSec = 300;
+    static readonly ConcurrentDictionary<string, (MarketPage Page, DateTimeOffset At)> SearchCache = new();
+    static readonly ConcurrentDictionary<string, Task<MarketPage>> InFlight = new();
+
+    /// <summary>Wall time of the last page load; 0 when the page came from cache.</summary>
+    public static long LastSearchMs { get; private set; }
+
+    public static void ClearSearchCache() => SearchCache.Clear();
+
+    // Search pages also survive process restarts: opening the store again, or coming
+    // back after a while, should not wait on npm again for an unchanged query.
+    static string DiskCacheDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "pack-agent-dsh", "market-cache");
+
+    static string DiskCacheFile(string key)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
+        return Path.Combine(DiskCacheDir, hash + ".json");
+    }
+
+    static bool TryReadDiskCache(string key, out MarketPage page)
+    {
+        page = null!;
+        try
+        {
+            var file = DiskCacheFile(key);
+            if (!File.Exists(file)) return false;
+            if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalSeconds >= SearchCacheTtlSec) return false;
+            var parsed = JsonSerializer.Deserialize<MarketPage>(File.ReadAllText(file));
+            if (parsed is null) return false;
+            page = parsed;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    static void WriteDiskCache(string key, MarketPage page)
+    {
+        try
+        {
+            Directory.CreateDirectory(DiskCacheDir);
+            var file = DiskCacheFile(key);
+            var tmp = file + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(page));
+            File.Move(tmp, file, overwrite: true);
+        }
+        catch { /* disk cache is best-effort */ }
+    }
 
     public const int DefaultPageSize = 20;
 
@@ -116,18 +215,101 @@ public sealed class Market
     }
 
     /// <summary>
+    /// <summary>Local relevance for a user's words: exact name hit &gt; all tokens in name
+    /// &gt; any token in name/description/keywords. Used before falling back to npm order.</summary>
+    public static int QueryScore(MarketRow row, string text)
+    {
+        var q = NormalizeQuery(text);
+        if (q.Length == 0) return 0;
+        var tokens = text.Split([' ', '\t', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeQuery)
+            .Where(t => t.Length > 0)
+            .ToList();
+        var name = NormalizeQuery(row.Name);
+        var hay = NormalizeQuery(row.Name + " " + row.Description + " " +
+                                 string.Join(" ", row.Keywords) + " " + row.Publisher);
+
+        var score = 0;
+        if (q.Length >= 3 && name.Contains(q, StringComparison.Ordinal)) score += 4;
+        else if (q.Length >= 3 && hay.Contains(q, StringComparison.Ordinal)) score += 2;
+        if (tokens.Count > 1 && tokens.All(t => name.Contains(t, StringComparison.Ordinal))) score += 2;
+        if (tokens.Any(t => name.Contains(t, StringComparison.Ordinal))) score += 1;
+        if (tokens.Any(t => hay.Contains(t, StringComparison.Ordinal))) score += 1;
+        return score;
+    }
+
+    /// <summary>包名本身是否包含查询词（忽略 - _ . @ / 大小写）。</summary>
+    public static bool NameMatches(MarketRow row, string text)
+    {
+        var q = NormalizeQuery(text);
+        return q.Length > 0 && NormalizeQuery(row.Name).Contains(q, StringComparison.Ordinal);
+    }
+
+    /// <summary>Stable relevance sort; rows that actually contain the words come first.</summary>
+    public static List<MarketRow> RankForQuery(IEnumerable<MarketRow> rows, string text)
+    {
+        var list = rows as List<MarketRow> ?? rows.ToList();
+        if (string.IsNullOrWhiteSpace(text)) return list;
+        return list.OrderByDescending(r => QueryScore(r, text)).ToList();
+    }
+
+    static string NormalizeQuery(string text) =>
+        new string(text.ToLowerInvariant()
+            .Where(ch => ch is not ('-' or '_' or '.' or '/' or '@' or ' ' or '\t'))
+            .ToArray());
+
     /// One page of a shelf. <paramref name="text"/> is the user's words, appended to the
     /// shelf qualifier rather than replacing it.
+    ///
+    /// Paged npm search is the slowest thing in the store, so results are kept for a few
+    /// minutes and identical in-flight requests are shared. Switching back to a page,
+    /// opening the tab again, or prefetching the next page then costs no network.
     /// </summary>
     public static async Task<MarketPage> Search(string shelfQuery, string text, int from,
-        CancellationToken ct)
+        CancellationToken ct, int pageSize = 0)
     {
-        var size = PageSize;
+        var size = pageSize > 0 ? Math.Clamp(pageSize, 5, 250) : PageSize;
         var q = string.IsNullOrWhiteSpace(text) ? shelfQuery : $"{shelfQuery} {text.Trim()}";
         var host = RegistryBase;
         var url = $"{host}/-/v1/search"
                   + $"?text={Uri.EscapeDataString(q)}&size={size}&from={Math.Max(0, from)}";
+        var key = $"{host}|{q}|{from}|{size}";
 
+        if (SearchCache.TryGetValue(key, out var hit)
+            && (DateTimeOffset.UtcNow - hit.At).TotalSeconds < SearchCacheTtlSec)
+        {
+            LastSearchMs = 0;
+            return hit.Page;
+        }
+        if (TryReadDiskCache(key, out var diskPage))
+        {
+            SearchCache[key] = (diskPage, DateTimeOffset.UtcNow);
+            LastSearchMs = 0;
+            return diskPage;
+        }
+        if (InFlight.TryGetValue(key, out var running))
+            return await running;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var task = SearchCore(host, url, from, size, ct);
+        InFlight[key] = task;
+        try
+        {
+            var page = await task;
+            SearchCache[key] = (page, DateTimeOffset.UtcNow);
+            WriteDiskCache(key, page);
+            return page;
+        }
+        finally
+        {
+            InFlight.TryRemove(key, out _);
+            sw.Stop();
+            LastSearchMs = sw.ElapsedMilliseconds;
+        }
+    }
+
+    static async Task<MarketPage> SearchCore(string host, string url, int from, int size, CancellationToken ct)
+    {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linked.CancelAfter(TimeSpan.FromSeconds(TimeoutSec));
 
@@ -135,6 +317,17 @@ public sealed class Market
         try
         {
             body = await Http.GetStringAsync(url, linked.Token);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // 调用方自己取消（换页 / 重新搜索 / 离开页面）：这不是网络错误，原样抛给上层忽略。
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new PadError("PA033", "npm 搜索超时", host,
+                $"等了 {TimeoutSec} 秒还没响应。",
+                ["网络慢或代理不通", "到设置 → 下载调大超时 / 换 registry", "点重试再试一次"]);
         }
         catch (Exception ex)
         {
@@ -162,6 +355,7 @@ public sealed class Market
                 if (pkg.TryGetProperty("publisher", out var pub)) row.Publisher = Str(pub, "username");
                 if (pkg.TryGetProperty("links", out var links))
                 {
+                    row.Repository = Str(links, "repository");
                     row.Homepage = Str(links, "homepage");
                     if (row.Homepage.Length == 0) row.Homepage = Str(links, "repository");
                     if (row.Homepage.Length == 0) row.Homepage = Str(links, "npm");
@@ -242,6 +436,16 @@ public sealed class Market
         try
         {
             body = await Http.GetStringAsync(url, cts.Token);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new PadError("PA033", "npm packument 超时", url,
+                $"等了 {TimeoutSec} 秒还没响应。",
+                ["网络慢或代理不通", "到设置 → 下载调大超时 / 换 registry"]);
         }
         catch (Exception ex)
         {

@@ -6,3 +6,7 @@ obj/
 **/obj/
 node_modules/
 *.user
+
+# PAD 本地构建产物（不要把 pad-dist 拷进仓库）
+portable/pad-dist/
+.pack-agent-repo

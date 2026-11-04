@@ -65,9 +65,9 @@ public sealed class JobRecord
         "clone" => "克隆实例",
         "import" => "装整合包",
         "project" => "投影整合包",
-        "plugin-add" => "装组合包",
-        "plugin-remove" => "移除组合包",
-        "plugin-update" => "更新组合包",
+        "plugin-add" => "装插件",
+        "plugin-remove" => "移除插件",
+        "plugin-update" => "更新插件",
         "portable-export" => "打整合包",
         _ => Kind,
     };
@@ -273,11 +273,16 @@ public sealed class BundleRow
     public string Version { get; init; } = "";
     public string Description { get; init; } = "";
     public List<string> Keywords { get; init; } = [];
+    public string Repository { get; init; } = "";
     public string PackageDir { get; init; } = "";
     public string Latest { get; set; } = "";
     public string IconPath { get; set; } = "";
+    /// <summary>true = 由 DSH 发行号自带（解析到 versions/&lt;ver&gt;/.pnpm），不是装在 profile 里的第三方插件。</summary>
+    public bool Provided { get; init; }
 
-    public string VersionText => string.IsNullOrEmpty(Version) ? "未装到磁盘" : Version;
+    public string VersionText => !string.IsNullOrEmpty(Version)
+        ? Version
+        : Provided ? "由 DSH 提供" : "未装到磁盘";
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
 }
 
@@ -509,6 +514,10 @@ public sealed class UiPrefs
     [JsonPropertyName("wallpaperBlur")] public int WallpaperBlur { get; set; }
     /// <summary>壁纸目录；非空则每次启动随机抽一张。</summary>
     [JsonPropertyName("wallpaperDir")] public string WallpaperDir { get; set; } = "";
+    /// <summary>关窗时缩到托盘而不是退出（托盘菜单可改）。</summary>
+    [JsonPropertyName("closeToTray")] public bool CloseToTray { get; set; } = true;
+    /// <summary>第一次点 X 时解释「收进托盘」的提示，用户选了不再提醒就不再弹。</summary>
+    [JsonPropertyName("trayHintDismissed")] public bool TrayHintDismissed { get; set; }
     /// <summary>可藏的页：manage / download。启动和设置禁止全藏。</summary>
     [JsonPropertyName("hiddenTabs")] public List<string> HiddenTabs { get; set; } = [];
     /// <summary>藏启动页「版本选择 / 版本设置」入口。F12 临时解除到本次进程。</summary>
@@ -669,6 +678,8 @@ public sealed class OtherPrefs
 {
     [JsonPropertyName("openLogOnError")] public bool OpenLogOnError { get; set; }
     [JsonPropertyName("confirmStop")] public bool ConfirmStop { get; set; } = true;
+    /// <summary>退出 PAD 进程时把所有正在运行的实例一起停掉（默认保留实例继续跑）。</summary>
+    [JsonPropertyName("stopInstancesOnExit")] public bool StopInstancesOnExit { get; set; }
     [JsonPropertyName("refreshSec")] public int RefreshSec { get; set; } = 2;
     [JsonPropertyName("registriesRel")] public string RegistriesRel { get; set; } = "library/registries";
     [JsonPropertyName("backupCorrupt")] public bool BackupCorrupt { get; set; } = true;
@@ -678,8 +689,13 @@ public sealed class OtherPrefs
     [JsonPropertyName("adoptDismissed")] public bool AdoptDismissed { get; set; }
     /// <summary>诊断多打一行 stderr；设置页显示 schema 与根路径。</summary>
     [JsonPropertyName("debug")] public bool Debug { get; set; }
-    /// <summary>PAD 自身更新：release | off。</summary>
+    /// <summary>PAD 自身更新：release | off（用户可以选择关掉检查）。</summary>
     [JsonPropertyName("updateChannel")] public string UpdateChannel { get; set; } = "release";
+    /// <summary>latest.json 的地址（http/https 或本地路径）；空 = 不检查。</summary>
+    [JsonPropertyName("updateFeed")] public string UpdateFeed { get; set; } =
+        "https://github.com/sakikoTGW/pack-agent/releases/latest/download/latest.json";
+    /// <summary>发现新版时自动下载到本地（默认关；仍然重启才替换，用户可选）。</summary>
+    [JsonPropertyName("updateAutoDownload")] public bool UpdateAutoDownload { get; set; }
     /// <summary>Local random id, generated once at first boot. Never uploaded.</summary>
     [JsonPropertyName("identify")] public string Identify { get; set; } = "";
 
@@ -703,6 +719,7 @@ public sealed class OtherPrefs
         ShotDelayMs = Math.Clamp(ShotDelayMs, 500, 30000);
         ShotMarketDelayMs = Math.Clamp(ShotMarketDelayMs, 500, 60000);
         if (UpdateChannel is not ("release" or "off")) UpdateChannel = "release";
+        UpdateFeed = (UpdateFeed ?? "").Trim();
         Experiments = (Experiments ?? [])
             .Where(e => !string.IsNullOrWhiteSpace(e))
             .Select(e => e.Trim().ToLowerInvariant())

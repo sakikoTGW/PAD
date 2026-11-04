@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Pad.Core;
@@ -244,6 +245,35 @@ public sealed class Launcher
         inst.Updated = NowIso();
         WriteAtomic(Path.Combine(InstanceDir(inst.Id), "instance.json"), JsonSerializer.Serialize(inst, Json));
         RewriteLaunchScripts(inst);
+    }
+
+    /// <summary>
+    /// 只改 <c>instance.json</c> 的 <c>status</c>（P3：续装成功后把 import-failed 恢复成 ready）。
+    /// 用 JSON 节点而不是 C# <see cref="Instance"/> 模型回写：模型不认识 TS 写的
+    /// packs / plugins / profile 等字段，序列化回来会把它们抹掉（设计稿 §2.3）。
+    /// </summary>
+    public void MarkInstanceStatus(string id, string status)
+    {
+        var file = Path.Combine(InstanceDir(id), "instance.json");
+        if (!File.Exists(file))
+            throw new PadError("PA026", "no such instance", $"instances/{id}", id, ["pad cli instance list"]);
+        JsonObject? node;
+        try
+        {
+            node = JsonNode.Parse(File.ReadAllText(file)) as JsonObject;
+        }
+        catch (JsonException ex)
+        {
+            throw new PadError("PA026", "instance.json is unreadable", $"instances/{id}", ex.Message,
+                ["pad cli instance list"]);
+        }
+        if (node is null)
+            throw new PadError("PA026", "instance.json is not an object", $"instances/{id}", id,
+                ["pad cli instance list"]);
+        node["status"] = status;
+        // 不调用 Instance/SaveInstance：状态不影响启动脚本，这里只做最小的 JSON 补丁，
+        // 避免任何 C# 模型回写把 TS 字段抹掉（§2.3）。
+        WriteAtomic(file, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     public static string Slug(string name)
@@ -988,7 +1018,23 @@ public sealed class Launcher
         var path = JobLogPath(jobId);
         var dir = Path.GetDirectoryName(path);
         if (dir is not null) Directory.CreateDirectory(dir);
-        File.AppendAllText(path, line.TrimEnd() + Environment.NewLine);
+        // 进度回调可能来自多个线程/子进程；同一 job 日志偶发文件占用，重试而不是崩。
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                File.AppendAllText(path, line.TrimEnd() + Environment.NewLine);
+                return;
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(15);
+            }
+            catch
+            {
+                return;
+            }
+        }
     }
 
     public string ReadJobLog(string jobId)
@@ -1294,6 +1340,8 @@ public sealed class Launcher
         Directory.CreateDirectory(destDir);
         CopyHostExe(destDir);
         Mark("host-exe");
+        TryStagePackRuntime(destDir);
+        Mark("pack-runtime");
         var repoMark = Path.Combine(destDir, ".pack-agent-repo");
         if (File.Exists(repoMark)) File.Delete(repoMark);
 
@@ -1314,6 +1362,7 @@ public sealed class Launcher
             Mark("version-copy");
             phase?.Invoke("复制实例…");
             CopyTreeLink(InstanceDir(inst.Id), destRoot.InstanceDir(inst.Id), ct);
+            ReindexPortableCatalog(destRoot.InstanceDir(inst.Id));
             Mark("instance-copy");
             var cred = Path.Combine(destRoot.InstanceDir(inst.Id), "home", ".credentials.yaml");
             if (File.Exists(cred)) File.Delete(cred);
@@ -1371,6 +1420,143 @@ public sealed class Launcher
     /// The play folder is the PAD exe plus <c>.pack-launcher</c>. Runtime
     /// dlls stay inside a single-file exe; they must not sit next to it.
     /// </summary>
+    /// <summary>
+    /// 便携包要"带得走"整合包体系：把 bun + 打包后的 packagent + 预编译 pack-index 放进
+    /// <c>&lt;dest&gt;/pack-runtime/</c>。目标机器不需要仓库、不需要 bun/cargo。
+    /// 导出机缺 bun/仓库/索引时静默跳过（便携包仍可原生看/启停已投影的包）。
+    /// </summary>
+    void TryStagePackRuntime(string destDir)
+    {
+        // 安装器/发布目录已经带 pack-runtime 时：直接复制，不再 bun build / 找索引。
+        var own = Path.Combine(HostDir(), "pack-runtime");
+        if (Directory.Exists(own))
+        {
+            try
+            {
+                var copy = Path.Combine(destDir, "pack-runtime");
+                if (Directory.Exists(copy)) Directory.Delete(copy, recursive: true);
+                CopyTreeLink(own, copy, CancellationToken.None);
+                return;
+            }
+            catch { /* 复制失败退回现场装配 */ }
+        }
+        StagePackRuntime(destDir);
+    }
+
+    static string HostDir()
+    {
+        var path = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir)) return dir;
+        }
+        return AppContext.BaseDirectory;
+    }
+
+    /// <summary>装配 pack-runtime（发布/安装器用；导出时优先复制现成的）。</summary>
+    public bool StagePackRuntime(string destDir)
+    {
+        var runtime = Path.Combine(destDir, "pack-runtime");
+        try
+        {
+            var repo = FindPackRepo();
+            var bun = FindBunExe();
+            var index = FindPackIndexExe();
+            if (repo is null || bun is null || index is null) return false;
+
+            Directory.CreateDirectory(runtime);
+            var bundle = Path.Combine(runtime, "packagent.bundle.js");
+            var res = Proc.Run(bun,
+                    $"build \"{Path.Combine(repo, "src", "cli.ts")}\" --target=bun --outfile \"{bundle}\"",
+                    repo, null, CancellationToken.None).GetAwaiter().GetResult();
+            if (res.ExitCode != 0 || !File.Exists(bundle))
+                throw new IOException("bun build failed: " + res.Tail);
+
+            File.Copy(bun, Path.Combine(runtime, "bun.exe"), overwrite: true);
+            File.Copy(index, Path.Combine(runtime, "pack-index.exe"), overwrite: true);
+
+            // pack-agent 的 package root：TS 会按 package.json 名字向上找；投影还要 registry.yaml 等资源。
+            File.WriteAllText(Path.Combine(runtime, "package.json"),
+                "{\n  \"name\": \"@sakikotgw/pack-agent-dsh\",\n  \"version\": \"0.0.0\",\n  \"private\": true\n}\n");
+            var registry = Path.Combine(repo, "agent-pack-dsh", "modpack", "registry.yaml");
+            if (File.Exists(registry))
+            {
+                Directory.CreateDirectory(Path.Combine(runtime, "agent-pack-dsh", "modpack"));
+                File.Copy(registry, Path.Combine(runtime, "agent-pack-dsh", "modpack", "registry.yaml"), overwrite: true);
+            }
+            var registries = Path.Combine(repo, "agent-pack-dsh", "modpack", "registries");
+            if (Directory.Exists(registries))
+            {
+                CopyTreeLink(registries, Path.Combine(runtime, "registries"), CancellationToken.None);
+                CopyTreeLink(registries, Path.Combine(runtime, "agent-pack-dsh", "modpack", "registries"),
+                    CancellationToken.None);
+            }
+            var skill = Path.Combine(repo, "skills", "agent-pack", "SKILL.md");
+            if (File.Exists(skill))
+            {
+                Directory.CreateDirectory(Path.Combine(runtime, "skills", "agent-pack"));
+                File.Copy(skill, Path.Combine(runtime, "skills", "agent-pack", "SKILL.md"), overwrite: true);
+            }
+            File.WriteAllText(Path.Combine(runtime, "runtime.json"),
+                "{\n  \"schema\": \"pack-agent.pack-runtime/v1\"\n}\n");
+            return true;
+        }
+        catch
+        {
+            try { if (Directory.Exists(runtime)) Directory.Delete(runtime, recursive: true); } catch { }
+            return false;
+        }
+    }
+
+    static string? FindPackRepo()
+    {
+        var env = Environment.GetEnvironmentVariable("PACK_AGENT_REPO");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(Path.Combine(env, "bin", "packagent.js")))
+            return Path.GetFullPath(env);
+        var walk = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 10 && walk is not null; i++, walk = walk.Parent)
+        {
+            var candidate = Path.Combine(walk.FullName, "bin", "packagent.js");
+            if (File.Exists(candidate)) return walk.FullName;
+        }
+        return null;
+    }
+
+    static string? FindBunExe()
+    {
+        var env = Environment.GetEnvironmentVariable("PAD_BUN");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
+        var roam = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        foreach (var c in new[]
+                 {
+                     Path.Combine(roam, "npm", "node_modules", "bun", "bin", "bun.exe"),
+                     Path.Combine(local, "npm", "node_modules", "bun", "bin", "bun.exe"),
+                     Path.Combine(local, "Microsoft", "WinGet", "Packages", "Oven-sh.Bun_Microsoft.Winget.Source_8wekyb3d8bbwe", "bun-windows-x64", "bun.exe"),
+                 })
+            if (File.Exists(c)) return c;
+        var which = Proc.Which("bun.exe");
+        if (which is not null && File.Exists(which) && which.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return which;
+        return null;
+    }
+
+    static string? FindPackIndexExe()
+    {
+        var env = Environment.GetEnvironmentVariable("PACK_INDEX_BIN");
+        if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
+        var tmp = Environment.GetEnvironmentVariable("AGENT_PACK_TMP") ?? @"E:\tmp\pack-agent";
+        foreach (var c in new[]
+                 {
+                     Path.Combine(tmp, "pack-index-target", "release", "pack-index.exe"),
+                     Path.Combine(Path.GetTempPath(), "pack-agent", "pack-index-target", "release", "pack-index.exe"),
+                     Path.Combine(AppContext.BaseDirectory, "pack-index.exe"),
+                 })
+            if (File.Exists(c)) return c;
+        return null;
+    }
+
     static void CopyHostExe(string destDir)
     {
         var name = HostExeName();
@@ -1386,6 +1572,27 @@ public sealed class Launcher
                 ["dotnet publish -p:PublishSingleFile=true", "set PACK_PAD_HOST_EXE to that exe"]);
         if (File.Exists(dest) && new FileInfo(dest).Length == new FileInfo(src).Length) return; // 续传跳过
         File.Copy(src, dest, overwrite: true);
+    }
+
+    /// <summary>
+    /// 便携导出换了根目录：catalog.sqlite 里记的是**源机绝对路径**，到别人电脑上就是坏路径。
+    /// 用 pack-index 对副本重新 index 一遍（保留 enabled allow 集）。
+    /// </summary>
+    void ReindexPortableCatalog(string destInstanceDir)
+    {
+        try
+        {
+            var ws = Path.Combine(destInstanceDir, "workspace", ".agent-pack");
+            var db = Path.Combine(ws, "catalog.sqlite");
+            var mods = Path.Combine(ws, "modpacks");
+            if (!File.Exists(db) || !Directory.Exists(mods)) return;
+            var bin = FindPackIndexExe();
+            if (bin is null) return;
+            Proc.Run(bin, $"index --root \"{mods}\" --db \"{db}\" --json",
+                    Path.GetDirectoryName(bin)!, null, CancellationToken.None)
+                .GetAwaiter().GetResult();
+        }
+        catch { /* 索引重写失败不阻断导出；运行时会按需重建 */ }
     }
 
     void StripPortableEphemeral(string? instanceId)
@@ -1438,8 +1645,11 @@ public sealed class Launcher
 
         var patchPath = Path.Combine(inst.Home, "launcher.patch.yml");
         var patchArg = File.Exists(patchPath) ? $" --patch \"{patchPath}\"" : "";
+        // DSH 0.2.1 起 --dump-config 也要求 --profile（没 profile 的老实例就不传）。
+        var prof = inst.LastProfile ?? Profiles(inst).FirstOrDefault()?.Name;
+        var profArg = string.IsNullOrWhiteSpace(prof) ? "" : $" --profile \"{prof}\"";
         log?.Report("node bin.js --dump-config");
-        var res = await Proc.Run("node", $"\"{bin}\" --dump-config{patchArg}",
+        var res = await Proc.Run("node", $"\"{bin}\" --dump-config{patchArg}{profArg}",
             inst.Workspace.Path, log, ct, new Dictionary<string, string> { ["DSH_HOME"] = inst.Home });
         if (res.ExitCode != 0)
             throw new PadError("PA030", "dsh --dump-config failed", $"instance `{id}`", res.Tail,
@@ -1450,9 +1660,12 @@ public sealed class Launcher
         return outPath;
     }
 
-    /// <summary>Run dsh plugin add/remove/update on an instance's profile.</summary>
+    /// <summary>Run dsh plugin add/remove/update on an instance's profile.
+    /// <paramref name="hot"/> leaves the instance status alone: the caller verifies the
+    /// live tree and clears the status itself. Cold (default) marks restart-required,
+    /// because a restart is the documented way the change lands.</summary>
     public async Task<List<string>> PluginOp(string id, string action, string spec,
-        IProgress<string>? log, CancellationToken ct, string? profile = null)
+        IProgress<string>? log, CancellationToken ct, string? profile = null, bool hot = false)
     {
         var inst = Instance(id) ?? throw new PadError("PA026", "no such instance", $"instances/{id}", id,
             ["pad cli instance list"]);
@@ -1497,8 +1710,8 @@ public sealed class Launcher
                 throw new PadError("PA014", $"plugin {action} failed: {spec}", $"instance `{id}`",
                     res.Tail, ["看上面的 pnpm 输出", "确认包名与网络"]);
 
-            // Mark restart required
-            if (inst.Status != "import-failed")
+            // Mark restart required (cold only: the hot path is verified and cleared by the caller).
+            if (!hot && inst.Status != "import-failed")
             {
                 inst.Status = "restart-required";
                 SaveInstance(inst);
@@ -1625,8 +1838,73 @@ public sealed class Launcher
         return path;
     }
 
+    /// <summary>
+    /// 这个 home 已经有实例了吗——只比 home 本身（D56）。
+    /// 旧写法是 `i.Adopted || SamePath(...)`：只要有**任意一份**收编实例就算"这个 home 已收编"，
+    /// 于是换 home 之后收编提示永远不弹，PAD 一直指着旧 home。
+    /// </summary>
     public bool HomeAlreadyAdopted(string home) =>
-        Instances().Any(i => i.Adopted || LaunchPolicy.SamePath(i.Home, home));
+        Instances().Any(i => LaunchPolicy.SamePath(i.Home, home));
+
+    /// <summary>
+    /// 本机在用的 DSH home 变了，就把唯一那份 adopted 实例**自动**改指过去（D56）。
+    ///
+    /// 判据只有两个来源：<c>pad.json#launch.dshHome</c>（用户配置）和进程现场的
+    /// <c>DSH_HOME</c>（真正在跑的那份）。不弹窗、不让用户点——启动器自己记住。
+    /// 只在"恰好一份 adopted 实例"时动；没有或多份都不猜（宁可不动，交给手动流程）。
+    /// </summary>
+    public Instance? ReconcileMachineHome(out string? from, out string? to, Inventory? inventory = null)
+    {
+        from = null;
+        to = null;
+
+        string configured;
+        try { configured = LaunchPolicy.DefaultDshHome(Settings().Launch.DshHome); }
+        catch { configured = ""; }
+
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(configured)) candidates.Add(configured);
+        try { candidates.AddRange(RunWatch.ProbeHomes()); } catch { /* 进程现场读不到就只看配置 */ }
+        if (!string.IsNullOrWhiteSpace(configured)) candidates.Add(configured);
+
+        var target = candidates.FirstOrDefault(DshSniff.LooksLikeHome);
+        if (target is null) return null;
+
+        List<Instance> insts;
+        try { insts = Instances(); } catch { return null; }
+        if (insts.Any(i => LaunchPolicy.SamePath(i.Home, target))) return null;
+
+        var adopted = insts.Where(i => i.Adopted).ToList();
+        if (adopted.Count != 1) return null;
+
+        var inst = adopted[0];
+        from = inst.Home;
+        to = Path.GetFullPath(target);
+
+        // 顺手把钉的内核对齐到这份 home 实际在跑的那个壳——但只在 PAD 版本库里真的有这个
+        // 发行号时才改（否则会造出一个装不上的版本；宁可先不改，边界写清楚）。
+        if (inventory is not null)
+        {
+            var targetPath = to;
+            var kernel = inventory.Shells
+                .FirstOrDefault(sh => !string.IsNullOrWhiteSpace(sh.KernelVersion)
+                                      && !string.IsNullOrWhiteSpace(sh.Home)
+                                      && LaunchPolicy.SamePath(sh.Home!, targetPath))
+                ?.KernelVersion?.Trim();
+            if (!string.IsNullOrEmpty(kernel)
+                && !string.Equals(kernel, inst.Dsh.Version, StringComparison.OrdinalIgnoreCase)
+                && Releases().Any(r => string.Equals(r.Version, kernel, StringComparison.OrdinalIgnoreCase)
+                                       && File.Exists(DshBin(r.Version))))
+            {
+                inst.Dsh.Version = kernel!;
+            }
+        }
+
+        inst.Home = to;
+        try { inst.AdoptedFingerprint = Fingerprint.Of(inst).Code; } catch { /* 指纹算不出来不影响改指 */ }
+        SaveInstance(inst);
+        return inst;
+    }
 
     /// <summary>
     /// Adopt needs a pinned release so later launches have a CLI entry.
@@ -2050,6 +2328,13 @@ public sealed class Launcher
             {
                 var dir = LaunchPolicy.BundlePackageDir(p.Dir, spec);
                 var pkg = Path.Combine(dir, "package.json");
+                var provided = false;
+                if (!File.Exists(pkg))
+                {
+                    // 发行号自带的插件不在 profile/node_modules 里，而在版本的 pnpm 仓库里。
+                    var fromRelease = PnpmStorePackage(inst.Dsh.Version, spec);
+                    if (fromRelease is not null) { dir = fromRelease; pkg = Path.Combine(dir, "package.json"); provided = true; }
+                }
                 var meta = PluginList.ReadMeta(pkg);
                 rows.Add(new BundleRow
                 {
@@ -2059,13 +2344,63 @@ public sealed class Launcher
                     Version = meta.Version,
                     Description = meta.Description,
                     Keywords = meta.Keywords,
+                    Repository = meta.Repository,
                     PackageDir = dir,
+                    Provided = provided,
                     Latest = PluginList.ReadCachedLatest(Root, spec) ?? "",
-                    IconPath = BundleIcon.Resolve(Root, dir, spec) ?? "",
+                    IconPath = BundleIcon.Resolve(Root, dir, spec)
+                        ?? (provided ? BundleIcon.SeedDshBrand(Root, spec) : "")
+                        ?? "",
                 });
             }
         }
         return rows;
+    }
+
+    /// <summary>
+    /// 发行号自带的插件在 versions/&lt;ver&gt;/.pnpm/&lt;scope&gt;+&lt;name&gt;@*/node_modules/&lt;spec&gt;。
+    /// 按 pnpm 虚拟仓库的通则找，不写死包名。
+    /// </summary>
+    string? PnpmStorePackage(string? version, string spec)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return null;
+        var nm = Path.Combine(Root, "versions", version, "node_modules");
+        var bare = LaunchPolicy.BundleBareName(spec);
+        var rel = bare.Replace('/', Path.DirectorySeparatorChar);
+
+        // 新布局：node_modules/.pnpm/<scope>+<name>@*/node_modules/<spec>
+        var store = Path.Combine(nm, ".pnpm");
+        if (Directory.Exists(store))
+        {
+            var pattern = bare.Replace("/", "+") + "@*";
+            try
+            {
+                foreach (var d in Directory.EnumerateDirectories(store, pattern)
+                             .OrderByDescending(x => x, StringComparer.OrdinalIgnoreCase))
+                {
+                    var p = Path.Combine(d, "node_modules", rel);
+                    if (File.Exists(Path.Combine(p, "package.json"))) return p;
+                }
+            }
+            catch { }
+        }
+
+        // 老布局：发行号 CLI 包的嵌套 node_modules（0.1.x 及更早）
+        foreach (var owner in SafeDirs(nm))
+        {
+            var cli = Path.Combine(nm, owner, "dsh", "node_modules", rel);
+            if (File.Exists(Path.Combine(cli, "package.json"))) return cli;
+        }
+
+        // 直接放在发行号 node_modules 里的情况
+        var direct = Path.Combine(nm, rel);
+        return File.Exists(Path.Combine(direct, "package.json")) ? direct : null;
+    }
+
+    static IEnumerable<string> SafeDirs(string dir)
+    {
+        try { return Directory.EnumerateDirectories(dir).Select(Path.GetFileName)!; }
+        catch { return []; }
     }
 
     public async Task EnsureBundleIcons(Instance inst, CancellationToken ct)
@@ -2081,9 +2416,14 @@ public sealed class Launcher
     /// <summary>
     /// Create a profile by running DSH's own <c>dsh plugin --profile &lt;name&gt; add</c>,
     /// so the bundle set is written the way DSH writes it.
+    ///
+    /// <paramref name="heal"/>：装之前要不要跑 <see cref="PnpmHeal.Relink"/>。它对 release 的
+    /// <c>node_modules</c>（1 万多个目录）一次要 60–70s，批量安装时每个插件都跑一遍会把
+    /// 10 个插件的安装拖成十几分钟（CPU 全在 PAD 自己身上、无子进程，看起来像卡死）。
+    /// 批量路径只在本次安装的第一次 add 前 heal 一次；单插件路径保持默认 true（行为不变）。
     /// </summary>
     public async Task AddBundles(Instance inst, string profile, IEnumerable<string> specs,
-        IProgress<string>? log, CancellationToken ct)
+        IProgress<string>? log, CancellationToken ct, bool heal = true)
     {
         var bin = DshBin(inst.Dsh.Version);
         if (!File.Exists(bin))
@@ -2108,11 +2448,21 @@ public sealed class Launcher
         log = TeeJob(job.Id, log);
         try
         {
-            await Task.Run(() =>
+            if (heal)
             {
-                PnpmHeal.Relink(Path.Combine(VersionDir(inst.Dsh.Version), "node_modules"));
-                PnpmHeal.Relink(Path.Combine(inst.Home, "profiles", profile, "node_modules"));
-            }, token);
+                var healStarted = DateTime.UtcNow;
+                log?.Report($"检查 pnpm junction（relink node_modules，可能要几十秒）…");
+                await Task.Run(() =>
+                {
+                    PnpmHeal.Relink(Path.Combine(VersionDir(inst.Dsh.Version), "node_modules"));
+                    PnpmHeal.Relink(Path.Combine(inst.Home, "profiles", profile, "node_modules"));
+                }, token);
+                log?.Report($"relink 完成（{Math.Round((DateTime.UtcNow - healStarted).TotalSeconds)}s）");
+            }
+            else
+            {
+                log?.Report("跳过 relink（本次批量安装已经检查过 node_modules）");
+            }
             foreach (var spec in specList)
             {
                 EnsureProfileNpmrc(inst, profile);
@@ -2138,11 +2488,127 @@ public sealed class Launcher
         }
     }
 
+    /// <summary>
+    /// <c>dsh plugin allow-version</c> 的参数尾（纯函数，便于单测）：DSH 只接受精确
+    /// <c>name@version</c> + 精确 <c>--dsh-version</c>，且必须带 <c>--accept-risk</c>
+    /// （见 docs/pack-plugin-layering.md §8.3）。
+    /// </summary>
+    public static string AllowVersionArgs(string profile, string pkgAtVersion, string dshVersion) =>
+        $"plugin --profile {profile} allow-version {pkgAtVersion} --dsh-version {dshVersion} --accept-risk";
+
+    /// <summary>
+    /// P3：走 DSH 官方的精确版本豁免通道，允许 <paramref name="pkgAtVersion"/> 在指定 DSH
+    /// 版本上运行（写 profile 的 compatibility.json，见 dsh-app-boot 的 setProfileVersionExemption）。
+    /// 不重启 live 进程；下一次安装/启动生效。
+    /// </summary>
+    public async Task AllowVersion(Instance inst, string profile, string pkgAtVersion, string dshVersion,
+        IProgress<string>? log, CancellationToken ct, bool heal = true)
+    {
+        ArgumentNullException.ThrowIfNull(inst);
+        var prof = (profile ?? "").Trim();
+        if (prof.Length == 0)
+            throw new PadError("PA029", "profile is required", $"instance `{inst.Id}`", "",
+                ["指定 profile 名"]);
+        var pkg = (pkgAtVersion ?? "").Trim();
+        var dsh = (dshVersion ?? "").Trim();
+        if (pkg.Length == 0 || dsh.Length == 0)
+            throw new PadError("PA029", "allow-version needs an exact package@version and dsh version",
+                $"instance `{inst.Id}`", $"{pkg} / {dsh}", ["检查 DSH 输出里的兼容提示"]);
+
+        var bin = DshBin(inst.Dsh.Version);
+        if (!File.Exists(bin))
+            throw new PadError("PA001", "the pinned release is not installed", $"instance `{inst.Id}`",
+                bin, ["先装这个发行号"]);
+
+        var env = new Dictionary<string, string>
+        {
+            ["DSH_HOME"] = inst.Home,
+            ["npm_config_ignore_workspace_root_check"] = "true",
+            ["NPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK"] = "true",
+        };
+        AddPnpmEnv(env);
+
+        var job = StartJob("plugin-allow-version", inst.Id, null, pkg);
+        var token = TrackCancel(job.Id, ct);
+        log = TeeJob(job.Id, log);
+        try
+        {
+            if (heal)
+            {
+                // relink release node_modules 一次 60–70s；批量豁免只在第一次做。
+                var healStarted = DateTime.UtcNow;
+                log?.Report("检查 pnpm junction（relink node_modules，可能要几十秒）…");
+                await Task.Run(() =>
+                {
+                    PnpmHeal.Relink(Path.Combine(VersionDir(inst.Dsh.Version), "node_modules"));
+                    PnpmHeal.Relink(Path.Combine(inst.Home, "profiles", prof, "node_modules"));
+                }, token);
+                log?.Report($"relink 完成（{Math.Round((DateTime.UtcNow - healStarted).TotalSeconds)}s）");
+            }
+            log?.Report($"dsh plugin --profile {prof} allow-version {pkg} --dsh-version {dsh} --accept-risk");
+            var res = await Proc.Run("node", $"\"{bin}\" {AllowVersionArgs(prof, pkg, dsh)}",
+                inst.Workspace.Path, log, token, env);
+            if (token.IsCancellationRequested)
+            {
+                FinishJob(job.Id, "cancelled");
+                throw new OperationCanceledException();
+            }
+            if (res.ExitCode != 0)
+                throw new PadError("PA024", "dsh plugin allow-version failed",
+                    $"instance `{inst.Id}` / profile `{prof}`", res.Tail,
+                    ["看上面的 DSH 输出", "确认包版本与内核版本都是精确版本"]);
+            FinishJob(job.Id, "done");
+        }
+        catch
+        {
+            FinishJob(job.Id, "failed");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 批量精确版本豁免（安装预检的「一次授权」）：逐个走 <see cref="AllowVersion"/>，
+    /// 失败的只记日志、不中断（返回成功列表，CLI 报告里的 Exempted 用它）。
+    /// </summary>
+    public async Task<List<string>> AllowVersions(Instance inst, string profile,
+        IEnumerable<(string PackageVersion, string DshVersion)> fixes,
+        IProgress<string>? log, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(inst);
+        var granted = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var attempted = 0;
+        foreach (var fix in fixes ?? [])
+        {
+            var pkg = (fix.PackageVersion ?? "").Trim();
+            var dsh = (fix.DshVersion ?? "").Trim();
+            if (pkg.Length == 0 || dsh.Length == 0) continue;
+            if (!seen.Add(pkg)) continue;
+            try
+            {
+                // relink 很贵（release node_modules 一次 60–70s）：批量里只第一次 heal。
+                var heal = attempted++ == 0;
+                await AllowVersion(inst, profile, pkg, dsh, log, ct, heal);
+                granted.Add(pkg);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                log?.Report($"allow-version {pkg} 失败（继续其它豁免）：{PadError.Describe(ex)}");
+            }
+        }
+        if (granted.Count > 0)
+            log?.Report($"已写 {granted.Count} 个精确版本豁免：{string.Join("、", granted)}");
+        return granted;
+    }
+
     /// <summary>Belt-and-braces for the workspace-root check, for pnpm builds that
     /// read the setting from .npmrc but not from the environment.</summary>
     static void EnsureProfileNpmrc(Instance inst, string profile)
-    {
-        var dir = Path.Combine(inst.Home, "profiles", profile);
+    {        var dir = Path.Combine(inst.Home, "profiles", profile);
         if (!Directory.Exists(dir)) return;
         var npmrc = Path.Combine(dir, ".npmrc");
         var text = File.Exists(npmrc) ? File.ReadAllText(npmrc) : "";
@@ -2223,6 +2689,27 @@ public sealed class Launcher
             var launcherAlive = Proc.Alive(entry.Pid);
             var harness = LiveHarnessPid(entry);
             var harnessAlive = harness > 0 && Proc.Alive(harness);
+            if (!launcherAlive && !harnessAlive)
+            {
+                // The launcher wrapper may exit after handing off, and 0.2.x does not
+                // keep an endpoint in the runtime entry. Recover the harness from the
+                // in-instance gateway advert, then from a process scan by bin/profile.
+                var advert = AdvertPid(entry.Instance);
+                if (advert > 0 && Proc.Alive(advert))
+                {
+                    harness = advert;
+                    harnessAlive = true;
+                }
+                else if (Instance(entry.Instance) is { } liveInst)
+                {
+                    var found = Proc.FindDshPid(entry.Profile, DshBin(liveInst.Dsh.Version));
+                    if (found > 0)
+                    {
+                        harness = found;
+                        harnessAlive = true;
+                    }
+                }
+            }
             if (!launcherAlive && harnessAlive && harness != entry.Pid)
             {
                 entry.Pid = harness;

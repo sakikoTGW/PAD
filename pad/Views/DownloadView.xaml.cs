@@ -16,6 +16,52 @@ public partial class DownloadView : UserControl, IRefreshable
     readonly AppState _state = AppState.Current;
     bool _pickingTarget;
     MarketRow? _detail;
+    MarketPage? _lastPage;
+
+    /// <summary>每页多少个按窗口高度自适应（近似 17px/个），不再固定 20。</summary>
+    int StorePageSize => Math.Clamp((int)(_win.ActualHeight / 17), 10, 100);
+
+    int _storePageSizeUsed = 20;
+    bool _growthBusy;
+    string _storeMode = "downloads";
+    MarketRow? _heroRow;
+    bool _crossShelf;
+    bool _pinyin;
+    int _storePeriod = 7;
+    DispatcherTimer? _storeResizeTimer;
+
+    void HookResize()
+    {
+        SizeChanged += (_, _) =>
+        {
+            _storeResizeTimer ??= CreateStoreResizeTimer();
+            _storeResizeTimer.Stop();
+            _storeResizeTimer.Start();
+        };
+    }
+
+    DispatcherTimer CreateStoreResizeTimer()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(240) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            ReloadStoreForResize();
+        };
+        return t;
+    }
+
+    void ReloadStoreForResize()
+    {
+        if (!IsVisible || PaneMarket.Visibility != Visibility.Visible) return;
+        var now = StorePageSize;
+        if (now == _storePageSizeUsed) return;
+        var pageIndex = _storePageSizeUsed > 0 ? _from / _storePageSizeUsed : 0;
+        _storePageSizeUsed = now;
+        _from = Math.Max(0, pageIndex * now);
+        _ = Load();
+    }
+    string _tag = "";
     PluginCatalog? _catalog;
     string _detailHome = "";
     string _chip = "全部";
@@ -33,6 +79,7 @@ public partial class DownloadView : UserControl, IRefreshable
         _win = win;
         DataContext = _state;
         Loaded += (_, _) => PaintShelves();
+        HookResize();
         IsVisibleChanged += (_, e) =>
         {
             if (e.NewValue is not true) StopDlPoll();
@@ -98,6 +145,7 @@ public partial class DownloadView : UserControl, IRefreshable
         }
         ShelfNav.Tag = want;
         _shelvesPainted = true;
+
     }
 
     Geometry? TryGeom(string key) =>
@@ -120,7 +168,7 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             (null, null) => "DSH 要 Node 22.19+ 或 24+，安装走 pnpm。两个都装上再回来。",
             (null, _) => "DSH 要 Node 22.19+ 或 24+。",
-            (_, null) => "DSH 官方用 pnpm 装组合包。",
+            (_, null) => "DSH 官方用 pnpm 装插件。",
             _ => "",
         };
         if (node is null && _state.Settings.Launch.RuntimeInstall)
@@ -338,7 +386,7 @@ public partial class DownloadView : UserControl, IRefreshable
         if (_shelf == tag) return;
         _shelf = tag;
         var shelf = Shelf();
-        ShelfTitle.Content = $"搜索{shelf.Label}";
+        ShelfTitle.Text = $"{shelf.Label} · {shelf.Query}";
         ShelfTitle.ToolTip = shelf.Query;
         SearchBox.Clear();
         _from = 0;
@@ -512,7 +560,24 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void Warn(string text)
     {
-        MarketErrorText.Text = text;
+        var t = (text ?? "").Trim();
+        MarketErrorTitle.Text = t.Contains("超时")
+            ? "npm 搜索超时"
+            : t.Contains("PA033") || t.Contains("没连上")
+                ? "npm 搜索没连上"
+                : "搜索出错了";
+        // 原始错误里 error[..]/--> / | / = help 是给命令行看的；界面只留一句人话 + 一条建议。
+        var lines = t.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim().TrimStart('|').Trim())
+            .Where(x => x.Length > 0)
+            .Where(x => !x.StartsWith("error[") && !x.StartsWith("-->") && !x.Contains("= help"))
+            .Select(x => x.Contains("A task was canceled", StringComparison.OrdinalIgnoreCase)
+                ? "请求被取消（超时或网络不通）。" : x)
+            .ToList();
+        MarketErrorText.Text = lines.Count > 0
+            ? string.Join(" ", lines.Take(2))
+            : "请求被取消或超时，可能是网络 / 代理 / registry 不通。";
+        MarketErrorHint.Text = "检查网络或代理；或到 设置 → 下载 改 registry / 超时，然后点重试。";
         MarketError.Visibility = Visibility.Visible;
     }
 
@@ -525,7 +590,19 @@ public partial class DownloadView : UserControl, IRefreshable
         ClearBtn.IsEnabled = what is null;
     }
 
-    void Search_Click(object sender, RoutedEventArgs e) { _from = 0; _ = Load(); }
+    /// <summary>搜索永远在「全部插件」里做；增长首页收到搜索词时先切回搜索模式。</summary>
+    void RunSearch()
+    {
+        _from = 0;
+        if (_storeMode != "all")
+        {
+            ModeAll.IsChecked = true; // 触发 StoreMode_Changed -> Load
+            return;
+        }
+        _ = Load();
+    }
+
+    void Search_Click(object sender, RoutedEventArgs e) => RunSearch();
 
     void Clear_Click(object sender, RoutedEventArgs e)
     {
@@ -537,21 +614,20 @@ public partial class DownloadView : UserControl, IRefreshable
     void Search_Key(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        _from = 0;
-        _ = Load();
+        RunSearch();
     }
 
     void First_Click(object sender, RoutedEventArgs e) { _from = 0; _ = Load(); }
 
     void Prev_Click(object sender, RoutedEventArgs e)
     {
-        _from = Math.Max(0, _from - Market.PageSize);
+        _from = Math.Max(0, _from - StorePageSize);
         _ = Load();
     }
 
     void Next_Click(object sender, RoutedEventArgs e)
     {
-        _from += Market.PageSize;
+        _from += StorePageSize;
         _ = Load();
     }
 
@@ -562,10 +638,16 @@ public partial class DownloadView : UserControl, IRefreshable
     async Task Load()
     {
         if (_shelf == "dltasks") return;
+        if (_storeMode != "all")
+        {
+            await LoadGrowth();
+            return;
+        }
         _live?.Cancel();
         var live = _live = new CancellationTokenSource();
 
         MarketError.Visibility = Visibility.Collapsed;
+        ResultCount.Text = "";
         EmptyCard.Visibility = Visibility.Collapsed;
         var first = ResultList.ItemsSource is null;
         if (first) ResultCard.Visibility = Visibility.Collapsed;
@@ -575,9 +657,51 @@ public partial class DownloadView : UserControl, IRefreshable
 
         try
         {
-            var page = await Market.Search(Shelf().Query, SearchBox.Text, _from, live.Token);
+            _storePageSizeUsed = StorePageSize;
+            _crossShelf = false;
+            _pinyin = false;
+            var text = SearchBox.Text.Trim();
+            var page = await Market.Search(Shelf().Query, text, _from, live.Token, _storePageSizeUsed);
             if (live.IsCancellationRequested) return;
+            if (page.Rows.Count == 0 && text.Length > 0 && _shelf == "plugin")
+            {
+                // 货架内没结果：去掉 keywords 限定再找一次，只留 DSH 相关的包。
+                var broad = await Market.Search("", text, 0, live.Token, _storePageSizeUsed);
+                if (live.IsCancellationRequested) return;
+                var rows = broad.Rows.Where(LooksLikeDsh).ToList();
+                if (rows.Count > 0)
+                {
+                    page = new MarketPage(rows, rows.Count, 0, rows.Count);
+                    _crossShelf = true;
+                }
+            }
+            // 拼音/首字母：npm 结果里一个都没命中时，用本地小索引兜底（热度前 3000）。
+            if (_shelf == "plugin" && text.Length > 0 && PinyinSearch.LooksLikePinyinQuery(text) &&
+                !page.Rows.Any(r => Market.NameMatches(r, text)))
+            {
+                {
+                    StoreSectionRight.Text = "正在匹配拼音…";
+                    if (await MarketPinyinIndex.EnsureAsync(_state.Launcher,
+                            new Progress<string>(x => StoreSectionRight.Text = x), live.Token))
+                    {
+                        var hits = MarketPinyinIndex.Lookup(text);
+                        if (hits.Count > 0)
+                        {
+                            page = new MarketPage(hits, hits.Count, 0, hits.Count);
+                            _pinyin = true;
+                        }
+                    }
+                }
+            }
             Paint(page);
+            PrefetchNext(page);
+            MarketPinyinIndex.Prewarm(_state.Launcher);
+            if (App.ShotPage == "market-more")
+            {
+                StoreMore.Visibility = Visibility.Visible;
+                StoreMoreAngle.Angle = 180;
+            }
+            if (App.ShotPage == "market-detail" && page.Rows.Count > 0) QueueStoreDetailShot(page.Rows[0]);
         }
         catch (OperationCanceledException)
         {
@@ -599,10 +723,167 @@ public partial class DownloadView : UserControl, IRefreshable
         }
     }
 
+    bool _storeShotQueued;
+    void QueueStoreDetailShot(MarketRow row)
+    {
+        if (_storeShotQueued || App.ShotPath is not { Length: > 0 } shot) return;
+        _storeShotQueued = true;
+        var dir = System.IO.Path.GetDirectoryName(shot) ?? "";
+        var path = System.IO.Path.Combine(dir, System.IO.Path.GetFileNameWithoutExtension(shot) + "-store-detail.png");
+        var inst = TargetInstance.SelectedItem as Instance;
+        var plugin = new PluginRow
+        {
+            Profile = inst?.Name ?? "",
+            Spec = row.Name,
+            Version = row.Version,
+            Description = row.DescriptionText,
+            Repository = row.Repository,
+            Keywords = row.Keywords,
+            IconPath = row.IconPath,
+            Latest = "",
+        };
+        var win = new PluginDetailWindow(
+            plugin,
+            install: null,
+            versions: async () =>
+            {
+                var cat = await Market.FetchPackument(row.Name, CancellationToken.None);
+                return cat.Versions.Count > 0 ? cat.Versions : cat.Files.Select(f => f.Version).ToList();
+            },
+            installVersion: _ => { })
+        {
+            ShowInTaskbar = false,
+            Left = -20000,
+            Top = -20000,
+        };
+        win.Loaded += (_, _) =>
+        {
+            win.Dispatcher.BeginInvoke(async () =>
+            {
+                try
+                {
+                    var wait = Task.WhenAll(
+                        Task.WhenAny(win.ShotsLoaded, Task.Delay(TimeSpan.FromSeconds(8))),
+                        Task.WhenAny(win.VersionsLoaded, Task.Delay(TimeSpan.FromSeconds(8))));
+                    await wait;
+                    win.RenderTo(path);
+                }
+                finally { win.Close(); }
+            }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        };
+        win.Show();
+    }
+
+    bool _tagBuilding;
+    void BuildTagChoices(List<MarketRow> rows)
+    {
+        _tagBuilding = true;
+        try
+        {
+            var tags = rows.Select(r => r.TagText)
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+            var items = new List<object> { "全部" };
+            items.AddRange(tags);
+            TagBox.ItemsSource = items;
+            TagBox.SelectedItem = _tag.Length > 0 && tags.Contains(_tag, StringComparer.OrdinalIgnoreCase)
+                ? tags.First(t => string.Equals(t, _tag, StringComparison.OrdinalIgnoreCase))
+                : "全部";
+        }
+        finally { _tagBuilding = false; }
+    }
+
+    void Tag_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_tagBuilding) return;
+        _tag = TagBox.SelectedItem as string ?? "";
+        if (_tag == "全部") _tag = "";
+        if (_lastPage is not null) Paint(_lastPage);
+    }
+
+    List<MarketRow> ApplyStoreControls(List<MarketRow> rows)
+    {
+        IEnumerable<MarketRow> q = rows;
+        if (_tag.Length > 0) q = q.Where(r => string.Equals(r.TagText, _tag, StringComparison.OrdinalIgnoreCase));
+        if (InstalledOnly.IsChecked == true && TargetInstance.SelectedItem is Instance inst)
+        {
+            var have = _state.Launcher.ListBundles(inst)
+                .Select(b => b.Spec)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            q = q.Where(r => have.Contains(r.Name));
+        }
+        var sort = (SortBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "hot";
+        q = sort switch
+        {
+            "date" => q.OrderByDescending(r => DateTimeOffset.TryParse(r.Date, out var t) ? t : DateTimeOffset.MinValue),
+            "name" => q.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            _ => q.OrderByDescending(r => r.Popularity),
+        };
+        return q.ToList();
+    }
+
+    void StoreMore_Click(object sender, RoutedEventArgs e)
+    {
+        var show = StoreMore.Visibility != Visibility.Visible;
+        StoreMore.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        StoreMoreAngle.Angle = show ? 180 : 0;
+    }
+
+    void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_lastPage is not null) Paint(_lastPage);
+    }
+
+    void StoreFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_lastPage is not null) Paint(_lastPage);
+    }
+
+    void MarketFav_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: MarketRow row }) return;
+        var on = Favorites.Toggle(_state.Launcher.Root, row.Name);
+        row.Favorite = on;
+        _win.Toast(on ? $"已收藏 {row.Title}" : $"取消收藏 {row.Title}");
+    }
+
+    static bool LooksLikeDsh(MarketRow row)
+    {
+        var text = (row.Name + " " + row.Description + " " + string.Join(" ", row.Keywords)).ToLowerInvariant();
+        return text.Contains("dsh") || text.Contains("deepseek");
+    }
+
     void Paint(MarketPage page)
     {
         _from = page.From;
-        ResultList.ItemsSource = page.Rows;
+        _lastPage = page;
+        BuildTagChoices(page.Rows);
+        var shown = _pinyin ? page.Rows : ApplyStoreControls(page.Rows);
+        foreach (var r in shown) r.Favorite = Favorites.IsFavorite(_state.Launcher.Root, r.Name);
+        var text = SearchBox.Text.Trim();
+        var best = 0;
+        if (text.Length > 0 && !_pinyin)
+        {
+            shown = Market.RankForQuery(shown, text);
+            best = shown.Count == 0 ? 0 : shown.Max(r => Market.QueryScore(r, text));
+        }
+        ResultList.ItemsSource = shown;
+        _ = LoadMarketIcons(page.Rows);
+        GrowthHero.Visibility = Visibility.Collapsed;
+        ChipRow.Visibility = Visibility.Collapsed;
+        StoreMoreBtn.Visibility = Visibility.Visible;
+        StoreModeLink.Content = "‹ 返回增长榜";
+        StoreSectionTitle.Text = "全部插件";
+        StoreSectionSub.Text = $"{page.Total:N0} 个插件";
+        StoreSectionRight.Text = text.Length == 0 ? ""
+            : _pinyin ? $"拼音/首字母匹配 {shown.Count} 个"
+            : _crossShelf ? $"已跨货架找到 {shown.Count} 个"
+            : best == 0 ? "没有精确命中 · 按 npm 相关性显示"
+            : $"搜索“{text}”";
+        ScrollStoreTop();
         ResultCard.Visibility = page.Rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
         EmptyText.Text = SearchBox.Text.Trim().Length == 0
@@ -610,11 +891,12 @@ public partial class DownloadView : UserControl, IRefreshable
             : "无搜索结果，请尝试搜索其英文名称";
         EmptyCard.Visibility = page.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        ResultCount.Text = $"{page.Total:N0} 个插件";
         PageText.Text = $"{page.PageIndex + 1} / {page.PageCount}";
         FirstBtn.IsEnabled = page.HasPrev;
         PrevBtn.IsEnabled = page.HasPrev;
         NextBtn.IsEnabled = page.HasNext;
-        PagerCard.Visibility = page.PageCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        PagerCard.Visibility = !_crossShelf && !_pinyin && page.PageCount > 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -623,6 +905,214 @@ public partial class DownloadView : UserControl, IRefreshable
     /// package declares <c>dsh.bundle</c>, so the result can say whether it became a
     /// profile layer or a plain dependency rather than leaving the user to guess.
     /// </summary>
+    /// <summary>Next page is one click away in practice; loading it while the user reads
+    /// this one makes pagination feel instant (Market keeps a short-lived page cache).</summary>
+    void PrefetchNext(MarketPage page)
+    {
+        if (!page.HasNext || _shelf == "dltasks") return;
+        var query = Shelf().Query;
+        var text = SearchBox.Text;
+        var size = page.Size;
+        var next = page.From + page.Size;
+        _ = Task.Run(async () =>
+        {
+            try { await Market.Search(query, text, next, CancellationToken.None, size); }
+            catch { /* prefetch is best-effort; the real load will surface errors */ }
+        });
+    }
+
+    // ── 商店的三种模式：全部 / Star 增长 / 下载增长；增长不是单独页面。 ──
+
+    void StoreMode_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { IsChecked: true } rb) return;
+        _storeMode = rb.Name == nameof(ModeStars) ? "stars"
+            : rb.Name == nameof(ModeDownloads) ? "downloads" : "all";
+        if (!IsLoaded) return;
+        _from = 0;
+        _ = Load();
+    }
+
+    void StorePeriod_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { IsChecked: true } rb) return;
+        _storePeriod = rb.Name == nameof(PeriodDay) ? 1 : rb.Name == nameof(PeriodMonth) ? 30 : 7;
+        if (!IsLoaded || _storeMode == "all") return;
+        _from = 0;
+        _ = Load();
+    }
+
+    /// <summary>供 --shot-page 用：在全部插件里搜一个词。</summary>
+    public void ShowSearchShot(string text)
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            _storeMode = "all";
+            ModeAll.IsChecked = true;
+            SearchBox.Text = text;
+            _from = 0;
+            await Load();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>供 --shot-page 用：切到全部插件模式。</summary>
+    public void ShowAllShot()
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            ModeAll.IsChecked = true;
+            _storeMode = "all";
+            _from = 0;
+            await Load();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>供 --shot-page 用：截收起的侧栏。</summary>
+    public void CollapseRailForShot()
+    {
+        StoreRail.Visibility = Visibility.Collapsed;
+        StoreRailShow.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>供 --shot-page 用：打开下载增长模式看新商店的样子。</summary>
+    public void ShowGrowthShot()
+    {
+        Dispatcher.BeginInvoke(async () =>
+        {
+            ModeDownloads.IsChecked = true; // 触发 StoreMode_Changed
+            _storeMode = "downloads";
+            _from = 0;
+            await Load();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    void ScrollStoreTop() =>
+        Dispatcher.BeginInvoke(() => MarketScroll.ScrollToVerticalOffset(0),
+            System.Windows.Threading.DispatcherPriority.Loaded);
+
+    void StoreModeLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (_storeMode == "all") ModeDownloads.IsChecked = true;
+        else ModeAll.IsChecked = true;
+    }
+
+    void HeroOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_heroRow is not null) OpenStoreDetail(_heroRow);
+    }
+
+    void StoreRailToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var hide = StoreRail.Visibility == Visibility.Visible;
+        StoreRail.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
+        StoreRailShow.Visibility = hide ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    async Task LoadGrowth()
+    {
+        if (_growthBusy) return;
+        _growthBusy = true;
+        MarketPinyinIndex.Prewarm(_state.Launcher);
+        MarketError.Visibility = Visibility.Collapsed;
+        EmptyCard.Visibility = Visibility.Collapsed;
+        ResultCard.Visibility = Visibility.Visible;
+        PagerCard.Visibility = Visibility.Collapsed;
+        GrowthHero.Visibility = Visibility.Collapsed;
+        ChipRow.Visibility = Visibility.Visible;
+        StoreMoreBtn.Visibility = Visibility.Collapsed;
+        StoreModeLink.Content = "浏览全部插件 ›";
+        LoadCard.Visibility = ResultList.ItemsSource is null ? Visibility.Visible : Visibility.Collapsed;
+        StoreSectionTitle.Text = "增长榜";
+        StoreSectionSub.Text = _storeMode == "stars" ? "Star 增长" : "下载增长";
+        StoreSectionRight.Text = "";
+        Working("正在算增长榜");
+        try
+        {
+            var boards = await MarketMetrics.GetAsync(_state.Launcher, false,
+                new Progress<string>(x => StoreSectionRight.Text = x), CancellationToken.None);
+            var periodKey = _storePeriod switch { 1 => "day", 7 => "week", _ => "month" };
+            var board = boards.Boards.FirstOrDefault(b => b.Key == $"{_storeMode}-{periodKey}");
+            var rows = (board?.Rows ?? []).Take(12).Select(m => new MarketRow
+            {
+                Name = m.Name,
+                Version = m.Version,
+                Publisher = m.Publisher,
+                Description = m.Description,
+                Repository = m.Repository,
+                Homepage = m.Repository,
+                Date = DateTimeOffset.UtcNow.ToString("o"),
+                Rank = m.Rank,
+                GrowthBadge = m.GrowthText,
+                GrowthTotal = m.TotalText,
+                GrowthSign = m.GrowthSign,
+            }).ToList();
+            foreach (var r in rows) r.Favorite = Favorites.IsFavorite(_state.Launcher.Root, r.Name);
+            ResultList.ItemsSource = rows;
+            StoreSectionSub.Text = $"{board?.Label ?? ""} · Top {rows.Count}";
+            StoreSectionRight.Text = boards.FromCache ? $"缓存 · {boards.GeneratedText}" : $"更新 · {boards.GeneratedText}";
+            var any = rows.Count > 0;
+            ResultCard.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+            EmptyCard.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
+            EmptyText.Text = "暂时拉不到增长数据（网络或 GitHub 限流）";
+            if (any)
+            {
+                ScrollStoreTop();
+                var periodWord = _storePeriod switch
+                {
+                    1 => "今日",
+                    7 => "本周",
+                    _ => "本月",
+                };
+                var metricWord = _storeMode == "stars" ? " Star " : "下载";
+                HeroKicker.Text = $"{periodWord}{metricWord}增长最快";
+                _heroRow = rows[0];
+                HeroTitle.Text = _heroRow.Title;
+                HeroDesc.Text = $"{_heroRow.DescriptionText} · 本期 {_heroRow.GrowthBadge}";
+                HeroIcon.Spec = _heroRow.Name;
+                GrowthHero.Visibility = Visibility.Visible;
+                await LoadMarketIcons(rows);
+                HeroIcon.IconPath = _heroRow.IconPath;
+            }
+        }
+        catch (Exception ex)
+        {
+            ResultList.ItemsSource = null;
+            ResultCard.Visibility = Visibility.Collapsed;
+            EmptyCard.Visibility = Visibility.Visible;
+            EmptyText.Text = PadError.Describe(ex);
+        }
+        finally
+        {
+            _growthBusy = false;
+            LoadCard.Visibility = Visibility.Collapsed;
+            Working(null);
+        }
+    }
+
+    /// <summary>货架行逐个补“插件自己的图标”：官方 DSH 包用内置品牌图标，其余按 npm 元数据里的仓库取 logo。</summary>
+    async Task LoadMarketIcons(IReadOnlyList<MarketRow> rows)
+    {
+        // Icons are one GitHub fetch each; a semaphore keeps the page responsive while
+        // letting several rows finish together instead of waiting one by one.
+        using var gate = new SemaphoreSlim(6);
+        await Task.WhenAll(rows.Select(async row =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                // 官方 package icon 优先；没有自定义 icon 再退回仓库 logo。
+                var icon = await NpmPackageIcon.EnsureAsync(_state.Launcher.Root, row.Name, row.Version,
+                                CancellationToken.None)
+                           ?? await BundleIcon.EnsureFromRepo(_state.Launcher.Root, row.Name,
+                               row.Repository.Length > 0 ? row.Repository : row.Homepage,
+                               CancellationToken.None);
+                if (icon is not null) row.IconPath = icon;
+            }
+            catch { /* 网络/仓库不可达就用占位字形 */ }
+            finally { gate.Release(); }
+        }));
+    }
+
     async Task InstallFrom(MarketRow row, string version, FrameworkElement? busy)
     {
         if (TargetInstance.SelectedItem is not Instance inst)
@@ -669,7 +1159,39 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void Row_OpenDetail(object sender, MouseButtonEventArgs e)
     {
-        if (sender is FrameworkElement { Tag: MarketRow row }) _ = OpenDetail(row);
+        if (sender is not FrameworkElement { Tag: MarketRow row }) return;
+        OpenStoreDetail(row);
+    }
+
+    /// <summary>App Store 式插件详情窗口：商店卡片、排行榜行共用同一个入口。</summary>
+    void OpenStoreDetail(MarketRow row)
+    {
+        var inst = TargetInstance.SelectedItem as Instance;
+        var plugin = new PluginRow
+        {
+            Profile = inst?.Name ?? "",
+            Spec = row.Name,
+            Version = row.Version,
+            Description = row.DescriptionText,
+            Repository = row.Repository,
+            Keywords = row.Keywords,
+            IconPath = row.IconPath,
+            Latest = "",
+        };
+        // 商店详情也用 App Store 式窗口；安装走现有 InstallFrom（默认装最新版本）
+        var win = new PluginDetailWindow(
+            plugin,
+            install: null,
+            versions: async () =>
+            {
+                var cat = await Market.FetchPackument(row.Name, CancellationToken.None);
+                return cat.Versions.Count > 0 ? cat.Versions : cat.Files.Select(f => f.Version).ToList();
+            },
+            installVersion: version => _ = InstallFrom(row, version, null))
+        {
+            Owner = _win,
+        };
+        win.ShowDialog();
     }
 
     void ShowMarketList()

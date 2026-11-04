@@ -41,6 +41,11 @@ public static class Cli
     static void Out(object value) =>
         Say(value is string s ? s : JsonSerializer.Serialize(value, Pretty));
 
+    /// <summary>Shared emitters for command faces implemented in their own files (Cli is one
+    /// binary; the log and the console must stay the same channel).</summary>
+    internal static void Print(string line) => Say(line);
+    internal static string PrettyJson(object value) => JsonSerializer.Serialize(value, Pretty);
+
     public static async Task<int> Run(string[] args)
     {
         EnsureConsole();
@@ -58,6 +63,19 @@ public static class Cli
         {
             switch (group)
             {
+                case "version":
+                {
+                    // PackForge launcher registry 要求启动器能自报版本（认领 pad ID 时引用这个命令）。
+                    var payload = new
+                    {
+                        id = "pad",
+                        name = "PAD · pack-agent for DSH",
+                        version = PadUpdate.CurrentVersion(),
+                    };
+                    WriteOrOut(args.Skip(1).ToArray(), JsonSerializer.Serialize(payload, Pretty));
+                    return 0;
+                }
+
                 case "release" when cmd == "list":
                     Out(launcher.Releases());
                     return 0;
@@ -205,12 +223,66 @@ public static class Cli
                     return 0;
                 }
 
+                case "plugin" when cmd == "status":
+                {
+                    if (rest.Length < 1) return Usage("pad cli plugin status <instance> [profile] [--json] [--refresh]");
+                    var inst = Need(launcher, rest[0]);
+                    var profile = rest.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
+                    var cap = HotCapabilityProbe.Detect(launcher, inst, profile, rest.Contains("--refresh"));
+                    if (rest.Contains("--json")) Out(cap);
+                    else
+                    {
+                        Say($"instance  {cap.Instance}");
+                        Say($"profile   {cap.Profile}");
+                        Say($"launch    {cap.LaunchSource}");
+                        Say($"hmr       {cap.Hmr}");
+                        Say($"manager   {cap.Manager}");
+                        Say($"hot       {(cap.HotAllowed ? "allowed" : "no")}  ({cap.Reason})");
+                        Say($"checked   {cap.CheckedAt}");
+                    }
+                    return 0;
+                }
+
+                case "plugin" when cmd == "verify":
+                {
+                    var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 2) return Usage("pad cli plugin verify <instance> <spec> [profile] [--json]");
+                    var inst = Need(launcher, pos[0]);
+                    var profile = pos.Length > 2
+                        ? pos[2]
+                        : HotCapabilityProbe.ResolveProfile(launcher, inst, null);
+                    var result = await PluginVerify.RunAsync(launcher, inst, profile, pos[1], PluginExpect.Present);
+                    if (rest.Contains("--json")) Out(result);
+                    foreach (var check in result.Checks)
+                        Say($"  {check.Status,-5} {check.Id} {check.Detail}");
+                    return result.ExitCode;
+                }
+
+                case "plugin" when cmd == "undo":
+                {
+                    if (rest.Length < 1 || rest[0].StartsWith("--", StringComparison.Ordinal))
+                        return Usage("pad cli plugin undo <instance>");
+                    var inst = Need(launcher, rest[0]);
+                    var latest = Checkpoints.LatestBeforeChange(launcher, inst.Id)
+                        ?? throw new PadError("PA203", "no checkpoint to undo", $"instances/{inst.Id}", null,
+                            ["先做一次 plugin add/remove"]);
+                    Checkpoints.Restore(launcher, inst, latest.Id);
+                    Out($"restored {latest.Id} ({latest.Trigger})");
+                    return 0;
+                }
+
                 case "plugin" when cmd is "add" or "remove" or "update":
                 {
-                    if (rest.Length < 3) return Usage($"pad cli plugin {cmd} <instance> <profile> <spec>");
-                    var spec = string.Join(" ", rest.Skip(2));
-                    Out(await launcher.PluginOp(rest[0], cmd, spec, log, CancellationToken.None, rest[1]));
-                    return 0;
+                    var flags = rest.Where(a => a.StartsWith("--", StringComparison.Ordinal))
+                        .ToHashSet(StringComparer.Ordinal);
+                    var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 3) return Usage($"pad cli plugin {cmd} <instance> <profile> <spec> [--hot]");
+                    var spec = string.Join(" ", pos.Skip(2));
+                    var applied = await HotReload.ApplyAsync(launcher, Need(launcher, pos[0]), pos[1], cmd, spec,
+                        flags.Contains("--hot"), log, CancellationToken.None);
+                    Out(applied);
+                    // 0 = done (hot verified, or cold written); 3 = hot verify failed and was rolled back.
+                    return applied.Ok ? 0 : 3;
                 }
 
                 // `run`, `ps`, `gateway` and `where` are single-level commands, so their
@@ -266,12 +338,35 @@ public static class Cli
 
                 case "market":
                 {
+                    if (cmd == "ranking")
+                    {
+                        var boards = await MarketMetrics.GetAsync(launcher, rest.Contains("--refresh"), log,
+                            CancellationToken.None);
+                        WriteOrOut(rest, JsonSerializer.Serialize(boards, Pretty));
+                        return 0;
+                    }
+                    if (cmd == "icon")
+                    {
+                        var name = string.Join(' ', rest);
+                        var path = await NpmPackageIcon.EnsureAsync(launcher.Root, name, "", CancellationToken.None);
+                        Say(path ?? "没有 npm 自定义 icon");
+                        return 0;
+                    }
+                    if (cmd == "pinyin")
+                    {
+                        var text = string.Join(' ', rest);
+                        var ok = await MarketPinyinIndex.EnsureAsync(launcher, log, CancellationToken.None);
+                        var hits = ok ? MarketPinyinIndex.Lookup(text) : [];
+                        Say(ok ? $"拼音/首字母匹配：{hits.Count} 个（{text}）" : "拼音索引不可用");
+                        Out(hits);
+                        return 0;
+                    }
                     var shelf = Market.Shelves.FirstOrDefault(s => s.Id == cmd);
                     if (shelf.Query is null)
                         return Usage($"pad cli market <{string.Join('|', Market.Shelves.Select(s => s.Id))}> [text]");
                     var page = await Market.Search(shelf.Query, string.Join(' ', rest), 0,
                         CancellationToken.None);
-                    Say($"{shelf.Label}: 共 {page.Total} 个，第 1/{page.PageCount} 页");
+                    Say($"{shelf.Label}: 共 {page.Total} 个，第 1/{page.PageCount} 页（搜索 {Market.LastSearchMs} ms{(Market.LastSearchMs == 0 ? "，缓存" : "")}）");
                     Out(page.Rows);
                     return 0;
                 }
@@ -304,6 +399,98 @@ public static class Cli
                     else await trials.Discard(inst, rec, log, CancellationToken.None);
                     Out(trials.Load(inst).Trials);
                     return 0;
+                }
+
+                case "packforge":
+                {
+                    var packs = new Packs(launcher);
+                    var all = rest;
+                    var positional = Positionals(all, "--out", "--home", "--file", "--profile", "--name", "--release", "--id", "--version", "--dsh-version", "--workspace", "--max-sessions");
+                    var file = positional.FirstOrDefault();
+                    switch (cmd)
+                    {
+                        case "inspect":
+                            if (file is null) return Usage("pad cli packforge inspect <file.dspack> [--out out.json]");
+                            WriteOrOut(all, await packs.PackforgeInspect(System.IO.Path.GetFullPath(file), CancellationToken.None));
+                            return 0;
+
+                        case "market":
+                            WriteOrOut(all, await packs.PackforgeMarket(CancellationToken.None));
+                            return 0;
+
+                        case "registry":
+                            WriteOrOut(all, await packs.PackforgeRegistry(FlagValue(all, "--id"), CancellationToken.None));
+                            return 0;
+
+                        case "install":
+                        {
+                            var home = FlagValue(all, "--home");
+                            if (file is null || home is null)
+                                return Usage("pad cli packforge install <file.dspack> --home <dir> [--profile p] [--apply] [--deps] [--out out.json]");
+                            WriteOrOut(all, await packs.PackforgeInstall(
+                                System.IO.Path.GetFullPath(file), System.IO.Path.GetFullPath(home),
+                                FlagValue(all, "--profile"), all.Contains("--apply"), all.Contains("--deps"),
+                                CancellationToken.None));
+                            return 0;
+                        }
+
+                        case "import":
+                        {
+                            var name = FlagValue(all, "--name");
+                            if (file is null || name is null)
+                                return Usage("pad cli packforge import <file.dspack> --name <instance> [--release v] [--profile p] [--deps]");
+                            var result = await PacksForge.Import(launcher, packs,
+                                System.IO.Path.GetFullPath(file), name,
+                                FlagValue(all, "--release"), FlagValue(all, "--profile"),
+                                all.Contains("--deps"), log, CancellationToken.None);
+                            WriteOrOut(all, JsonSerializer.Serialize(result, Pretty));
+                            return 0;
+                        }
+
+                        case "import-auto":
+                        {
+                            if (file is null)
+                                return Usage("pad cli packforge import-auto <file.dspack> [--deps] [--out out.json]");
+                            var result = await PacksForge.ImportAuto(launcher, packs,
+                                System.IO.Path.GetFullPath(file), all.Contains("--deps"),
+                                log, CancellationToken.None);
+                            WriteOrOut(all, JsonSerializer.Serialize(result, Pretty));
+                            return 0;
+                        }
+
+                        case "export-instance":
+                        {
+                            var home = FlagValue(all, "--home") ?? positional.FirstOrDefault();
+                            var outFile = FlagValue(all, "--file");
+                            if (home is null || outFile is null)
+                                return Usage("pad cli packforge export-instance <instance-home> --file <file.dspack> [--profile p] [--name n] [--version v] [--dsh-version x] [--out json]");
+                            WriteOrOut(all, await packs.PackforgeExportInstance(
+                                System.IO.Path.GetFullPath(home), System.IO.Path.GetFullPath(outFile),
+                                FlagValue(all, "--profile"), FlagValue(all, "--name"),
+                                FlagValue(all, "--version"), FlagValue(all, "--dsh-version"),
+                                CancellationToken.None));
+                            return 0;
+                        }
+
+                        case "export-workspace":
+                        {
+                            var home = FlagValue(all, "--home") ?? positional.FirstOrDefault();
+                            var outFile = FlagValue(all, "--file");
+                            if (home is null || outFile is null)
+                                return Usage("pad cli packforge export-workspace <instance-home> --file <file.workspace.zip> [--workspace id[,id]] [--max-sessions N] [--name n] [--version v] [--out json]");
+                            var maxRaw = FlagValue(all, "--max-sessions");
+                            WriteOrOut(all, await packs.PackforgeExportWorkspace(
+                                System.IO.Path.GetFullPath(home), System.IO.Path.GetFullPath(outFile),
+                                FlagValue(all, "--workspace"),
+                                int.TryParse(maxRaw, out var maxN) ? maxN : null,
+                                FlagValue(all, "--name"), FlagValue(all, "--version"),
+                                CancellationToken.None));
+                            return 0;
+                        }
+
+                        default:
+                            return Usage("pad cli packforge inspect|market|registry|install|import|import-auto|export-instance|export-workspace …");
+                    }
                 }
 
                 // The projection axis stays in TS/Rust; PAD drives it and reports.
@@ -378,6 +565,100 @@ public static class Cli
                 case "pack" when cmd == "scan":
                     Say(await new Packs(launcher).ScanDrop(log, CancellationToken.None));
                     return 0;
+
+                // ---- 安装概念（D107 / docs/proposals/install-concept）----------
+                // 预检：只读数据，exit 0；参数/实例错误由 Need/PA012 走 1。
+                case "pack" when cmd == "preflight":
+                {
+                    var all = rest.Where(a => a.Length > 0).ToArray();
+                    var packRef = FlagValue(all, "--pack");
+                    var instanceId = Positionals(all, "--pack", "--profile", "--out").FirstOrDefault();
+                    if (instanceId is null || string.IsNullOrWhiteSpace(packRef))
+                    {
+                        Say("usage: pad cli pack preflight <instance> --pack <id|path> [--profile p] [--json] [--out f]");
+                        return 1;
+                    }
+                    var inst = Need(launcher, instanceId);
+                    var packs = new Packs(launcher);
+                    var card = await packs.ResolveCard(packRef, log, CancellationToken.None)
+                        ?? throw new PadError("PA012", "no such pack", packRef,
+                            "目录行和文件路径都没找到",
+                            ["pad cli pack list", "或给 .pack.zip / .pack.json 的绝对路径"]);
+                    var profile = FlagValue(all, "--profile")
+                        ?? inst.LastProfile
+                        ?? launcher.Profiles(inst).FirstOrDefault()?.Name
+                        ?? "web";
+                    var preflight = await packs.PreflightPack(inst, profile, card, log, CancellationToken.None);
+                    var json = JsonSerializer.Serialize(preflight, Pretty);
+                    if (all.Contains("--json"))
+                    {
+                        WriteOrOut(all, json);
+                        return 0;
+                    }
+                    Say($"包 {preflight.Title} {preflight.Version} → {preflight.InstanceId} / profile {preflight.Profile}");
+                    Say(preflight.Summary);
+                    if (preflight.AlreadyInstalled)
+                        Say($"  账本：已装过（state={preflight.LedgerState}）");
+                    if (!preflight.ManagerInstalled)
+                        Say($"  管理器：这个 profile 没有 {Packs.ManagerSpec}（安装时会补）");
+                    foreach (var plugin in preflight.Plugins.Where(p => p.Status != PackPluginStatus.Ok))
+                        Say($"  {plugin.Status,-16} {plugin.Name,-42} {plugin.Requirement}");
+                    foreach (var warning in preflight.Warnings) Say($"  ! {warning}");
+                    if (FlagValue(all, "--out") is not null) WriteOrOut(all, json);
+                    return 0;
+                }
+
+                // 安装：一次授权（--accept-risk / --skip-missing）→ 应用 → 报告；
+                // exit 0 = 已应用（installed/incomplete）；2 = 需要用户决定且没带对应选项且非 dry-run。
+                case "pack" when cmd == "install":
+                {
+                    var all = rest.Where(a => a.Length > 0).ToArray();
+                    var packRef = FlagValue(all, "--pack");
+                    var instanceId = Positionals(all, "--pack", "--profile", "--out").FirstOrDefault();
+                    if (instanceId is null || string.IsNullOrWhiteSpace(packRef))
+                    {
+                        Say("usage: pad cli pack install <instance> --pack <id|path> [--profile p] [--accept-risk] [--skip-missing] [--dry-run] [--json] [--out f]");
+                        return 1;
+                    }
+                    var inst = Need(launcher, instanceId);
+                    var packs = new Packs(launcher);
+                    var card = await packs.ResolveCard(packRef, log, CancellationToken.None)
+                        ?? throw new PadError("PA012", "no such pack", packRef,
+                            "目录行和文件路径都没找到",
+                            ["pad cli pack list", "或给 .pack.zip / .pack.json 的绝对路径"]);
+                    var profile = FlagValue(all, "--profile")
+                        ?? inst.LastProfile
+                        ?? launcher.Profiles(inst).FirstOrDefault()?.Name
+                        ?? "web";
+                    var opts = new PackInstallOptions
+                    {
+                        AcceptRisk = all.Contains("--accept-risk"),
+                        SkipMissing = all.Contains("--skip-missing"),
+                        DryRun = all.Contains("--dry-run"),
+                    };
+                    var report = await packs.InstallPackToInstance(inst, profile, card, opts, log,
+                        CancellationToken.None);
+                    var json = JsonSerializer.Serialize(report, Pretty);
+                    if (all.Contains("--json"))
+                    {
+                        WriteOrOut(all, json);
+                    }
+                    else
+                    {
+                        Say($"包 {report.Title} → profile {report.Profile}");
+                        Say($"  {report.Text}");
+                        Say($"  状态 {report.State} · 新增 {report.Added.Count} · 保留 {report.Kept.Count}"
+                            + $" · 豁免 {report.Exempted.Count} · 跳过 {report.Skipped.Count}"
+                            + $" · 失败 {report.Failures.Count}");
+                        foreach (var skipped in report.Skipped) Say($"  skip     {skipped}");
+                        foreach (var exempted in report.Exempted) Say($"  exempt   {exempted}");
+                        foreach (var failure in report.Failures) Say($"  failed   {failure.Text}");
+                        foreach (var warning in report.Warnings) Say($"  ! {warning}");
+                        var outPath = FlagValue(all, "--out");
+                        if (outPath is not null) WriteOrOut(all, json);
+                    }
+                    return report.State == "needs-decision" && !opts.DryRun ? 2 : 0;
+                }
 
                 case "import":
                 {
@@ -485,6 +766,43 @@ public static class Cli
                     return 0;
                 }
 
+                // 项目状态：左栏那盏灯与项目卡的事实来源，UI 和脚本走同一个判定（D52）。
+                // `pad cli status [--json] [--out <path>]`：Phase = Stopped | Starting | Running。
+                case "status":
+                {
+                    var insts = launcher.Instances();
+                    var ledger = launcher.Runtime().Entries;
+                    // 命令行一次跑完：进程现场（PEB）当场扫一次，双击脚本/TUI 起的实例也算数。
+                    RunWatch.NoteHomes(RunWatch.ProbeHomes(CancellationToken.None));
+                    var map = RunWatch.Scan(launcher, insts, ledger);
+                    var rows = insts.Select(i =>
+                    {
+                        var run = map.TryGetValue(i.Id, out var known)
+                            ? known
+                            : new ProjectRun(i.Id, RunPhase.Stopped, "");
+                        return new { i.Id, i.Name, Phase = run.Phase.ToString(), run.Detail };
+                    }).ToList();
+
+                    var flags = new[] { cmd }.Concat(rest).Where(a => a.Length > 0).ToArray();
+                    if (flags.Contains("--json"))
+                    {
+                        var outPath = FlagValue(flags, "--out");
+                        if (outPath is not null)
+                        {
+                            var full = System.IO.Path.GetFullPath(outPath);
+                            System.IO.File.WriteAllText(full, JsonSerializer.Serialize(rows, Pretty));
+                            Say($"wrote {full}");
+                        }
+                        else Out(rows);
+                        return 0;
+                    }
+
+                    Say($"status  {rows.Count} 个项目");
+                    foreach (var row in rows)
+                        Say($"  {row.Name,-22} {row.Phase,-9} {row.Detail}");
+                    return 0;
+                }
+
                 case "credentials" when cmd == "has":
                 {
                     Instance? inst = rest.Length > 0 ? Need(launcher, rest[0]) : null;
@@ -515,11 +833,58 @@ public static class Cli
                     Out($"removed {rest[0]}");
                     return 0;
 
+                case "pad-update" when cmd == "check":
+                {
+                    var info = await PadUpdate.Check(launcher, CancellationToken.None);
+                    var current = PadUpdate.CurrentVersion();
+                    Out(new
+                    {
+                        current,
+                        enabled = PadUpdate.Enabled(launcher),
+                        feed = PadUpdate.Feed(launcher),
+                        newer = info is not null && PadUpdate.IsNewer(info.Version, current),
+                        latest = info,
+                    });
+                    return 0;
+                }
+
+                case "pad-update" when cmd == "fetch":
+                {
+                    var info = await PadUpdate.Check(launcher, CancellationToken.None);
+                    if (info is null) { Out(new { ok = false, reason = "no feed / no update / feed unreachable" }); return 1; }
+                    var current = PadUpdate.CurrentVersion();
+                    if (!PadUpdate.IsNewer(info.Version, current))
+                    { Out(new { ok = true, current, latest = info.Version, note = "already latest" }); return 0; }
+                    var path = await PadUpdate.Download(launcher, info, log, CancellationToken.None);
+                    Out(new { ok = true, version = info.Version, path, pending = PadUpdate.PendingFile(launcher) });
+                    return 0;
+                }
+
+                case "pad-update" when cmd == "pending":
+                    Out(new { pending = PadUpdate.Pending(launcher) });
+                    return 0;
+
+                case "pad-update" when cmd == "apply":
+                {
+                    var dry = cmd is not "apply" ? false : rest.Any(a => a == "--dry");
+                    var ok = PadUpdate.TryApplyPending(launcher, out var helper, dry || rest.Any(a => a == "--dry"));
+                    Out(new { ok, helper, dry = rest.Any(a => a == "--dry") });
+                    return ok ? 0 : 1;
+                }
+
                 case "portable-export":
                 {
                     if (cmd.Length == 0) return Usage("pad cli portable-export <dest> [instanceId]");
                     Out(launcher.ExportPortable(cmd, rest.Length > 0 ? rest[0] : null));
                     return 0;
+                }
+
+                case "pack-runtime" when cmd == "stage":
+                {
+                    if (rest.Length < 1) return Usage("pad cli pack-runtime stage <dest>");
+                    var ok = launcher.StagePackRuntime(rest[0]);
+                    Say(ok ? $"pack-runtime staged: {Path.GetFullPath(rest[0])}" : "pack-runtime staging skipped");
+                    return ok ? 0 : 1;
                 }
 
                 case "experimental" when cmd == "list":
@@ -677,7 +1042,7 @@ public static class Cli
                     }
 
                     if (home is null)
-                        return Usage("pad cli node open <home> [--surface tui|web] [--bin <bin.js>] [--json]");
+                        return Usage("pad cli node open <home> [--surface tui|web|app|tauri] [--bin <bin.js>] [--exe <desktop.exe>] [--json]");
 
                     bin = ResolveBin(launcher, bin);
 
@@ -1058,6 +1423,22 @@ public static class Cli
                     return 0;
                 }
 
+                case "project":
+                    return await ProjectCli.Run(launcher, cmd, rest);
+
+                case "task":
+                    return await HeadlessTask.Run(launcher, cmd, rest);
+
+                case "queue":
+                    return await TaskQueue.Run(launcher, cmd, rest);
+
+                // 会话跳转与 surface 注册表：规划/执行都在 Jump/SessionCli，CLI 只做分发。
+                case "session":
+                    return await Jump.SessionCli.Run(launcher, cmd, rest);
+
+                case "surface":
+                    return Jump.SessionCli.RunSurface(launcher, cmd, rest);
+
                 default:
                     Console.WriteLine("""
                         pad cli import <pack.zip>
@@ -1072,11 +1453,17 @@ public static class Cli
                         pad cli plugin   list <instance> [profile] | add|remove|update <instance> <profile> <spec>
                         pad cli market   plugin|tui|skill|host [text]
                         pad cli trial    list <instance> | add <instance> <profile> <spec>
+                        pad cli session  ref <session> [--json] | open <instance> <session> [--surface <s>] [--no-exec] [--json]
+                        pad cli surface  list [--json] | validate [--json]
                                          | commit <instance> <profile> <spec> | drop <instance> <profile> <spec>
                         pad cli pack     list | list <instance> | project <instance> <pack>
                                          | allow <instance> <pack-id> | deny <instance> <pack-id> | scan
                                          list 支持 --json / --out <path> / --roots <a;b> / --deep <dir>
                         pad cli credentials list | has [instance] | get <name> | set <name> <file.yaml> | remove <name>
+                        pad cli task run <instance> --input <file> --out <file> [--timeout <seconds>]
+                        pad cli queue submit <instance> --input <file> --out <receipt.json>
+                        pad cli queue submit-mesh --url <peer> --input <file> --out <receipt.json>
+                        pad cli queue list --out <file> | status|cancel|retry <id> --out <file> | worker [--once]
                         pad cli portable-export <dest> [instanceId]
                         pad cli stop <instance> <profile>
                         pad cli ps
@@ -1113,24 +1500,31 @@ public static class Cli
     }
 
     /// <summary>
-    /// Where the management side door comes from. Override with PAD_GATEWAY_SPEC to
-    /// point at a working copy instead of the published package.
+    /// Where the management side door comes from. 0.2.x only needs the jump carrier
+    /// (no apiproxy); older releases use the full gateway. PAD_GATEWAY_SPEC points at a
+    /// working copy instead of the published package.
     /// </summary>
-    public static string GatewaySpec =>
-        Environment.GetEnvironmentVariable("PAD_GATEWAY_SPEC") is { Length: > 0 } s
-            ? s
+    public static string GatewaySpecFor(string? release)
+    {
+        if (Environment.GetEnvironmentVariable("PAD_GATEWAY_SPEC") is { Length: > 0 } custom) return custom;
+        return release is not null && release.StartsWith("0.2.", StringComparison.Ordinal)
+            ? "@sakikotgw/pad-gateway-jump"
             : "@sakikotgw/pad-gateway";
+    }
+
+    public static string GatewaySpec => GatewaySpecFor(null);
 
     /// <summary>
     /// The bundle sets PAD installs, kept identical to what the window installs.
     /// The gateway package pulls apiproxy and the directory picker itself, so a
-    /// terminal profile needs exactly two adds.
+    /// terminal profile needs exactly two adds. A web profile also gets the session
+    /// jump consumer plugin, so PAD-opened pages can be steered from this launcher.
     /// </summary>
     public static string[] Recipe(string kind, string release) => kind switch
     {
-        "tui" => ["@deepseek-harness-tui/dsh-tui", GatewaySpec],
-        "web" => [$"@deepseek-ai/dsh-web-app@{release}"],
-        _ => [GatewaySpec],
+        "tui" => ["@deepseek-harness-tui/dsh-tui", GatewaySpecFor(release)],
+        "web" => [$"@deepseek-ai/dsh-web-app@{release}", "@sakikotgw/pad-session-jump"],
+        _ => [GatewaySpecFor(release)],
     };
 
     static Instance Need(Launcher l, string id) =>
@@ -1147,7 +1541,7 @@ public static class Cli
         var surface = Surface.For(surfaceName ?? "web")
             ?? throw new PadError("PA084", "unknown surface", surfaceName!, null, ["pad cli surfaces"]);
 
-        var effectiveProfile = profile ?? surface.Name switch { "tui" => "tui", "web" => "web", _ => "app" };
+        var effectiveProfile = profile ?? surface.Name switch { "tui" => "tui", "web" => "web", "tauri" => "tauri", _ => "app" };
 
         // Opening a second instance on the same home+profile would replace the ledger row
         // and orphan the first process: still running, no longer tracked, un-closeable
@@ -1188,6 +1582,13 @@ public static class Cli
                 return await Nodes.OpenApp(home, exePath, userData,
                     TimeSpan.FromSeconds(75), CancellationToken.None);
 
+            case "tauri":
+                if (exePath is null)
+                    throw new PadError("PA146", "the tauri surface needs --exe", home, null,
+                        ["pad cli node open <home> --surface tauri --exe <deepseek-harness-desktop.exe>"]);
+                return await Nodes.OpenTauri(home, exePath,
+                    TimeSpan.FromSeconds(30), CancellationToken.None);
+
             default:
                 throw new PadError("PA085", "that surface is not implemented yet", surface.Name, null,
                     ["pad cli surfaces"]);
@@ -1201,9 +1602,13 @@ public static class Cli
             opened.Profile, opened.Surface, opened.Port, opened.Url, opened.Pid,
             DateTimeOffset.Now.ToString("o"), opened.LogPath, opened.Verified));
 
-        var windowed = false;
-        var how = "terminal window";
-        if (opened.Surface == "web") windowed = Nodes.TryOpenWindow(opened.Url, out how);
+        var how = opened.Surface switch
+        {
+            "tui" => "terminal window",
+            "tauri" => "tauri desktop window",
+            _ => "none",
+        };
+        if (opened.Surface == "web") Nodes.TryOpenWindow(opened.Url, out how);
 
         if (json)
         {
@@ -1211,7 +1616,7 @@ public static class Cli
             {
                 opened.Home, opened.Profile, opened.Surface, opened.Port,
                 opened.Url, opened.Pid, opened.LogPath, opened.Verified,
-                window = opened.Surface == "tui" ? "terminal window" : (windowed ? how : "none"),
+                window = how,
             });
         }
         else
@@ -1265,6 +1670,23 @@ public static class Cli
     {
         Console.Error.WriteLine("usage: " + line);
         return 2;
+    }
+
+    /// <summary>Write a JSON payload to <c>--out</c> when given, else print it.
+    /// WinExe stdout cannot be reliably redirected, so --out is the scriptable channel.</summary>
+    static void WriteOrOut(string[] all, string text)
+    {
+        var outPath = FlagValue(all, "--out");
+        if (outPath is null)
+        {
+            Say(text.TrimEnd());
+            return;
+        }
+        var full = System.IO.Path.GetFullPath(outPath);
+        var dir = System.IO.Path.GetDirectoryName(full);
+        if (!string.IsNullOrWhiteSpace(dir)) System.IO.Directory.CreateDirectory(dir);
+        System.IO.File.WriteAllText(full, text, new UTF8Encoding(false));
+        Say($"wrote {full}");
     }
 
     /// <summary>Value of <c>--name value</c> in a flat argument list, or null.</summary>

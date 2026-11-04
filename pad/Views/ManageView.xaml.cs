@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Microsoft.Win32;
 using Pad.Core;
 
 namespace Pad.Views;
@@ -9,23 +11,53 @@ public partial class ManageView : UserControl, IRefreshable
 {
     readonly MainWindow _win;
     readonly AppState _state = AppState.Current;
+    readonly Packs _packs;
     List<WorkspaceNode> _nodes = [];
     bool _loadingBundles;
     bool _bundleBusy;
     CancellationTokenSource? _iconCts;
 
+    /// <summary>实例列表的一行：名字/版本 + 运行状态（启动器先要能看出哪个在跑）。</summary>
+    public sealed class InstRow
+    {
+        public required Instance Inst { get; init; }
+        public bool Live { get; init; }
+        public string Name => Inst.Name;
+        public string Version => Inst.Dsh.Version;
+        public string StateText => Live ? "在跑" : "已停";
+    }
+
     public ManageView(MainWindow win)
     {
         InitializeComponent();
         _win = win;
+        _packs = new Packs(_state.Launcher);
         DataContext = _state;
     }
 
     public void OnShown()
     {
         _state.RefreshRunning();
-        SelectInstance(_state.SelectedInstance);
+        PaintInstances();
         _ = Refresh();
+    }
+
+    /// <summary>实例列表带运行状态；状态随 RefreshRunning 变化就地重画。</summary>
+    void PaintInstances()
+    {
+        var keep = _state.SelectedInstance;
+        var rows = _state.Instances
+            .Select(i => new InstRow
+            {
+                Inst = i,
+                Live = _state.Running.Any(r => r.Entry.Instance == i.Id),
+            })
+            .ToList();
+        InstList.ItemsSource = rows;
+        if (keep is not null)
+            InstList.SelectedItem = rows.FirstOrDefault(r => r.Inst.Id == keep.Id);
+        else if (rows.Count > 0)
+            InstList.SelectedItem = rows[0];
     }
 
     void SelectInstance(Instance? inst)
@@ -37,7 +69,7 @@ public partial class ManageView : UserControl, IRefreshable
         }
         foreach (var row in InstList.Items)
         {
-            if (row is Instance i && i.Id == inst.Id)
+            if (row is InstRow r && r.Inst.Id == inst.Id)
             {
                 InstList.SelectedItem = row;
                 return;
@@ -47,8 +79,8 @@ public partial class ManageView : UserControl, IRefreshable
 
     void Inst_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (InstList.SelectedItem is Instance inst)
-            _state.SelectedInstance = inst;
+        if (InstList.SelectedItem is InstRow row)
+            _state.SelectedInstance = row.Inst;
         BundleLog.Clear();
         BundleLog.Height = 0;
         BundleLog.Visibility = Visibility.Collapsed;
@@ -197,7 +229,6 @@ public partial class ManageView : UserControl, IRefreshable
         var pick = BundleProfile.SelectedItem as string;
         var rows = _state.Launcher.ListBundles(inst)
             .Where(r => pick is null || r.Profile == pick)
-            .Where(r => LaunchPolicy.IsProfileLayer(r.Spec))
             .ToList();
         foreach (var r in rows)
         {
@@ -212,7 +243,7 @@ public partial class ManageView : UserControl, IRefreshable
         }
         else if (rows.Count == 0)
         {
-            BundleEmpty.Text = "这个 --profile 还没有组合包";
+            BundleEmpty.Text = "这个 --profile 还没有插件";
             BundleEmpty.Visibility = Visibility.Visible;
         }
         else
@@ -248,6 +279,78 @@ public partial class ManageView : UserControl, IRefreshable
             new Progress<string>(BundleSay), CancellationToken.None, profile);
         BundleSay("下次启动生效。");
         LoadBundles();
+    }
+
+    async void BundleImport_Click(object sender, RoutedEventArgs e)
+    {
+        var inst = _state.SelectedInstance;
+        if (inst is null) return;
+        if (_packs.Unavailable() is { } missing)
+        {
+            _win.Toast($"{missing.Reason}。{missing.Detail}", bad: true);
+            return;
+        }
+        var dlg = new OpenFileDialog
+        {
+            Title = "选一个整合包",
+            Filter = "整合包 (*.pack.zip;*.pack.json;*.pinst.zip)|*.pack.zip;*.pack.json;*.pinst.zip|所有文件|*.*",
+        };
+        if (dlg.ShowDialog(_win) != true) return;
+        BundleBusy(true);
+        var log = new Progress<string>(BundleSay);
+        try
+        {
+            BundleSay($"装 {Path.GetFileName(dlg.FileName)} → {inst.Name}");
+            await _packs.Project(inst, dlg.FileName, log, CancellationToken.None);
+            LoadBundles();
+        }
+        catch (Exception ex)
+        {
+            BundleSay(PadError.Describe(ex));
+            _win.Toast(PadError.Describe(ex), bad: true);
+        }
+        finally { BundleBusy(false); }
+    }
+
+    /// <summary>
+    /// 反向兼容：把当前实例导出成 PackForge <c>.dspack</c>（profile / dshhome 自动判别），
+    /// 别的启动器（HDSL / PackForge GUI / official-desktop）也能装。sessions/凭据/运行数据不进包。
+    /// </summary>
+    async void ExportDspack_Click(object sender, RoutedEventArgs e)
+    {
+        var inst = _state.SelectedInstance;
+        if (inst is null)
+        {
+            _win.Toast("先选一个实例", bad: true);
+            return;
+        }
+        var dlg = new SaveFileDialog
+        {
+            Title = "导出为 PackForge .dspack",
+            Filter = "PackForge 整合包 (*.dspack)|*.dspack|所有文件|*.*",
+            FileName = $"{inst.Id}-{inst.Dsh.Version}.dspack",
+        };
+        if (dlg.ShowDialog(_win) != true) return;
+        try
+        {
+            _win.Toast("正在导出 " + Path.GetFileName(dlg.FileName));
+            var json = await _packs.PackforgeExportInstance(
+                inst.Home, dlg.FileName, null, inst.Id, null, inst.Dsh.Version, CancellationToken.None);
+            var path = dlg.FileName;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("path", out var p) && p.GetString() is { Length: > 0 } got)
+                    path = got;
+            }
+            catch { /* 导出已成功，路径落回对话框选择 */ }
+            _win.Toast("导出好了：" + path);
+            try { Reveal.Path(Path.GetDirectoryName(path) ?? ""); } catch { /* reveal 只是便利 */ }
+        }
+        catch (Exception ex)
+        {
+            _win.Toast(PadError.Describe(ex), bad: true);
+        }
     }
 
     async void BundleAdd_Click(object sender, RoutedEventArgs e)
@@ -322,12 +425,13 @@ public partial class ManageView : UserControl, IRefreshable
         var inst = _state.SelectedInstance;
         var profile = SelectedBundleProfile();
         if (inst is null || string.IsNullOrEmpty(profile)) return;
+        // 全部更新 = 这个 profile 里所有“装在 profile 里”的插件；发行号自带的（Provided）不跟着 npm 更新。
         var rows = _state.Launcher.ListBundles(inst)
-            .Where(r => r.Profile == profile && LaunchPolicy.IsProfileLayer(r.Spec))
+            .Where(r => r.Profile == profile && !r.Provided)
             .ToList();
         if (rows.Count == 0)
         {
-            BundleSay("没有可更新的组合包。");
+            BundleSay("没有可更新的插件。");
             return;
         }
         BundleBusy(true);
@@ -406,7 +510,7 @@ public partial class ManageView : UserControl, IRefreshable
             Waiting(false);
             _nodes = [];
             Tree.ItemsSource = null;
-            TreeHint.Text = "点启动。进度在悬浮卡片上。组合包更新不需要先启动。";
+            TreeHint.Text = "这个实例还没启动。启动后这里会列出正在跑的 agent 会话。";
             TreeHint.Visibility = Visibility.Visible;
             return;
         }
@@ -432,7 +536,7 @@ public partial class ManageView : UserControl, IRefreshable
             _nodes = [];
             Tree.ItemsSource = null;
             TreeHint.Text = probe.State == GatewayState.NoAd
-                ? "这份实例没有管理口。组合包更新不需要管理口。"
+                ? "这份实例没有管理口，看不到正在聊的会话。"
                 : probe.Message;
             TreeHint.Visibility = Visibility.Visible;
             run.Agents = -1;
@@ -526,15 +630,35 @@ public partial class ManageView : UserControl, IRefreshable
         }
     }
 
-    void OpenSession_Click(object sender, RoutedEventArgs e)
+    async void OpenSession_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: LiveSession s }) return;
         var inst = _state.SelectedInstance;
         if (inst is null) return;
 
-        var row = _state.Launcher.Sessions(inst)
-            .FirstOrDefault(r => string.Equals(r.Id, s.SessionId, StringComparison.OrdinalIgnoreCase));
-        Reveal.Path(row is not null ? row.Path : System.IO.Path.Combine(inst.Home, "sessions"));
+        try
+        {
+            var plan = await Pad.Core.Jump.JumpPlanner.ExecuteAsync(_state.Launcher, inst, s.SessionId, null, execute: true);
+            if (!plan.Executed)
+            {
+                // No usable surface right now: keep the old behavior (reveal the transcript).
+                var row = _state.Launcher.Sessions(inst)
+                    .FirstOrDefault(r => string.Equals(r.Id, s.SessionId, StringComparison.OrdinalIgnoreCase));
+                Reveal.Path(row is not null ? row.Path : System.IO.Path.Combine(inst.Home, "sessions"));
+                Hint(plan.Chosen is null
+                    ? "这份实例现在没有可用的界面，已打开会话文件。"
+                    : plan.Detail ?? "已打开会话文件。");
+                return;
+            }
+            Hint(plan.Detail ?? $"已打开 {s.SessionId}");
+        }
+        catch (Exception ex)
+        {
+            var row = _state.Launcher.Sessions(inst)
+                .FirstOrDefault(r => string.Equals(r.Id, s.SessionId, StringComparison.OrdinalIgnoreCase));
+            Reveal.Path(row is not null ? row.Path : System.IO.Path.Combine(inst.Home, "sessions"));
+            Hint(PadError.Describe(ex));
+        }
     }
 
     Instance? SelectedInst() => _state.SelectedInstance;
