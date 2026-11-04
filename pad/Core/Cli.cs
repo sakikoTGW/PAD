@@ -278,8 +278,9 @@ public static class Cli
                     var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
                     if (pos.Length < 3) return Usage($"pad cli plugin {cmd} <instance> <profile> <spec> [--hot]");
                     var spec = string.Join(" ", pos.Skip(2));
-                    var applied = await HotReload.ApplyAsync(launcher, Need(launcher, pos[0]), pos[1], cmd, spec,
-                        flags.Contains("--hot"), log, CancellationToken.None);
+                    var applied = await PluginCommands.ApplyAsync(
+                        launcher, Need(launcher, pos[0]), pos[1], cmd, spec,
+                        log, CancellationToken.None, wantHot: flags.Contains("--hot"));
                     Out(applied);
                     // 0 = done (hot verified, or cold written); 3 = hot verify failed and was rolled back.
                     return applied.Ok ? 0 : 3;

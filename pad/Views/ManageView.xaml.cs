@@ -362,15 +362,20 @@ public partial class ManageView : UserControl, IRefreshable
 
     string? SelectedBundleProfile() => BundleProfile.SelectedItem as string;
 
-    async Task RunPlugin(string action, string spec, string profile)
+    async Task<HotApplyResult> RunPlugin(string action, string spec, string profile)
     {
-        var inst = _state.SelectedInstance;
-        if (inst is null) return;
+        var inst = _state.SelectedInstance
+            ?? throw new PadError("PA026", "no such instance", "manage", null, ["先选一个实例"]);
         BundleSay($"{action} {spec} → {profile}");
-        await _state.Launcher.PluginOp(inst.Id, action, spec,
-            new Progress<string>(BundleSay), CancellationToken.None, profile);
-        BundleSay("下次启动生效。");
+        var applied = await PluginCommands.ApplyAsync(
+            _state.Launcher, inst, profile, action, spec,
+            new Progress<string>(BundleSay), CancellationToken.None);
+        BundleSay(applied.Message);
+        if (!applied.Ok)
+            throw new PadError("PA014", $"plugin {action} failed: {spec}", applied.Message, null,
+                ["看上面的日志", "或用 pad cli plugin verify"]);
         LoadBundles();
+        return applied;
     }
 
     async void BundleImport_Click(object sender, RoutedEventArgs e)
@@ -459,9 +464,9 @@ public partial class ManageView : UserControl, IRefreshable
         BundleBusy(true);
         try
         {
-            await RunPlugin("add", spec, profile);
+            var applied = await RunPlugin("add", spec, profile);
             BundleSpec.Clear();
-            _win.Toast($"add {spec} 下次启动生效");
+            _win.Toast($"add {spec} · {applied.Message}");
         }
         catch (Exception ex)
         {
@@ -478,8 +483,8 @@ public partial class ManageView : UserControl, IRefreshable
         BundleBusy(true);
         try
         {
-            await RunPlugin("update", row.Spec, row.Profile);
-            _win.Toast($"update {row.Spec} 下次启动生效");
+            var applied = await RunPlugin("update", row.Spec, row.Profile);
+            _win.Toast($"update {row.Spec} · {applied.Message}");
         }
         catch (Exception ex)
         {
@@ -500,8 +505,8 @@ public partial class ManageView : UserControl, IRefreshable
         BundleBusy(true);
         try
         {
-            await RunPlugin("remove", row.Spec, row.Profile);
-            _win.Toast($"remove {row.Spec} 下次启动生效");
+            var applied = await RunPlugin("remove", row.Spec, row.Profile);
+            _win.Toast($"remove {row.Spec} · {applied.Message}");
         }
         catch (Exception ex)
         {
@@ -529,9 +534,12 @@ public partial class ManageView : UserControl, IRefreshable
         BundleBusy(true);
         try
         {
+            HotApplyResult? last = null;
             foreach (var row in rows)
-                await RunPlugin("update", row.Spec, row.Profile);
-            _win.Toast($"{profile} 已全部更新，下次启动生效");
+                last = await RunPlugin("update", row.Spec, row.Profile);
+            _win.Toast(last is null
+                ? $"{profile} 已全部更新"
+                : $"{profile} 已全部更新 · {last.Message}");
         }
         catch (Exception ex)
         {

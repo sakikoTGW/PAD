@@ -88,9 +88,7 @@
       <ColumnDefinition Width="*" />
     </Grid.ColumnDefinitions>
 
-    <!-- The version axis first, then the community shelves under one heading. Each
-         shelf is an npm search qualifier, so nothing can appear here that
-         `dsh plugin add` could not install. -->
+    <!-- Left rail is destinations only. Shelf categories live as chips inside 插件商店. -->
     <Border x:Name="StoreRail" Grid.Column="0" Width="196" Background="{StaticResource BgSidebar}"
             BorderThickness="0,0,1,0" BorderBrush="{StaticResource LineBorder}">
       <Grid>
@@ -103,8 +101,9 @@
           <RadioButton x:Name="NavRelease" Style="{StaticResource NavItem}" Content="发行号"
                        v:Ico.Of="{StaticResource I.Block}" IsChecked="True" Checked="Nav_Checked"
                        GroupName="dlNav" Tag="release" />
-          <TextBlock Text="社区资源" Style="{StaticResource NavGroup}" />
-          <StackPanel x:Name="ShelfNav" />
+          <RadioButton x:Name="NavMarket" Style="{StaticResource NavItem}" Content="插件商店"
+                       v:Ico.Of="{StaticResource I.Mod}" Checked="Nav_Checked"
+                       GroupName="dlNav" Tag="market" />
           <RadioButton x:Name="NavDlTasks" Style="{StaticResource NavItem}" Content="下载任务"
                        v:Ico.Of="{StaticResource I.Tasks}" Checked="Nav_Checked"
                        GroupName="dlNav" Tag="dltasks" />
@@ -331,47 +330,42 @@
                       Click="StoreMore_Click" Height="30" Padding="14,0" />
             </Grid>
 
-            <Border x:Name="ShelfInfo" Style="{StaticResource HintBar}" Margin="0,14,0,0">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                  <TextBlock x:Name="ShelfInfoTitle" FontWeight="SemiBold"
-                             Foreground="{StaticResource AccentText}" />
-                  <TextBlock x:Name="ShelfInfoText" Style="{StaticResource Muted}"
-                             Margin="0,3,0,0" />
-                </StackPanel>
-                <TextBlock Grid.Column="1" x:Name="ShelfQuery" Style="{StaticResource Mono}"
-                           Margin="18,0,0,0" VerticalAlignment="Center"
-                           ToolTip="发送给 npm registry 的查询条件" />
-              </Grid>
-            </Border>
-
-            <Border Margin="0,16,0,0" Height="42" CornerRadius="21"
+            <Border Margin="0,16,0,0" Height="42" CornerRadius="{StaticResource RadCard}"
                     Background="{StaticResource BgCard}" BorderThickness="1"
-                    BorderBrush="{StaticResource LineBorder}">
+                    BorderBrush="{StaticResource LineBorder}" ClipToBounds="True">
               <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Grid Grid.Column="0">
-                  <ContentControl Style="{StaticResource Pict}" v:Ico.Of="{StaticResource I.Search}"
-                                  HorizontalAlignment="Left" VerticalAlignment="Center"
-                                  Margin="16,0,0,0" />
-                  <TextBox x:Name="SearchBox" BorderThickness="0" Background="Transparent"
-                           Margin="46,0,10,0" VerticalContentAlignment="Center"
-                           Tag="搜索插件、作者、关键词…" KeyDown="Search_Key" />
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Grid Grid.Column="0">
+                    <ContentControl Style="{StaticResource Pict}" v:Ico.Of="{StaticResource I.Search}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Margin="14,0,0,0" />
+                    <TextBox x:Name="SearchBox" Style="{StaticResource FieldEmbed}"
+                             Margin="42,0,10,0" VerticalContentAlignment="Center"
+                             Tag="搜索插件、作者、关键词…" KeyDown="Search_Key" />
+                  </Grid>
+                  <Button Grid.Column="1" x:Name="SearchBtn" Style="{StaticResource BtnPrimary}"
+                          Content="搜索" Height="32" Padding="20,0" Margin="0,0,5,0"
+                          Click="Search_Click" />
                 </Grid>
-                <Button Grid.Column="1" x:Name="SearchBtn" Style="{StaticResource BtnPrimary}"
-                        Content="搜索" Height="32" Padding="20,0" Margin="0,0,5,0"
-                        Click="Search_Click" />
+                <!-- Focus halo: fades in with the caret (Fx.Edge), not a hard border swap. -->
+                <Border x:Name="SearchRing" IsHitTestVisible="False" Opacity="0"
+                        CornerRadius="{StaticResource RadCard}" BorderThickness="1.6"
+                        BorderBrush="{StaticResource Focus}" />
               </Grid>
             </Border>
 
-            <StackPanel x:Name="ChipRow" Orientation="Horizontal" Margin="0,14,0,0">
+            <!-- Categories are filters inside the store, not left-rail destinations. -->
+            <ScrollViewer x:Name="ShelfChipScroll" Margin="0,14,0,0"
+                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          Focusable="False">
+              <StackPanel x:Name="ShelfChipRow" Orientation="Horizontal" />
+            </ScrollViewer>
+
+            <StackPanel x:Name="ChipRow" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
               <RadioButton x:Name="ModeAll" Style="{StaticResource FilterTab}" Content="全部插件"
                            GroupName="storeMode" Visibility="Collapsed" Checked="StoreMode_Changed" />
               <RadioButton x:Name="ModeStars" Style="{StaticResource FilterTab}" Content="Star 增长"
@@ -533,7 +527,9 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Border Width="232" MinHeight="178" Margin="0,0,14,14" CornerRadius="17"
+                  <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
+                  <Grid Width="232" Margin="0,0,14,14" local:Fx.Enter="card">
+                  <Border MinHeight="178" CornerRadius="17" local:Fx.Hover="lift"
                           Cursor="Hand" Background="{StaticResource BgCard}"
                           BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                           Tag="{Binding}" MouseLeftButtonUp="Row_OpenDetail">
@@ -606,6 +602,7 @@
                       </Grid>
                     </Grid>
                   </Border>
+                  </Grid>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
@@ -629,7 +626,11 @@
               <TextBlock Text="无搜索结果" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
               <Border Height="2" Background="{StaticResource Accent}" HorizontalAlignment="Left"
                       Width="34" />
-              <TextBlock x:Name="EmptyText" Style="{StaticResource Muted}" Margin="0,15,0,0" />
+              <TextBlock x:Name="EmptyText" Style="{StaticResource Muted}" Margin="0,15,0,0"
+                         TextWrapping="Wrap" />
+              <Button x:Name="EmptyCrossBtn" Style="{StaticResource BtnWide}" Content="在全部插件中搜索"
+                      Margin="0,16,0,0" HorizontalAlignment="Left" Visibility="Collapsed"
+                      Click="EmptyCross_Click" v:Ico.Of="{StaticResource I.Search}" />
             </StackPanel>
           </Border>
 

@@ -493,29 +493,23 @@ public partial class SettingsView : UserControl, IRefreshable
             _ => "初始化启动",
         };
 
-        void ShowNext()
-        {
-            PaneApi.Visibility = tag == "api" ? Visibility.Visible : Visibility.Collapsed;
-            PaneLaunch.Visibility = tag == "launch" ? Visibility.Visible : Visibility.Collapsed;
-            PaneUi.Visibility = tag == "ui" ? Visibility.Visible : Visibility.Collapsed;
-            PaneDownload.Visibility = tag == "download" ? Visibility.Visible : Visibility.Collapsed;
-            PaneOther.Visibility = tag == "other" ? Visibility.Visible : Visibility.Collapsed;
-            if (tag == "api")
+        // Body PaneIn every switch; titles RevealEnter once (MarkEnter on first parent show).
+        Fx.SwapPane(
+            leaving is not null && leaving.Visibility == Visibility.Visible ? leaving : null,
+            next,
+            () =>
             {
-                ShowApiList();
-                PaintApiReady();
-            }
-            // Sub-page: titles cascade once; body stays. Revisit → MarkEnter already claimed.
-            next.Opacity = 1;
-            next.UpdateLayout();
-            Fx.RevealEnter(next);
-        }
-
-        if (Fx.Animated && leaving is not null && leaving.Visibility == Visibility.Visible
-            && !ReferenceEquals(leaving, next))
-            Fx.PageOut(leaving, ShowNext);
-        else
-            ShowNext();
+                PaneApi.Visibility = tag == "api" ? Visibility.Visible : Visibility.Collapsed;
+                PaneLaunch.Visibility = tag == "launch" ? Visibility.Visible : Visibility.Collapsed;
+                PaneUi.Visibility = tag == "ui" ? Visibility.Visible : Visibility.Collapsed;
+                PaneDownload.Visibility = tag == "download" ? Visibility.Visible : Visibility.Collapsed;
+                PaneOther.Visibility = tag == "other" ? Visibility.Visible : Visibility.Collapsed;
+                if (tag == "api")
+                {
+                    ShowApiList();
+                    PaintApiReady();
+                }
+            });
     }
 
     FrameworkElement? PaneOf(string layer) => layer switch

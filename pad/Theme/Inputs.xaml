@@ -125,6 +125,40 @@
     </Setter>
   </Style>
 
+  <!-- Nested inside a chrome shell (store search): no second card border / square ring. -->
+  <Style x:Key="FieldEmbed" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+    <Setter Property="Height" Value="Auto" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <Grid Background="Transparent">
+            <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Opacity="0"
+                       Foreground="{StaticResource TextMuted}" IsHitTestVisible="False"
+                       Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
+                       FontSize="{TemplateBinding FontSize}" />
+            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                          VerticalAlignment="Center" Background="Transparent" />
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="Text" Value="">
+              <Setter TargetName="hint" Property="Opacity" Value="1" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="hint" Property="Opacity" Value="0" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.5" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- Read-only mono transcript: subprocess output, never an editable field. -->
   <Style x:Key="LogBox" TargetType="TextBox">
     <Setter Property="IsReadOnly" Value="True" />

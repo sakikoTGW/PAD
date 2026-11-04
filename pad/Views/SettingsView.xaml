@@ -903,7 +903,7 @@
               <ContentControl Style="{StaticResource SlabHead}" Content="社区资源"
                               v:Ico.Of="{StaticResource I.Mod}" />
               <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,8"
-                         Text="商店货架（id|标签|npm 查询|用途说明）。货架共用商店界面，只改变查询范围。" />
+                         Text="商店分类芯片（id|标签|npm 查询|用途说明）。「推荐」固定；其余在商店页内筛选，共用同一列表。" />
               <TextBox x:Name="ShelvesBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap"
                        VerticalScrollBarVisibility="Auto" LostFocus="Download_Save"
                        FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />

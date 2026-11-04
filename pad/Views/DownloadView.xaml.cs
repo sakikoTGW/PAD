@@ -66,11 +66,17 @@ public partial class DownloadView : UserControl, IRefreshable
     string _detailHome = "";
     string _chip = "全部";
 
-    /// <summary>Empty means the 发行号 pane; otherwise a shelf id from Market.Shelves.</summary>
+    /// <summary>
+    /// Empty = 发行号 pane; <c>dltasks</c> = download jobs; <c>recommend</c> = growth board;
+    /// otherwise a shelf id from <see cref="Market.Shelves"/> (chip inside 插件商店).
+    /// </summary>
     string _shelf = "";
+    /// <summary>Left-rail destination: release | market | dltasks.</summary>
+    string _nav = "release";
     int _from;
     CancellationTokenSource? _live;
-    bool _shelvesPainted;
+    bool _chipsPainted;
+    bool _chipSelecting;
     DispatcherTimer? _dlPoll;
 
     public DownloadView(MainWindow win)
@@ -78,12 +84,14 @@ public partial class DownloadView : UserControl, IRefreshable
         InitializeComponent();
         _win = win;
         DataContext = _state;
-        Loaded += (_, _) => PaintShelves();
+        Loaded += (_, _) => PaintShelfChips();
+        SearchBox.GotKeyboardFocus += (_, _) => Fx.Edge(SearchRing, true, 170);
+        SearchBox.LostKeyboardFocus += (_, _) => Fx.Edge(SearchRing, false, 220);
         HookResize();
         IsVisibleChanged += (_, e) =>
         {
             if (e.NewValue is not true) StopDlPoll();
-            else if (_shelf == "dltasks") StartDlPoll();
+            else if (_nav == "dltasks") StartDlPoll();
         };
     }
 
@@ -93,10 +101,10 @@ public partial class DownloadView : UserControl, IRefreshable
         return new HttpClient { Timeout = TimeSpan.FromSeconds(sec) };
     }
 
-    /// <summary>Switch the left rail. Used by --shot-page market|dl-tasks.</summary>
+    /// <summary>Switch the left rail / in-store chip. Used by --shot-page market|dl-tasks.</summary>
     public void OpenShelf(string id)
     {
-        PaintShelves();
+        PaintShelfChips();
         if (id == "release")
         {
             NavRelease.IsChecked = true;
@@ -107,62 +115,122 @@ public partial class DownloadView : UserControl, IRefreshable
             NavDlTasks.IsChecked = true;
             return;
         }
-        foreach (var child in ShelfNav.Children.OfType<RadioButton>())
-        {
-            if ((child.Tag as string) == id)
-            {
-                child.IsChecked = true;
-                return;
-            }
-        }
-        if (ShelfNav.Children.OfType<RadioButton>().FirstOrDefault() is { } first)
-            first.IsChecked = true;
+        // Any shelf id (or "market" / "recommend") opens 插件商店, then selects that chip.
+        if (id is "market" or "store") id = "recommend";
+        _shelf = id;
+        NavMarket.IsChecked = true;
+        SelectShelfChip(id);
     }
 
-    void PaintShelves()
+    void PaintShelfChips()
     {
-        var want = string.Join('\n',
+        if (ShelfChipRow is null) return;
+        var want = "recommend\n" + string.Join('\n',
             Market.Shelves.Select(s => $"{s.Id}|{s.Label}|{s.Query}|{s.Description}"));
-        if (_shelvesPainted && (ShelfNav.Tag as string) == want) return;
-        ShelfNav.Children.Clear();
-        var glyphs = new Geometry?[]
-        {
-            TryGeom("I.Mod"), TryGeom("I.Data"), TryGeom("I.Sun"), TryGeom("I.Globe"),
-        };
-        var i = 0;
+        if (_chipsPainted && (ShelfChipRow.Tag as string) == want) return;
+        ShelfChipRow.Children.Clear();
+        AddShelfChip("recommend", "推荐", official: false);
         foreach (var s in Market.Shelves)
-        {
-            var btn = new RadioButton
-            {
-                Style = (Style)FindResource("NavItem"),
-                Content = s.Label,
-                Tag = s.Id,
-                GroupName = "dlNav",
-            };
-            if (glyphs[i % glyphs.Length] is { } g) Ico.SetOf(btn, g);
-            btn.Checked += Nav_Checked;
-            ShelfNav.Children.Add(btn);
-            i++;
-        }
-        ShelfNav.Tag = want;
-        _shelvesPainted = true;
-
+            AddShelfChip(s.Id, s.Label, official: s.Id == "host");
+        ShelfChipRow.Tag = want;
+        _chipsPainted = true;
+        SelectShelfChip(string.IsNullOrEmpty(_shelf) || _shelf is "dltasks" ? "recommend" : _shelf);
     }
 
-    Geometry? TryGeom(string key) =>
-        TryFindResource(key) as Geometry;
+    void AddShelfChip(string id, string label, bool official)
+    {
+        object content;
+        if (official)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock
+            {
+                Text = label,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            row.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Background = (Brush)FindResource("AccentWash"),
+                Padding = new Thickness(5, 1, 5, 1),
+                Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = "官方",
+                    FontSize = 10,
+                    Foreground = (Brush)FindResource("AccentText"),
+                },
+            });
+            content = row;
+        }
+        else content = label;
+
+        var btn = new RadioButton
+        {
+            Style = (Style)FindResource("FilterTab"),
+            Content = content,
+            Tag = id,
+            GroupName = "shelfChip",
+            Margin = new Thickness(0, 0, 8, 0),
+            ToolTip = id == "recommend"
+                ? "增长榜推荐"
+                : official ? "官方宿主与运行时组件；部分包不适合直接安装" : null,
+        };
+        btn.Checked += ShelfChip_Checked;
+        ShelfChipRow.Children.Add(btn);
+    }
+
+    void SelectShelfChip(string id)
+    {
+        if (ShelfChipRow is null) return;
+        _chipSelecting = true;
+        try
+        {
+            RadioButton? hit = null;
+            foreach (var child in ShelfChipRow.Children.OfType<RadioButton>())
+            {
+                if ((child.Tag as string) == id) { hit = child; break; }
+            }
+            hit ??= ShelfChipRow.Children.OfType<RadioButton>().FirstOrDefault();
+            if (hit is null) return;
+            if (hit.IsChecked != true) hit.IsChecked = true;
+            else if (hit.Tag is string tag) ApplyShelf(tag, reload: false);
+        }
+        finally { _chipSelecting = false; }
+    }
+
+    void ShelfChip_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_chipSelecting || sender is not RadioButton { IsChecked: true, Tag: string id } chip) return;
+        if (_nav != "market") return;
+        Fx.Pop(chip);
+        ApplyShelf(id, reload: true);
+    }
+
+    void ApplyShelf(string id, bool reload)
+    {
+        var changed = _shelf != id;
+        _shelf = id;
+        _storeMode = id == "recommend" ? "downloads" : "all";
+        PaintShelfCopy();
+        if (!reload) return;
+        if (!changed && ResultList.ItemsSource is not null) return;
+        _from = 0;
+        _ = Load();
+    }
 
     public void OnShown()
     {
         PaintChrome();
-        if (_shelf == "dltasks")
+        if (_nav == "dltasks")
         {
             PaintDlTasks();
             StartDlPoll();
             if (PaneDlTasks is not null) Fx.MarkEnter(PaneDlTasks);
             return;
         }
-        if (string.IsNullOrEmpty(_shelf))
+        if (_nav != "market")
         {
             if (PaneRelease is not null) Fx.MarkEnter(PaneRelease);
             if (_state.Settings.Download.AutoFetchOnOpen) _ = FetchVersions();
@@ -176,7 +244,7 @@ public partial class DownloadView : UserControl, IRefreshable
 
     /// <summary>
     /// Startup warm: tool lines, npm DSH packument, and first page of every community shelf
-    /// (fills <see cref="Market.Search"/> cache so 终端 / 插件 / … open without a stall).
+    /// (fills <see cref="Market.Search"/> cache so chips open without a stall).
     /// </summary>
     public async Task WarmAsync()
     {
@@ -202,7 +270,7 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void PaintChrome()
     {
-        PaintShelves();
+        PaintShelfChips();
         var def = _state.Settings.Launch.DefaultRelease;
         if (string.IsNullOrWhiteSpace(VersionBox.Text) && def.Length > 0)
             VersionBox.Text = def;
@@ -395,13 +463,15 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void Nav_Checked(object sender, RoutedEventArgs e)
     {
-        if (PaneRelease is null || sender is not RadioButton { Tag: string tag }) return;
+        if (PaneRelease is null || sender is not RadioButton { Tag: string tag, IsChecked: true }) return;
+        if (tag is not ("release" or "market" or "dltasks")) return;
 
         var release = tag == "release";
         var tasks = tag == "dltasks";
+        var market = tag == "market";
         FrameworkElement next = tasks && PaneDlTasks is not null ? PaneDlTasks
-            : release ? PaneRelease
-            : PaneMarket;
+            : market ? PaneMarket
+            : PaneRelease;
         var leaving =
             PaneDlTasks is not null && PaneDlTasks.Visibility == Visibility.Visible ? (FrameworkElement)PaneDlTasks
             : PaneRelease.Visibility == Visibility.Visible ? PaneRelease
@@ -409,69 +479,69 @@ public partial class DownloadView : UserControl, IRefreshable
             : null;
 
         var paneChanged = leaving is null || !ReferenceEquals(leaving, next);
+        if (!paneChanged) return;
 
-        void ShowNext()
+        Fx.SwapPane(leaving, next, () =>
         {
+            _nav = tag;
             PaneRelease.Visibility = release ? Visibility.Visible : Visibility.Collapsed;
-            PaneMarket.Visibility = !release && !tasks ? Visibility.Visible : Visibility.Collapsed;
+            PaneMarket.Visibility = market ? Visibility.Visible : Visibility.Collapsed;
             if (PaneDlTasks is not null)
                 PaneDlTasks.Visibility = tasks ? Visibility.Visible : Visibility.Collapsed;
 
             if (tasks)
             {
-                _shelf = "dltasks";
                 PaintDlTasks();
                 StartDlPoll();
-                if (paneChanged)
-                {
-                    next.Opacity = 1;
-                    next.UpdateLayout();
-                    Fx.RevealEnter(next);
-                }
                 return;
             }
 
             StopDlPoll();
+            if (release) return;
+
+            // 插件商店: keep chip + search; PaneIn handles enter motion.
             ShowMarketList();
-            if (paneChanged)
-            {
-                next.Opacity = 1;
-                next.UpdateLayout();
-                Fx.RevealEnter(next);
-            }
-            if (release) { _shelf = ""; return; }
-
-            if (_shelf == tag) return;
-            _shelf = tag;
-            var shelf = Shelf();
-            ShelfTitle.Text = $"{shelf.Label} · {shelf.Query}";
-            ShelfTitle.ToolTip = shelf.Query;
-            PaintShelfCopy(shelf);
-            SearchBox.Clear();
-            _from = 0;
+            PaintShelfChips();
+            if (string.IsNullOrEmpty(_shelf) || _shelf == "dltasks")
+                _shelf = "recommend";
+            SelectShelfChip(_shelf);
+            PaintShelfCopy();
             PickTarget();
-            _ = Load();
-        }
-
-        if (Fx.Animated && paneChanged && leaving is not null)
-            Fx.PageOut(leaving, ShowNext);
-        else
-            ShowNext();
+            // First enter or empty list → load; returning with results keeps them.
+            if (ResultList.ItemsSource is null) { _from = 0; _ = Load(); }
+        });
     }
 
-    (string Id, string Label, string Query, string Description) Shelf() =>
-        Market.Shelves.FirstOrDefault(s => s.Id == _shelf, Market.Shelves[0]);
-
-    void PaintShelfCopy((string Id, string Label, string Query, string Description) shelf)
+    (string Id, string Label, string Query, string Description) Shelf()
     {
+        if (_shelf == "recommend")
+            return ("recommend", "推荐", "", "增长榜：最近下载或 Star 涨得最快的包。");
+        return Market.Shelves.FirstOrDefault(s => s.Id == _shelf, Market.Shelves[0]);
+    }
+
+    void PaintShelfCopy()
+    {
+        var shelf = Shelf();
         StoreHeading.Text = "插件商店";
-        StoreSubtitle.Text = shelf.Label + "分类";
-        ShelfInfoTitle.Text = shelf.Label + " · 同一商店的查询货架";
-        ShelfInfoText.Text = string.IsNullOrWhiteSpace(shelf.Description)
-            ? "这个分类与其他货架共用列表、搜索和安装流程，只改变 npm 查询范围。"
-            : shelf.Description;
-        ShelfQuery.Text = shelf.Query;
-        SearchBox.Tag = $"在“{shelf.Label}”中搜索名称、作者、关键词…";
+        StoreSubtitle.Text = "社区插件 · 一键安装";
+        if (ShelfTitle is not null)
+        {
+            ShelfTitle.Text = shelf.Id == "recommend"
+                ? "推荐 · 增长榜"
+                : $"{shelf.Label} · {shelf.Query}";
+            ShelfTitle.ToolTip = shelf.Query.Length > 0 ? shelf.Query : null;
+        }
+        SearchBox.Tag = shelf.Id == "recommend"
+            ? "搜索会切到「全部」再查名称、作者、关键词…"
+            : $"在“{shelf.Label}”中搜索名称、作者、关键词…";
+    }
+
+    void EmptyCross_Click(object sender, RoutedEventArgs e)
+    {
+        // Keep the typed query; jump to the full plugin shelf chip.
+        _shelf = "";
+        SelectShelfChip("plugin");
+        ApplyShelf("plugin", reload: true);
     }
 
     void StartDlPoll()
@@ -667,13 +737,15 @@ public partial class DownloadView : UserControl, IRefreshable
         ClearBtn.IsEnabled = what is null;
     }
 
-    /// <summary>搜索永远在「全部插件」里做；增长首页收到搜索词时先切回搜索模式。</summary>
+    /// <summary>搜索在当前芯片范围内做；推荐榜收到搜索词时切到「全部」。</summary>
     void RunSearch()
     {
         _from = 0;
-        if (_storeMode != "all")
+        if (_shelf == "recommend")
         {
-            ModeAll.IsChecked = true; // 触发 StoreMode_Changed -> Load
+            _shelf = "";
+            SelectShelfChip("plugin");
+            ApplyShelf("plugin", reload: true);
             return;
         }
         _ = Load();
@@ -714,8 +786,8 @@ public partial class DownloadView : UserControl, IRefreshable
     /// </summary>
     async Task Load()
     {
-        if (_shelf == "dltasks") return;
-        if (_storeMode != "all")
+        if (_nav != "market" || _shelf == "dltasks") return;
+        if (_shelf == "recommend" || _storeMode != "all")
         {
             await LoadGrowth();
             return;
@@ -726,6 +798,7 @@ public partial class DownloadView : UserControl, IRefreshable
         MarketError.Visibility = Visibility.Collapsed;
         ResultCount.Text = "";
         EmptyCard.Visibility = Visibility.Collapsed;
+        if (EmptyCrossBtn is not null) EmptyCrossBtn.Visibility = Visibility.Collapsed;
         var first = ResultList.ItemsSource is null;
         if (first) ResultCard.Visibility = Visibility.Collapsed;
         PagerCard.Visibility = Visibility.Collapsed;
@@ -738,38 +811,13 @@ public partial class DownloadView : UserControl, IRefreshable
             _crossShelf = false;
             _pinyin = false;
             var text = SearchBox.Text.Trim();
-            var page = await Market.Search(Shelf().Query, text, _from, live.Token, _storePageSizeUsed);
+            var shelf = Shelf();
+            var found = await MarketCommands.SearchShelfAsync(
+                _state.Launcher, shelf.Id, shelf.Query, text, _from, _storePageSizeUsed,
+                new Progress<string>(x => StoreSectionRight.Text = x), live.Token);
             if (live.IsCancellationRequested) return;
-            if (page.Rows.Count == 0 && text.Length > 0 && _shelf == "plugin")
-            {
-                // 货架内没结果：去掉 keywords 限定再找一次，只留 DSH 相关的包。
-                var broad = await Market.Search("", text, 0, live.Token, _storePageSizeUsed);
-                if (live.IsCancellationRequested) return;
-                var rows = broad.Rows.Where(LooksLikeDsh).ToList();
-                if (rows.Count > 0)
-                {
-                    page = new MarketPage(rows, rows.Count, 0, rows.Count);
-                    _crossShelf = true;
-                }
-            }
-            // 拼音/首字母：npm 结果里一个都没命中时，用本地小索引兜底（热度前 3000）。
-            if (_shelf == "plugin" && text.Length > 0 && PinyinSearch.LooksLikePinyinQuery(text) &&
-                !page.Rows.Any(r => Market.NameMatches(r, text)))
-            {
-                {
-                    StoreSectionRight.Text = "正在匹配拼音…";
-                    if (await MarketPinyinIndex.EnsureAsync(_state.Launcher,
-                            new Progress<string>(x => StoreSectionRight.Text = x), live.Token))
-                    {
-                        var hits = MarketPinyinIndex.Lookup(text);
-                        if (hits.Count > 0)
-                        {
-                            page = new MarketPage(hits, hits.Count, 0, hits.Count);
-                            _pinyin = true;
-                        }
-                    }
-                }
-            }
+            _pinyin = found.Pinyin;
+            var page = found.Page;
             Paint(page);
             PrefetchNext(page);
             MarketPinyinIndex.Prewarm(_state.Launcher);
@@ -952,22 +1000,28 @@ public partial class DownloadView : UserControl, IRefreshable
         GrowthHero.Visibility = Visibility.Collapsed;
         ChipRow.Visibility = Visibility.Collapsed;
         StoreMoreBtn.Visibility = Visibility.Visible;
-        StoreModeLink.Content = "‹ 返回增长榜";
+        StoreModeLink.Content = "‹ 返回推荐";
         var shelf = Shelf();
-        StoreSectionTitle.Text = shelf.Id == "plugin" ? "全部插件" : shelf.Label;
-        StoreSectionSub.Text = $"{page.Total:N0} 个 npm 包";
+        StoreSectionTitle.Text = shelf.Label;
+        StoreSectionSub.Text = $"{page.Total:N0} 个包";
         StoreSectionRight.Text = text.Length == 0 ? ""
             : _pinyin ? $"拼音/首字母匹配 {shown.Count} 个"
-            : _crossShelf ? $"已跨货架找到 {shown.Count} 个"
             : best == 0 ? "没有精确命中 · 按 npm 相关性显示"
             : $"搜索“{text}”";
         ScrollStoreTop();
         ResultCard.Visibility = page.Rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-        EmptyText.Text = SearchBox.Text.Trim().Length == 0
-            ? $"“{shelf.Label}”货架暂时没有结果"
-            : $"“{shelf.Label}”中没有结果，请尝试英文名称或切换分类";
-        EmptyCard.Visibility = page.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var empty = page.Rows.Count == 0;
+        EmptyText.Text = text.Length == 0
+            ? $"“{shelf.Label}”暂时没有结果"
+            : $"“{shelf.Label}”中没有结果，可换关键词或到「全部」再搜";
+        EmptyCard.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        if (EmptyCrossBtn is not null)
+        {
+            var offerCross = empty && shelf.Id is not ("plugin" or "recommend");
+            EmptyCrossBtn.Visibility = offerCross ? Visibility.Visible : Visibility.Collapsed;
+            EmptyCrossBtn.Content = text.Length > 0 ? "在全部插件中搜索" : "浏览全部插件";
+        }
 
         ResultCount.Text = $"{page.Total:N0} 个插件";
         PageText.Text = $"{page.PageIndex + 1} / {page.PageCount}";
@@ -987,7 +1041,7 @@ public partial class DownloadView : UserControl, IRefreshable
     /// this one makes pagination feel instant (Market keeps a short-lived page cache).</summary>
     void PrefetchNext(MarketPage page)
     {
-        if (!page.HasNext || _shelf == "dltasks") return;
+        if (!page.HasNext || _shelf is "dltasks" or "recommend") return;
         var query = Shelf().Query;
         var text = SearchBox.Text;
         var size = page.Size;
@@ -1003,10 +1057,25 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void StoreMode_Changed(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioButton { IsChecked: true } rb) return;
+        // Hidden radios kept for shot helpers; prefer shelf chips in the UI.
+        if (_chipSelecting || sender is not RadioButton { IsChecked: true } rb) return;
         _storeMode = rb.Name == nameof(ModeStars) ? "stars"
             : rb.Name == nameof(ModeDownloads) ? "downloads" : "all";
-        if (!IsLoaded) return;
+        if (!IsLoaded || _nav != "market") return;
+        if (_storeMode == "all" && _shelf == "recommend")
+        {
+            _shelf = "";
+            SelectShelfChip("plugin");
+            ApplyShelf("plugin", reload: true);
+            return;
+        }
+        if (_storeMode != "all" && _shelf != "recommend")
+        {
+            _shelf = "";
+            SelectShelfChip("recommend");
+            ApplyShelf("recommend", reload: true);
+            return;
+        }
         _from = 0;
         _ = Load();
     }
@@ -1015,7 +1084,7 @@ public partial class DownloadView : UserControl, IRefreshable
     {
         if (sender is not RadioButton { IsChecked: true } rb) return;
         _storePeriod = rb.Name == nameof(PeriodDay) ? 1 : rb.Name == nameof(PeriodMonth) ? 30 : 7;
-        if (!IsLoaded || _storeMode == "all") return;
+        if (!IsLoaded || _shelf != "recommend") return;
         _from = 0;
         _ = Load();
     }
@@ -1025,8 +1094,7 @@ public partial class DownloadView : UserControl, IRefreshable
     {
         Dispatcher.BeginInvoke(async () =>
         {
-            _storeMode = "all";
-            ModeAll.IsChecked = true;
+            OpenShelf("plugin");
             SearchBox.Text = text;
             _from = 0;
             await Load();
@@ -1036,13 +1104,8 @@ public partial class DownloadView : UserControl, IRefreshable
     /// <summary>供 --shot-page 用：切到全部插件模式。</summary>
     public void ShowAllShot()
     {
-        Dispatcher.BeginInvoke(async () =>
-        {
-            ModeAll.IsChecked = true;
-            _storeMode = "all";
-            _from = 0;
-            await Load();
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => OpenShelf("plugin"),
+            System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     /// <summary>供 --shot-page 用：截收起的侧栏。</summary>
@@ -1052,16 +1115,11 @@ public partial class DownloadView : UserControl, IRefreshable
         StoreRailShow.Visibility = Visibility.Visible;
     }
 
-    /// <summary>供 --shot-page 用：打开下载增长模式看新商店的样子。</summary>
+    /// <summary>供 --shot-page 用：打开推荐增长榜。</summary>
     public void ShowGrowthShot()
     {
-        Dispatcher.BeginInvoke(async () =>
-        {
-            ModeDownloads.IsChecked = true; // 触发 StoreMode_Changed
-            _storeMode = "downloads";
-            _from = 0;
-            await Load();
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => OpenShelf("recommend"),
+            System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     void ScrollStoreTop() =>
@@ -1070,8 +1128,18 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void StoreModeLink_Click(object sender, RoutedEventArgs e)
     {
-        if (_storeMode == "all") ModeDownloads.IsChecked = true;
-        else ModeAll.IsChecked = true;
+        if (_shelf == "recommend")
+        {
+            _shelf = "";
+            SelectShelfChip("plugin");
+            ApplyShelf("plugin", reload: true);
+        }
+        else
+        {
+            _shelf = "";
+            SelectShelfChip("recommend");
+            ApplyShelf("recommend", reload: true);
+        }
     }
 
     void HeroOpen_Click(object sender, RoutedEventArgs e)
@@ -1099,8 +1167,9 @@ public partial class DownloadView : UserControl, IRefreshable
         ChipRow.Visibility = Visibility.Visible;
         StoreMoreBtn.Visibility = Visibility.Collapsed;
         StoreModeLink.Content = "浏览全部插件 ›";
+        if (EmptyCrossBtn is not null) EmptyCrossBtn.Visibility = Visibility.Collapsed;
         LoadCard.Visibility = ResultList.ItemsSource is null ? Visibility.Visible : Visibility.Collapsed;
-        StoreSectionTitle.Text = "增长榜";
+        StoreSectionTitle.Text = "推荐";
         StoreSectionSub.Text = _storeMode == "stars" ? "Star 增长" : "下载增长";
         StoreSectionRight.Text = "";
         Working("正在算增长榜");
@@ -1109,7 +1178,8 @@ public partial class DownloadView : UserControl, IRefreshable
             var boards = await MarketMetrics.GetAsync(_state.Launcher, false,
                 new Progress<string>(x => StoreSectionRight.Text = x), CancellationToken.None);
             var periodKey = _storePeriod switch { 1 => "day", 7 => "week", _ => "month" };
-            var board = boards.Boards.FirstOrDefault(b => b.Key == $"{_storeMode}-{periodKey}");
+            var metric = _storeMode == "stars" ? "stars" : "downloads";
+            var board = boards.Boards.FirstOrDefault(b => b.Key == $"{metric}-{periodKey}");
             var rows = (board?.Rows ?? []).Take(12).Select(m => new MarketRow
             {
                 Name = m.Name,
@@ -1141,13 +1211,14 @@ public partial class DownloadView : UserControl, IRefreshable
                     7 => "本周",
                     _ => "本月",
                 };
-                var metricWord = _storeMode == "stars" ? " Star " : "下载";
+                var metricWord = metric == "stars" ? " Star " : "下载";
                 HeroKicker.Text = $"{periodWord}{metricWord}增长最快";
                 _heroRow = rows[0];
                 HeroTitle.Text = _heroRow.Title;
                 HeroDesc.Text = $"{_heroRow.DescriptionText} · 本期 {_heroRow.GrowthBadge}";
                 HeroIcon.Spec = _heroRow.Name;
                 GrowthHero.Visibility = Visibility.Visible;
+                Fx.PulseIn(GrowthHero);
                 await LoadMarketIcons(rows);
                 HeroIcon.IconPath = _heroRow.IconPath;
             }
@@ -1208,20 +1279,26 @@ public partial class DownloadView : UserControl, IRefreshable
         _state.SelectedInstance = inst;
         MarketError.Visibility = Visibility.Collapsed;
         if (busy is Button btn) btn.IsEnabled = false;
-        var spec = version.Length > 0 ? $"{row.Name}@{version}" : row.Name;
         _win.Toast($"开始装 {row.Name} → {inst.Name}");
         Working($"正在装 {row.Name}");
         try
         {
-            var layer = await Market.IsBundle(row.Name, version.Length > 0 ? version : row.Version,
-                CancellationToken.None);
-            await _state.Launcher.AddBundles(inst, profile, [spec], null, CancellationToken.None);
+            var result = await MarketCommands.InstallAsync(
+                _state.Launcher, inst, profile, row.Name, version, null, CancellationToken.None,
+                probeVersion: row.Version);
+            if (!result.Apply.Ok)
+            {
+                Warn(result.Apply.Message);
+                _win.Toast($"{row.Name} 没装成：{result.Apply.Message}", bad: true);
+                return;
+            }
             var where = inst.Name;
             _state.Reload();
             PickTarget();
-            _win.Toast(layer
-                ? $"{row.Name} 装进 {where}，已进 dsh.profile.bundles"
-                : $"{row.Name} 装进 {where}，是普通依赖，没进 dsh.profile.bundles");
+            var layerNote = result.IsBundle
+                ? "已进 dsh.profile.bundles"
+                : "是普通依赖，没进 dsh.profile.bundles";
+            _win.Toast($"{row.Name} 装进 {where}，{layerNote} · {result.Apply.Message}");
         }
         catch (Exception ex)
         {
@@ -1368,9 +1445,10 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void Chip_Checked(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioButton { Content: string label }) return;
+        if (sender is not RadioButton { Content: string label } chip) return;
         if (_chip == label) return;
         _chip = label;
+        Fx.Pop(chip);
         PaintFiles();
     }
 

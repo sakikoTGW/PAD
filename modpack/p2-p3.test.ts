@@ -228,8 +228,9 @@ if (!padModels.includes('LaunchPrefs') || !padModels.includes('UiPrefs')) fail('
 if (!existsSync(join(padDir, 'Core', 'Theme.cs'))) fail('缺 Theme.cs')
 
 const downloadXaml = readFileSync(join(padDir, 'Views', 'DownloadView.xaml'), 'utf8')
-if (!downloadXaml.includes('社区资源')) fail('下载页缺社区资源分组')
-if (!downloadXaml.includes('x:Name="ShelfNav"')) fail('下载页货架必须动态生成（ShelfNav）')
+if (!downloadXaml.includes('Content="插件商店"')) fail('下载页左栏缺插件商店入口')
+if (!downloadXaml.includes('x:Name="ShelfChipRow"')) fail('商店分类芯片必须动态生成（ShelfChipRow）')
+if (!downloadXaml.includes('x:Name="NavMarket"')) fail('下载页缺插件商店导航')
 if (!downloadXaml.includes('Height="64"')) fail('市场行不是 64px')
 if (!existsSync(join(padDir, 'Views', 'Ico.cs'))) fail('缺 Ico 控件')
 if (!existsSync(join(padDir, 'Theme', 'Icons.xaml'))) fail('缺 Icons.xaml')

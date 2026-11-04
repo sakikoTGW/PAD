@@ -697,7 +697,12 @@ public sealed class DownloadPrefs
         Shelves.RemoveAll(s => s.Id.Length == 0 || s.Query.Length == 0);
         if (Shelves.Count == 0) Shelves = DefaultShelves();
         foreach (var s in Shelves)
+        {
             if (s.Label.Length == 0) s.Label = s.Id;
+            // Migrate pre-chip default labels so existing pad.json still reads clearly.
+            if (s.Id == "plugin" && s.Label == "插件") s.Label = "全部";
+            if (s.Id == "host" && s.Label is "宿主与官方" or "宿主") s.Label = "官方组件";
+        }
     }
 
     public static List<RegistryPreset> DefaultPresets() =>
@@ -708,14 +713,14 @@ public sealed class DownloadPrefs
 
     public static List<ShelfPref> DefaultShelves() =>
     [
-        new() { Id = "plugin", Label = "插件", Query = "keywords:dsh-plugin",
+        new() { Id = "plugin", Label = "全部", Query = "keywords:dsh-plugin",
             Description = "扩展 DSH 能力的社区插件；安装到所选实例的 profile。" },
         new() { Id = "tui", Label = "终端", Query = "@deepseek-harness-tui",
             Description = "终端界面、TUI 外壳与命令行交互组件。" },
         new() { Id = "skill", Label = "技能与工具", Query = "keywords:dsh-plugin skill",
-            Description = "提供技能、自动化流程和开发工具的插件；结果可能与“插件”重叠。" },
-        new() { Id = "host", Label = "宿主与官方", Query = "@deepseek-ai/dsh-host",
-            Description = "官方宿主、载体和运行时集成组件；并非都适合直接安装。" },
+            Description = "插件货架的子集：技能、自动化与开发工具；结果可能与「全部」重叠。" },
+        new() { Id = "host", Label = "官方组件", Query = "@deepseek-ai/dsh-host",
+            Description = "DSH 官方宿主与运行时集成，部分包不适合直接安装。" },
     ];
 
     public static DownloadPrefs Defaults() => new()

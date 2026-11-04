@@ -30,6 +30,8 @@ public sealed class HotApplyResult
 /// Drives the official DSH hot reload instead of reimplementing it: the default is
 /// cold (write + restart required), and the hot path only runs when the capability
 /// probe says the official HMR owns this instance and the caller asked for it.
+/// App / UI callers should use <see cref="PluginCommands"/> rather than calling this
+/// (or <see cref="Launcher.PluginOp"/>) directly.
 /// </summary>
 public static class HotReload
 {

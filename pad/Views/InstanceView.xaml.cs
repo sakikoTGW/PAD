@@ -95,7 +95,10 @@ public partial class InstanceView : UserControl, IRefreshable
             : PanePresets.Visibility == Visibility.Visible ? PanePresets
             : null;
 
-        void ShowNext()
+        if (next is null) return;
+        if (leaving is not null && ReferenceEquals(leaving, next)) return;
+
+        Fx.SwapPane(leaving, next, () =>
         {
             PaneOverview.Visibility = tag == "overview" ? Visibility.Visible : Visibility.Collapsed;
             PaneSettings.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
@@ -109,18 +112,7 @@ public partial class InstanceView : UserControl, IRefreshable
             if (tag == "presets") LoadPresets();
             if (tag == "settings") LoadInstSettings();
             if (tag == "overview") LoadOverview();
-            if (next is not null)
-            {
-                next.Opacity = 1;
-                next.UpdateLayout();
-                Fx.RevealEnter(next);
-            }
-        }
-
-        if (Fx.Animated && leaving is not null && next is not null && !ReferenceEquals(leaving, next))
-            Fx.PageOut(leaving, ShowNext);
-        else
-            ShowNext();
+        });
     }
 
     UIElement? Pane(string tag) => tag switch
@@ -1344,9 +1336,11 @@ public partial class InstanceView : UserControl, IRefreshable
         try
         {
             PluginSay($"add {spec} → {profile}");
-            await _state.Launcher.PluginOp(inst.Id, "add", spec,
-                new Progress<string>(PluginSay), CancellationToken.None, profile);
-            PluginSay("装好了。下次启动生效。");
+            var applied = await PluginCommands.AddAsync(
+                _state.Launcher, inst, profile, spec,
+                new Progress<string>(PluginSay), CancellationToken.None);
+            PluginSay(applied.Ok ? $"装好了。{applied.Message}" : applied.Message);
+            if (!applied.Ok) { _win.Toast(applied.Message, bad: true); return; }
             PluginSpecBox.Clear();
             _state.Reload();
             LoadPlugins();
@@ -1393,15 +1387,23 @@ public partial class InstanceView : UserControl, IRefreshable
         PluginBusy(true);
         try
         {
+            HotApplyResult? last = null;
             foreach (var t in targets)
             {
                 PluginSay($"remove {t.Spec} → {t.Profile}");
-                await _state.Launcher.PluginOp(inst.Id, "remove", t.Spec,
-                    new Progress<string>(PluginSay), CancellationToken.None, t.Profile);
+                last = await PluginCommands.RemoveAsync(
+                    _state.Launcher, inst, t.Profile, t.Spec,
+                    new Progress<string>(PluginSay), CancellationToken.None);
+                if (!last.Ok)
+                {
+                    PluginSay(last.Message);
+                    _win.Toast(last.Message, bad: true);
+                    return;
+                }
             }
             // P2：账本里登记过这个插件的包 → 标 incomplete（读时对账会把缺件算出来，包行出现「修复」）。
             var marked = MarkPacksIncomplete(inst, profile, targets.Select(t => t.Spec), removed: true);
-            PluginSay("移除了。下次启动生效。");
+            PluginSay(last is null ? "移除了。" : $"移除了。{last.Message}");
             if (marked.Count > 0)
                 _win.Toast("插件已卸；整合包已标不完整：" + string.Join("、", marked) + "（可在包行点「修复」补回）");
             _state.Reload();
@@ -1441,15 +1443,23 @@ public partial class InstanceView : UserControl, IRefreshable
         PluginBusy(true);
         try
         {
+            HotApplyResult? last = null;
             foreach (var t in targets)
             {
                 PluginSay($"update {t.Spec} → {t.Profile}");
-                await _state.Launcher.PluginOp(inst.Id, "update", t.Spec,
-                    new Progress<string>(PluginSay), CancellationToken.None, t.Profile);
+                last = await PluginCommands.UpdateAsync(
+                    _state.Launcher, inst, t.Profile, t.Spec,
+                    new Progress<string>(PluginSay), CancellationToken.None);
+                if (!last.Ok)
+                {
+                    PluginSay(last.Message);
+                    _win.Toast(last.Message, bad: true);
+                    return;
+                }
             }
             // P2：版本漂移由账本读时对账算 incomplete；这里把登记的包状态写一致。
             var marked = MarkPacksIncomplete(inst, profile, targets.Select(t => t.Spec), removed: false);
-            PluginSay("更新好了。下次启动生效。");
+            PluginSay(last is null ? "更新好了。" : $"更新好了。{last.Message}");
             if (marked.Count > 0)
                 _win.Toast("版本已改；整合包已标不完整：" + string.Join("、", marked) + "（可在包行点「修复」补回）");
             _state.Reload();
@@ -1848,8 +1858,15 @@ public partial class InstanceView : UserControl, IRefreshable
                         : LaunchPolicy.BundleBareName(conflict.Spec);
                     var target = $"{name}@{conflict.Expected}";
                     PackSay($"upgrade {target} → {profile}");
-                    await _state.Launcher.PluginOp(inst.Id, "add", target,
-                        new Progress<string>(PackSay), CancellationToken.None, profile);
+                    var applied = await PluginCommands.AddAsync(
+                        _state.Launcher, inst, profile, target,
+                        new Progress<string>(PackSay), CancellationToken.None);
+                    if (!applied.Ok)
+                    {
+                        PackSay(applied.Message);
+                        _win.Toast($"升级 {conflict.Spec} 没成功：" + applied.Message, bad: true);
+                        return null;
+                    }
                     upgraded++;
                 }
                 catch (Exception ex)

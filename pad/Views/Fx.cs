@@ -67,6 +67,76 @@ public static class Fx
 
     public static string? GetEnter(DependencyObject d) => (string?)d.GetValue(EnterProperty);
 
+    /// <summary>
+    /// <c>lift</c>: card rises a few px and its drop shadow deepens while the pointer is over
+    /// it. Put it on an inner element — the outer one may already own an Enter transform.
+    /// </summary>
+    public static readonly DependencyProperty HoverProperty = DependencyProperty.RegisterAttached(
+        "Hover", typeof(string), typeof(Fx), new PropertyMetadata(null, OnHoverChanged));
+
+    public static void SetHover(DependencyObject d, string value) => d.SetValue(HoverProperty, value);
+
+    public static string? GetHover(DependencyObject d) => (string?)d.GetValue(HoverProperty);
+
+    static void OnHoverChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not FrameworkElement fe) return;
+        fe.MouseEnter -= HoverIn;
+        fe.MouseLeave -= HoverOut;
+        if (e.NewValue is not string { Length: > 0 }) return;
+        fe.MouseEnter += HoverIn;
+        fe.MouseLeave += HoverOut;
+    }
+
+    static void HoverIn(object sender, System.Windows.Input.MouseEventArgs e) =>
+        HoverTo((FrameworkElement)sender, lifted: true);
+
+    static void HoverOut(object sender, System.Windows.Input.MouseEventArgs e) =>
+        HoverTo((FrameworkElement)sender, lifted: false);
+
+    static void HoverTo(FrameworkElement fe, bool lifted)
+    {
+        if (!Animated) return;
+        var shift = fe.RenderTransform as TranslateTransform;
+        if (shift is null || shift.IsFrozen)
+        {
+            shift = new TranslateTransform();
+            fe.RenderTransform = shift;
+        }
+        shift.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(lifted ? -3 : 0, Ms(lifted ? 170 : 240)) { EasingFunction = Settle });
+
+        if (fe.Effect is not System.Windows.Media.Effects.DropShadowEffect sh) return;
+        if (sh.IsFrozen)
+        {
+            sh = (System.Windows.Media.Effects.DropShadowEffect)sh.Clone();
+            fe.Effect = sh;
+        }
+        var blur = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty);
+        var depth = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty);
+        var alpha = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty);
+        var ms = Ms(lifted ? 190 : 260);
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty,
+            new DoubleAnimation(lifted ? blur + 10 : blur, ms) { EasingFunction = Settle });
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty,
+            new DoubleAnimation(lifted ? depth + 3 : depth, ms) { EasingFunction = Settle });
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty,
+            new DoubleAnimation(lifted ? Math.Min(1, alpha + 0.09) : alpha, ms) { EasingFunction = Settle });
+    }
+
+    /// <summary>A short press-confirm: the element settles up from slightly small. For chips.</summary>
+    public static void Pop(FrameworkElement fe)
+    {
+        if (!Animated) return;
+        fe.RenderTransformOrigin = new Point(0.5, 0.5);
+        var scale = new ScaleTransform(0.9, 0.9);
+        fe.RenderTransform = scale;
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(0.9, 1, Ms(340)) { EasingFunction = Settle });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(0.9, 1, Ms(340)) { EasingFunction = Settle });
+    }
+
     static bool GetEntered(DependencyObject d) => (bool)d.GetValue(EnteredProperty);
 
     static void SetEntered(DependencyObject d, bool value) => d.SetValue(EnteredProperty, value);
@@ -561,6 +631,56 @@ public static class Fx
         };
         fade.Completed += handler;
         page.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    /// <summary>
+    /// In-page pane enter (sidebar sub-pages). Runs on every switch — not one-shot.
+    /// Longer than <see cref="PageOut"/> so arrival reads after leave, instead of a pop.
+    /// </summary>
+    public static void PaneIn(UIElement page)
+    {
+        page.BeginAnimation(UIElement.OpacityProperty, null);
+        if (page.RenderTransform is TranslateTransform oldTt)
+            oldTt.BeginAnimation(TranslateTransform.YProperty, null);
+        if (!Animated)
+        {
+            page.Opacity = 1;
+            page.RenderTransform = Transform.Identity;
+            return;
+        }
+
+        page.Opacity = 0;
+        var shift = new TranslateTransform { Y = 10 };
+        page.RenderTransform = shift;
+        // PageOut is 160ms; enter ~2.4× so the body does not snap in after a slow leave.
+        page.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(380))
+        {
+            EasingFunction = FadeEase,
+        });
+        shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, Ms(420))
+        {
+            EasingFunction = Settle,
+        });
+    }
+
+    /// <summary>
+    /// Sub-page swap: leave → <paramref name="show"/> (toggle Visibility) → body
+    /// <see cref="PaneIn"/> every time + title <see cref="RevealEnter"/> once.
+    /// </summary>
+    public static void SwapPane(UIElement? leaving, FrameworkElement next, Action show)
+    {
+        void Arrive()
+        {
+            show();
+            next.UpdateLayout();
+            PaneIn(next);
+            RevealEnter(next);
+        }
+
+        if (Animated && leaving is not null && !ReferenceEquals(leaving, next))
+            PageOut(leaving, Arrive);
+        else
+            Arrive();
     }
 
     static void RevealNow(UIElement page)
