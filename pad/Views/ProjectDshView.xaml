@@ -19,13 +19,13 @@
                    TextWrapping="Wrap" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,22,0,0">
           <Button x:Name="StartBtn" Content="启动这个项目" Click="Start_Click"
-                  Style="{StaticResource BtnPrimary}" Height="36" Padding="20,0"
+                  Style="{StaticResource BtnPrimary}" Height="35" Padding="20,0"
                   v:Ico.Of="{StaticResource I.Play}" />
           <Button x:Name="BrowserBtn" Content="在浏览器打开" Click="Browser_Click" Margin="10,0,0,0"
-                  Style="{StaticResource BtnSm}" Height="36" Padding="16,0"
+                  Style="{StaticResource BtnSm}" Height="35" Padding="16,0"
                   v:Ico.Of="{StaticResource I.External}" />
           <Button x:Name="RetryBtn" Content="重试" Click="Retry_Click" Margin="10,0,0,0"
-                  Style="{StaticResource BtnSm}" Height="36" Padding="16,0" Visibility="Collapsed" />
+                  Style="{StaticResource BtnSm}" Height="35" Padding="16,0" Visibility="Collapsed" />
         </StackPanel>
         <TextBlock x:Name="SplashHint" Margin="0,16,0,0" FontSize="10.5"
                    Foreground="{StaticResource TextMuted}" TextAlignment="Center"

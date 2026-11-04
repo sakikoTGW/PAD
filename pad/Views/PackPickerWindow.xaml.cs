@@ -41,6 +41,7 @@ public partial class PackPickerWindow : Window
     public PackPickerWindow(string instanceLabel = "", string profile = "")
     {
         InitializeComponent();
+        Loaded += (_, _) => Fx.DialogIn(this);
         SetTarget(instanceLabel, profile);
     }
 

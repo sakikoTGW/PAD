@@ -78,7 +78,7 @@
     </Style>
 
     <DataTemplate x:Key="LineTemplate">
-      <Grid Margin="0,0,0,12">
+      <Grid Margin="{StaticResource GapField}">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
@@ -100,7 +100,7 @@
 
   <Grid>
     <Border Background="#8C0B1420" />
-    <Border Width="940" MaxHeight="640" Background="{StaticResource BgCard}" CornerRadius="20"
+    <Border Width="940" MaxHeight="640" Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}"
             VerticalAlignment="Center" HorizontalAlignment="Center" ClipToBounds="True">
       <Border.Effect>
         <DropShadowEffect BlurRadius="28" ShadowDepth="6" Direction="270" Opacity="0.30"
@@ -145,7 +145,7 @@
             <ItemsControl x:Name="DetailLines" ItemTemplate="{StaticResource LineTemplate}"
                           Margin="0,2,0,0" />
             <StackPanel x:Name="Options" Margin="26,6,0,0">
-              <CheckBox x:Name="AcceptRiskBox" Margin="0,0,0,8" Visibility="Collapsed"
+              <CheckBox x:Name="AcceptRiskBox" Margin="{StaticResource GapTight}" Visibility="Collapsed"
                         Foreground="{StaticResource TextPrimary}" FontSize="{StaticResource FsBody}" />
               <CheckBox x:Name="SkipMissingBox" Visibility="Collapsed"
                         Foreground="{StaticResource TextPrimary}" FontSize="{StaticResource FsBody}" />
@@ -158,14 +158,14 @@
                       HorizontalScrollBarVisibility="Disabled" Padding="28,0,26,8"
                       Visibility="Collapsed">
           <StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Margin="{StaticResource GapField}">
               <ContentControl x:Name="StatusPill" Style="{StaticResource Badge}" FontSize="{StaticResource FsSmall}"
                               Padding="10,3,11,4" Margin="0,0,8,0" />
               <ContentControl x:Name="GapPill" Style="{StaticResource Badge}" FontSize="{StaticResource FsSmall}"
                               Padding="10,3,11,4" Margin="0,0,8,0" Visibility="Collapsed" />
               <TextBlock x:Name="LedgerText" Style="{StaticResource Muted}" VerticalAlignment="Center" />
             </StackPanel>
-            <ItemsControl x:Name="StatTiles" Margin="0,0,0,16">
+            <ItemsControl x:Name="StatTiles" Margin="{StaticResource GapModule}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                   <WrapPanel />
@@ -174,7 +174,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <Border Background="{StaticResource BgPage}" BorderThickness="1"
-                          BorderBrush="{StaticResource LineBorder}" CornerRadius="10"
+                          BorderBrush="{StaticResource LineBorder}" CornerRadius="{StaticResource RadCard}"
                           Width="104" Padding="12,9,10,9" Margin="0,0,10,10">
                     <StackPanel>
                       <TextBlock Text="{Binding Count}" FontSize="20" FontWeight="SemiBold"
@@ -202,21 +202,21 @@
             <TextBlock x:Name="FooterHint" Style="{StaticResource Muted}" VerticalAlignment="Center"
                        TextWrapping="Wrap" Text="只取消这一个包，不动实例其它内容。" />
             <StackPanel x:Name="CheckButtons" Grid.Column="1" Orientation="Horizontal">
-              <Button Style="{StaticResource Btn}" Content="取消" Height="36" Padding="22,0"
+              <Button Style="{StaticResource Btn}" Content="取消" Height="35" Padding="22,0"
                       Margin="0,0,10,0" Click="Cancel_Click" />
               <Button x:Name="StartBtn" Style="{StaticResource BtnPrimary}" Content="开始安装"
-                      Height="36" Padding="22,0" Click="Start_Click" />
+                      Height="35" Padding="22,0" Click="Start_Click" />
             </StackPanel>
             <StackPanel x:Name="ReportButtons" Grid.Column="1" Orientation="Horizontal"
                         Visibility="Collapsed">
-              <Button Style="{StaticResource BtnGhost}" Content="知道了" Height="36"
+              <Button Style="{StaticResource BtnGhost}" Content="知道了" Height="35"
                       Padding="16,0" Margin="0,0,10,0" Click="Done_Click" />
-              <Button Style="{StaticResource BtnGhost}" Content="重新导出这个包" Height="36"
+              <Button Style="{StaticResource BtnGhost}" Content="重新导出这个包" Height="35"
                       Padding="16,0" Margin="0,0,10,0" Click="ReExport_Click" />
-              <Button Style="{StaticResource Btn}" Content="打开实例" Height="36" Padding="18,0"
+              <Button Style="{StaticResource Btn}" Content="打开实例" Height="35" Padding="18,0"
                       Margin="0,0,10,0" Click="OpenInstance_Click" />
               <Button x:Name="RepairBtn" Style="{StaticResource BtnPrimary}" Content="去修复缺少项"
-                      Height="36" Padding="18,0" Click="Repair_Click" />
+                      Height="35" Padding="18,0" Click="Repair_Click" />
             </StackPanel>
           </Grid>
         </Border>

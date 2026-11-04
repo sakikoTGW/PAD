@@ -145,7 +145,7 @@ public partial class ManageView : UserControl, IRefreshable
             _state.SelectedInstance = row.Inst;
         BundleLog.Clear();
         BundleLog.Height = 0;
-        BundleLog.Visibility = Visibility.Collapsed;
+        Fx.SetShown(BundleLog, false);
         _ = Refresh();
     }
 
@@ -153,34 +153,34 @@ public partial class ManageView : UserControl, IRefreshable
 
     void Waiting(bool busy)
     {
-        ProbeSpinner.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(ProbeSpinner, busy);
         // Hot update: keep the current tree while probing. Skeleton only when empty.
         var empty = Tree.ItemsSource is null;
-        TreeSkeleton.Visibility = busy && empty ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(TreeSkeleton, busy && empty);
     }
 
     void Count(string text)
     {
         TreeCount.Content = text;
-        TreeCount.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Fx.SetShown(TreeCount, !(text.Length == 0));
     }
 
     void Hint(string text)
     {
         TreeHint.Text = text;
-        TreeHint.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Fx.SetShown(TreeHint, !(text.Length == 0));
     }
 
     void KeyFaultOff()
     {
         KeyFault.Text = "";
-        KeyFault.Visibility = Visibility.Collapsed;
+        Fx.SetShown(KeyFault, false);
     }
 
     void KeyFaultOn(string location)
     {
         KeyFault.Text = CredentialsFile.MissingError(location).Render();
-        KeyFault.Visibility = Visibility.Visible;
+        Fx.SetShown(KeyFault, true);
     }
 
     void Filter_Click(object sender, RoutedEventArgs e) => Paint();
@@ -241,7 +241,7 @@ public partial class ManageView : UserControl, IRefreshable
                     BundleList.ItemsSource = _bundleRows;
             }
             finally { _loadingBundles = false; }
-            BundleEmpty.Visibility = Visibility.Collapsed;
+            Fx.SetShown(BundleEmpty, false);
             return;
         }
 
@@ -295,7 +295,7 @@ public partial class ManageView : UserControl, IRefreshable
             _bundlesInstId = null;
             if (!ReferenceEquals(BundleList.ItemsSource, _bundleRows))
                 BundleList.ItemsSource = _bundleRows;
-            BundleEmpty.Visibility = Visibility.Collapsed;
+            Fx.SetShown(BundleEmpty, false);
             return;
         }
 
@@ -331,23 +331,26 @@ public partial class ManageView : UserControl, IRefreshable
         if (pick is null)
         {
             BundleEmpty.Text = "这份实例还没有 profile";
-            BundleEmpty.Visibility = Visibility.Visible;
+            Fx.SetShown(BundleEmpty, true);
         }
         else if (rows.Count == 0)
         {
             BundleEmpty.Text = "这个 --profile 还没有插件";
-            BundleEmpty.Visibility = Visibility.Visible;
+            Fx.SetShown(BundleEmpty, true);
         }
         else
         {
-            BundleEmpty.Visibility = Visibility.Collapsed;
+            Fx.SetShown(BundleEmpty, false);
         }
     }
 
     void BundleSay(string line)
     {
-        BundleLog.Visibility = Visibility.Visible;
-        BundleLog.Height = 130;
+        if (BundleLog.Visibility != Visibility.Visible)
+        {
+            BundleLog.Height = 130;
+            Fx.SetShown(BundleLog, true);
+        }
         BundleLog.AppendText(line + Environment.NewLine);
         BundleLog.ScrollToEnd();
     }
@@ -357,7 +360,7 @@ public partial class ManageView : UserControl, IRefreshable
         _bundleBusy = on;
         BundleAddBtn.IsEnabled = !on;
         BundleUpdateAllBtn.IsEnabled = !on;
-        BundleSpinner.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(BundleSpinner, on);
     }
 
     string? SelectedBundleProfile() => BundleProfile.SelectedItem as string;
@@ -611,7 +614,7 @@ public partial class ManageView : UserControl, IRefreshable
             _nodes = [];
             Tree.ItemsSource = null;
             TreeHint.Text = "这个实例还没启动。启动后这里会列出正在跑的 agent 会话。";
-            TreeHint.Visibility = Visibility.Visible;
+            Fx.SetShown(TreeHint, true);
             return;
         }
 
@@ -638,7 +641,7 @@ public partial class ManageView : UserControl, IRefreshable
             TreeHint.Text = probe.State == GatewayState.NoAd
                 ? "这份实例没有管理口，看不到正在聊的会话。"
                 : probe.Message;
-            TreeHint.Visibility = Visibility.Visible;
+            Fx.SetShown(TreeHint, true);
             run.Agents = -1;
             return;
         }

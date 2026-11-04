@@ -55,7 +55,7 @@ public partial class ProjectDshView : UserControl
             Web.CoreWebView2.NavigationCompleted += (_, e) =>
             {
                 if (e.IsSuccess) return;
-                Splash.Visibility = Visibility.Visible;
+                Fx.SetShown(Splash, true);
                 Web.Visibility = Visibility.Collapsed;
                 SplashTitle.Text = _projectName is null ? "打不开 DSH 页面" : $"{_projectName} 的 DSH 页面打不开";
                 SplashText.Text = "地址可能过期了（DSH 的 token 每次启动会变）。重新启动这个项目即可。";
@@ -79,9 +79,9 @@ public partial class ProjectDshView : UserControl
     {
         _projectName = projectName;
         _url = null;
-        Splash.Visibility = Visibility.Visible;
+        Fx.SetShown(Splash, true);
         Web.Visibility = Visibility.Collapsed;
-        Chip.Visibility = Visibility.Collapsed;
+        Fx.SetShown(Chip, false);
         SplashTitle.Text = $"{projectName} 还没启动";
         SplashText.Text = "启动后这里就是这个项目的 DSH 工作区——窗口里只有它自己的东西。";
         StartBtn.Visibility = Visibility.Visible;
@@ -95,9 +95,9 @@ public partial class ProjectDshView : UserControl
     {
         _projectName = projectName;
         _url = url;
-        Splash.Visibility = Visibility.Collapsed;
+        Fx.SetShown(Splash, false);
         Web.Visibility = Visibility.Visible;
-        Chip.Visibility = Visibility.Visible;
+        Fx.SetShown(Chip, true);
         ChipText.Text = projectName;
         if (_ready) Navigate();
     }
@@ -131,7 +131,7 @@ public partial class ProjectDshView : UserControl
 
     void Retry_Click(object sender, RoutedEventArgs e)
     {
-        Splash.Visibility = Visibility.Collapsed;
+        Fx.SetShown(Splash, false);
         Web.Visibility = Visibility.Visible;
         Navigate();
         Web.Reload();

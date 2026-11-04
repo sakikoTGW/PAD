@@ -628,7 +628,7 @@ public partial class SettingsView : UserControl, IRefreshable
     void SyncNodeCustom()
     {
         var custom = ComboTag(NodeKind) == "custom";
-        NodeCustom.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(NodeCustom, custom);
     }
 
     void PaintNodeHint()
@@ -670,9 +670,9 @@ public partial class SettingsView : UserControl, IRefreshable
         if (ApiReadyList is null) return;
         var rows = CredentialsGate.ListImported(_state.Launcher, _state.Settings);
         ApiReadyList.ItemsSource = rows;
-        ApiReadyList.Visibility = Visibility.Visible;
+        Fx.SetShown(ApiReadyList, true);
         if (ApiReadyEmpty is not null)
-            ApiReadyEmpty.Visibility = Visibility.Collapsed;
+            Fx.SetShown(ApiReadyEmpty, false);
         var ready = rows.Where(r => !r.RefMissing).ToList();
         if (ApiStatImported is not null)
             ApiStatImported.Text = ready.Count.ToString();
@@ -685,7 +685,7 @@ public partial class SettingsView : UserControl, IRefreshable
         if (ApiStatDeepseek is not null)
             ApiStatDeepseek.Text = ds ? "已配" : "缺";
         if (ApiDeepseekBar is not null)
-            ApiDeepseekBar.Visibility = ds ? Visibility.Collapsed : Visibility.Visible;
+            Fx.SetShown(ApiDeepseekBar, !(ds));
         var inst = ready
             .SelectMany(r => r.Instances.Split('、', StringSplitOptions.RemoveEmptyEntries))
             .Where(s => s != "无匹配实例")
@@ -704,8 +704,8 @@ public partial class SettingsView : UserControl, IRefreshable
     void ShowApiList()
     {
         _probeCts?.Cancel();
-        if (ApiListStage is not null) ApiListStage.Visibility = Visibility.Visible;
-        if (ApiDetailStage is not null) ApiDetailStage.Visibility = Visibility.Collapsed;
+        if (ApiListStage is not null) Fx.SetShown(ApiListStage, true);
+        if (ApiDetailStage is not null) Fx.SetShown(ApiDetailStage, false);
     }
 
     void ApiRow_Click(object sender, RoutedEventArgs e)
@@ -718,8 +718,8 @@ public partial class SettingsView : UserControl, IRefreshable
 
     void OpenApiDetail(CredentialsGate.ImportedApi row)
     {
-        if (ApiListStage is not null) ApiListStage.Visibility = Visibility.Collapsed;
-        if (ApiDetailStage is not null) ApiDetailStage.Visibility = Visibility.Visible;
+        if (ApiListStage is not null) Fx.SetShown(ApiListStage, false);
+        if (ApiDetailStage is not null) Fx.SetShown(ApiDetailStage, true);
         BindApiDetail(row);
         _ = ProbeDetailAsync(row);
     }

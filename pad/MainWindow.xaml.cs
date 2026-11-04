@@ -27,7 +27,7 @@ public partial class MainWindow : Window
         ["launch"] = "启动",
         ["manage"] = "管理",
         ["tasks"] = "任务",
-        ["download"] = "下载",
+        ["download"] = "功能",
         ["settings"] = "设置",
     };
 
@@ -93,8 +93,6 @@ public partial class MainWindow : Window
                     market.OpenShelf("plugin");
                 if (App.ShotPage == "market-growth" && Page("download") is DownloadView growth)
                     growth.ShowGrowthShot();
-                if (App.ShotPage == "market-collapsed" && Page("download") is DownloadView collapsed)
-                    collapsed.CollapseRailForShot();
                 if (App.ShotPage == "market-all" && Page("download") is DownloadView allStore)
                     allStore.ShowAllShot();
                 if (App.ShotPage == "market-search" && Page("download") is DownloadView searchStore)
@@ -360,8 +358,6 @@ public partial class MainWindow : Window
         // Window.Opacity only exists on a layered window; on an opaque one it is ignored
         // by the compositor, so do not pretend to apply it.
         if (AllowsTransparency) Opacity = ui.WindowOpacity / 100.0;
-        // Settings applied from the page: the ring is always drawn there.
-        Fx.Edge(EdgeRing, true, 1);
         ApplyPageSize(_page, animate: false);
         ApplyHiddenTabs();
         ApplySkin();
@@ -879,33 +875,47 @@ public partial class MainWindow : Window
     /// <summary>Switch a top-level page. Restores the tab strip.</summary>
     public void Show(string name)
     {
-        if (InnerMode.Visibility == Visibility.Visible) Fx.Reveal(TopMode);
-        TopMode.Visibility = Visibility.Visible;
-        InnerMode.Visibility = Visibility.Collapsed;
+        if (InnerMode.Visibility == Visibility.Visible)
+            Fx.ChromeSwap(InnerMode, TopMode, forward: false);
+        else
+        {
+            TopMode.Visibility = Visibility.Visible;
+            InnerMode.Visibility = Visibility.Collapsed;
+        }
         Swap(name);
     }
 
     /// <summary>Open an inner page: the tab strip is replaced by a back widget and a heading.</summary>
-    public void ShowInner(string name, string title, string back = "launch")
+    /// <param name="backNav">True when returning — title slides the opposite way.</param>
+    public void ShowInner(string name, string title, string back = "launch", bool backNav = false)
     {
         _back = back;
         BackBtn.ToolTip = "返回" + (PageNames.TryGetValue(back, out var label) ? label : "启动");
+        var forward = !backNav;
+        var nextTitle = name == "instance" ? InstanceSetupTitle() : title;
+        var wasInner = InnerMode.Visibility == Visibility.Visible;
+
         if (name == "instance")
-        {
-            InnerTitle.Text = InstanceSetupTitle();
             InnerBadge.Visibility = Visibility.Collapsed;
+        else
+        {
+            var hostName = AppState.Current.SelectedInstance?.Name;
+            InnerBadge.Text = hostName ?? "";
+            InnerBadge.Visibility = string.IsNullOrEmpty(hostName) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        if (wasInner)
+        {
+            // Already in inner chrome — only the heading text swaps directionally.
+            Fx.TitleSlide(InnerTitle, nextTitle, forward);
         }
         else
         {
-            InnerTitle.Text = title;
-            var host = AppState.Current.SelectedInstance?.Name;
-            InnerBadge.Text = host ?? "";
-            InnerBadge.Visibility = string.IsNullOrEmpty(host) ? Visibility.Collapsed : Visibility.Visible;
+            // Whole strip: brand+tabs slide left, back+title come in from the right.
+            InnerTitle.Text = nextTitle;
+            Fx.ChromeSwap(TopMode, InnerMode, forward: true);
         }
 
-        if (TopMode.Visibility == Visibility.Visible) Fx.Reveal(InnerMode);
-        TopMode.Visibility = Visibility.Collapsed;
-        InnerMode.Visibility = Visibility.Visible;
         Swap(name);
     }
 
@@ -913,11 +923,11 @@ public partial class MainWindow : Window
     {
         if (InnerMode.Visibility != Visibility.Visible) return;
         if (Host.Content is InstanceView)
-            InnerTitle.Text = InstanceSetupTitle();
+            Fx.TitleSlide(InnerTitle, InstanceSetupTitle(), forward: true);
     }
 
     /// <summary>制作整合包取消/做完 → 回版本选择（还是内页，不回启动页）。</summary>
-    public void BackToVersions() => ShowInner("versions", "版本选择");
+    public void BackToVersions() => ShowInner("versions", "版本选择", backNav: true);
 
     static string InstanceSetupTitle()
     {
@@ -971,7 +981,6 @@ public partial class MainWindow : Window
                     Fx.PrepareEnter(page);
                     Fx.BusyFor(resized ? 900 : 700);
                     Fx.PageIn(page, withShell: withShell);
-                    if (!resized) Fx.Edge(EdgeRing, true, 1);
                     if (refresh && page is IRefreshable r)
                         RefreshAfterEntrance(page, r, resized ? 820 : 600);
                 }
@@ -1177,7 +1186,7 @@ public partial class MainWindow : Window
         // 内页里的返回：制作整合包 → 版本选择（还是内页）。
         if (_back == "versions")
         {
-            ShowInner("versions", "版本选择", "launch");
+            ShowInner("versions", "版本选择", "launch", backNav: true);
             return;
         }
         // Returning from an inner page re-checks its owning tab, which fires Tab_Checked.
@@ -1219,12 +1228,11 @@ public partial class MainWindow : Window
             "settings" => TabSettings,
             _ => TabLaunch,
         };
-        tab.UpdateLayout();
-        TabStrip.UpdateLayout();
-        if (tab.ActualWidth <= 1) return;
-        TabPill.Width = tab.ActualWidth;
-        var at = tab.TranslatePoint(new Point(0, 0), TabStrip);
-        Fx.Slide(TabPillShift, at.X, 220);
+        if (!Fx.TryLayoutSlot(TabStrip, tab, out var at, out var size) || size.Width <= 1) return;
+        TabPill.Width = size.Width;
+        // Instant place — no sliding thumb travel.
+        TabPillShift.BeginAnimation(TranslateTransform.XProperty, null);
+        TabPillShift.X = at.X;
     }
 
     /// <summary>

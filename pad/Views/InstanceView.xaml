@@ -23,23 +23,32 @@
 
     <Border Grid.Column="0" Background="{StaticResource BgSidebar}" BorderThickness="0,0,1,0"
             BorderBrush="{StaticResource LineBorder}">
-      <StackPanel Margin="8,12,8,0">
-        <RadioButton x:Name="NavOverview" Style="{StaticResource NavItem}" Content="概览"
-                     v:Ico.Of="{StaticResource I.Window}"
-                     IsChecked="True" Checked="Nav_Checked" Tag="overview" />
-        <RadioButton x:Name="NavSettings" Style="{StaticResource NavItem}" Content="设置"
-                     v:Ico.Of="{StaticResource I.Gear}"
-                     Checked="Nav_Checked" Tag="settings" />
-        <RadioButton x:Name="NavPlugins" Style="{StaticResource NavItem}" Content="插件"
-                     v:Ico.Of="{StaticResource I.Mod}"
-                     Checked="Nav_Checked" Tag="plugins" />
-        <RadioButton x:Name="NavSessions" Style="{StaticResource NavItem}" Content="session"
-                     v:Ico.Of="{StaticResource I.Log}"
-                     Checked="Nav_Checked" Tag="sessions" />
-        <RadioButton x:Name="NavPresets" Style="{StaticResource NavItem}" Content="agent-preset"
-                     v:Ico.Of="{StaticResource I.Data}"
-                     Checked="Nav_Checked" Tag="presets" />
-      </StackPanel>
+      <Grid Margin="8,12,8,0" local:Fx.SlideSelect="nav">
+        <Border Style="{StaticResource SlideThumbNav}">
+          <Border.RenderTransform>
+            <TranslateTransform />
+          </Border.RenderTransform>
+          <Border Width="3" HorizontalAlignment="Left" Margin="0,9" CornerRadius="2"
+                  Background="{StaticResource Accent}" />
+        </Border>
+        <StackPanel>
+          <RadioButton x:Name="NavOverview" Style="{StaticResource NavItem}" Content="概览"
+                       v:Ico.Of="{StaticResource I.Window}"
+                       IsChecked="True" Checked="Nav_Checked" Tag="overview" />
+          <RadioButton x:Name="NavSettings" Style="{StaticResource NavItem}" Content="设置"
+                       v:Ico.Of="{StaticResource I.Gear}"
+                       Checked="Nav_Checked" Tag="settings" />
+          <RadioButton x:Name="NavPlugins" Style="{StaticResource NavItem}" Content="插件"
+                       v:Ico.Of="{StaticResource I.Mod}"
+                       Checked="Nav_Checked" Tag="plugins" />
+          <RadioButton x:Name="NavSessions" Style="{StaticResource NavItem}" Content="session"
+                       v:Ico.Of="{StaticResource I.Log}"
+                       Checked="Nav_Checked" Tag="sessions" />
+          <RadioButton x:Name="NavPresets" Style="{StaticResource NavItem}" Content="agent-preset"
+                       v:Ico.Of="{StaticResource I.Data}"
+                       Checked="Nav_Checked" Tag="presets" />
+        </StackPanel>
+      </Grid>
     </Border>
 
     <ScrollViewer Grid.Column="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
@@ -122,7 +131,7 @@
                   <ComboBoxItem Content="自定义..." Tag="custom" />
                 </ComboBox>
                 <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                            x:Name="LogoCustomRow" Visibility="Collapsed" Margin="0,0,0,8">
+                            x:Name="LogoCustomRow" Visibility="Collapsed" Margin="{StaticResource GapTight}">
                   <Grid Height="28">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
@@ -163,9 +172,9 @@
                   <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                   <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                 </Grid.ColumnDefinitions>
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35"
+                <Button Style="{StaticResource BtnWide}"
                         Content="修改版本名" Margin="0,0,20,0" Click="Rename_Click" />
-                <Button Grid.Column="1" Style="{StaticResource Btn}" MinWidth="140" Height="35"
+                <Button Grid.Column="1" Style="{StaticResource BtnWide}"
                         Content="修改版本描述" Margin="0,0,20,0" Click="Desc_Click" />
                 <Button Grid.Column="2" x:Name="StarBtn" Style="{StaticResource Btn}"
                         MinWidth="140" Height="35" Content="加入收藏夹" Margin="0,0,20,0"
@@ -178,13 +187,13 @@
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="快捷方式" />
               <WrapPanel>
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35" Margin="0,13,20,0"
+                <Button Style="{StaticResource BtnWide}" Margin="0,13,20,0"
                         Content="实例文件夹" Click="OpenInstanceDir_Click" />
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35" Margin="0,13,20,0"
+                <Button Style="{StaticResource BtnWide}" Margin="0,13,20,0"
                         Content="工作区" Click="OpenWorkspace_Click" />
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35" Margin="0,13,20,0"
+                <Button Style="{StaticResource BtnWide}" Margin="0,13,20,0"
                         Content="profiles" Click="OpenProfiles_Click" />
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35" Margin="0,13,20,0"
+                <Button Style="{StaticResource BtnWide}" Margin="0,13,20,0"
                         Content="投影" Click="OpenProjection_Click" />
               </WrapPanel>
             </StackPanel>
@@ -199,9 +208,9 @@
                   <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                   <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                 </Grid.ColumnDefinitions>
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35"
+                <Button Style="{StaticResource BtnWide}"
                         Content="导出启动脚本" Margin="0,0,20,0" Click="Shortcut_Click" />
-                <Button Grid.Column="1" Style="{StaticResource Btn}" MinWidth="140" Height="35"
+                <Button Grid.Column="1" Style="{StaticResource BtnWide}"
                         Content="dump-config" Margin="0,0,20,0" Click="DumpConfig_Click"
                         ToolTip="把 dsh --dump-config 输出写到实例目录" />
                 <Button Grid.Column="2" Style="{StaticResource BtnDanger}" MinWidth="140"
@@ -215,12 +224,12 @@
 
         <!-- 插件: PCL Mod 管理 — one list, search, 全部/可更新/试验中. -->
         <StackPanel x:Name="PanePlugins" Visibility="Collapsed">
-          <Grid Height="32" Margin="0,4,0,12">
+          <Grid Height="28" Margin="0,4,0,12">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="PluginSearch" Height="32"
+            <TextBox x:Name="PluginSearch" Height="28"
                      Tag="搜索插件名称 / 描述 / 标签"
                      TextChanged="PluginSearch_Changed" />
             <Button Grid.Column="1" x:Name="PluginMoreBtn" Style="{StaticResource IcoBtn}"
@@ -233,7 +242,7 @@
             </Button>
           </Grid>
 
-          <WrapPanel x:Name="PluginActions" Visibility="Collapsed" Margin="0,0,0,12">
+          <WrapPanel x:Name="PluginActions" Visibility="Collapsed" Margin="{StaticResource GapField}">
             <Button Style="{StaticResource BtnWide}" Content="打开文件夹" Margin="0,0,20,8"
                     VerticalAlignment="Top"
                     Click="PluginOpenDir_Click" v:Ico.Of="{StaticResource I.Folder}" />
@@ -250,21 +259,28 @@
                             Margin="0,0,20,8" VerticalAlignment="Top" Visibility="Collapsed" />
           </WrapPanel>
 
-          <Grid Margin="0,0,0,12">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <RadioButton x:Name="FilterAll" Style="{StaticResource FilterTab}" Content="全部"
-                           GroupName="pluginFilter" IsChecked="True" Tag="all"
-                           Checked="PluginFilter_Changed" />
-              <RadioButton x:Name="FilterUpdatable" Style="{StaticResource FilterTab}" Content="可更新"
-                           GroupName="pluginFilter" Tag="updatable"
-                           Checked="PluginFilter_Changed" />
-              <RadioButton x:Name="FilterTrial" Style="{StaticResource FilterTab}" Content="试验中"
-                           GroupName="pluginFilter" Tag="trial"
-                           Checked="PluginFilter_Changed" />
-              <RadioButton x:Name="FilterFav" Style="{StaticResource FilterTab}" Content="收藏"
-                           GroupName="pluginFilter" Tag="favorite"
-                           Checked="PluginFilter_Changed" />
-            </StackPanel>
+          <Grid Margin="{StaticResource GapField}">
+            <Grid HorizontalAlignment="Left" VerticalAlignment="Center" local:Fx.SlideSelect="pill">
+              <Border Style="{StaticResource SlideThumbPill}">
+                <Border.RenderTransform>
+                  <TranslateTransform />
+                </Border.RenderTransform>
+              </Border>
+              <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="FilterAll" Style="{StaticResource FilterTab}" Content="全部"
+                             GroupName="pluginFilter" IsChecked="True" Tag="all"
+                             Checked="PluginFilter_Changed" />
+                <RadioButton x:Name="FilterUpdatable" Style="{StaticResource FilterTab}" Content="可更新"
+                             GroupName="pluginFilter" Tag="updatable"
+                             Checked="PluginFilter_Changed" />
+                <RadioButton x:Name="FilterTrial" Style="{StaticResource FilterTab}" Content="试验中"
+                             GroupName="pluginFilter" Tag="trial"
+                             Checked="PluginFilter_Changed" />
+                <RadioButton x:Name="FilterFav" Style="{StaticResource FilterTab}" Content="收藏"
+                             GroupName="pluginFilter" Tag="favorite"
+                             Checked="PluginFilter_Changed" />
+              </StackPanel>
+            </Grid>
             <ComboBox x:Name="PluginProfile" Width="140" Height="28"
                       HorizontalAlignment="Right" VerticalAlignment="Center"
                       ItemsSource="{Binding Launchables}"
@@ -277,7 +293,7 @@
             </ComboBox>
           </Grid>
 
-          <StackPanel x:Name="PluginSelBar" Orientation="Horizontal" Margin="0,0,0,12"
+          <StackPanel x:Name="PluginSelBar" Orientation="Horizontal" Margin="{StaticResource GapField}"
                       Visibility="Collapsed">
             <TextBlock x:Name="PluginSelCount" Style="{StaticResource Muted}"
                        VerticalAlignment="Center" Margin="0,0,12,0" />
@@ -414,7 +430,7 @@
           <Border x:Name="PluginEmptyBox" Style="{StaticResource EmptyWell}" Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Mod}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock x:Name="PluginEmpty" Style="{StaticResource Muted}" />
               <TextBlock x:Name="TrialEmpty" Style="{StaticResource Muted}" Margin="0,6,0,0"
                          Visibility="Collapsed" />
@@ -452,12 +468,12 @@
             </StackPanel>
           </Grid>
           <TextBox x:Name="PluginLog" Style="{StaticResource LogBox}" Height="0"
-                   Visibility="Collapsed" Margin="0,0,0,12" />
+                   Visibility="Collapsed" Margin="{StaticResource GapField}" />
         </StackPanel>
 
         <!-- 整合包: enabled is the allow-list, not the files on disk. -->
         <StackPanel x:Name="PanePacks" Visibility="Collapsed">
-          <Grid Margin="0,0,0,12">
+          <Grid Margin="{StaticResource GapField}">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="整合包" Margin="0"
                               v:Ico.Of="{StaticResource I.Pack}" />
@@ -488,7 +504,7 @@
           <!-- Projection runs as a subprocess and takes a second or two; the row shape
                is known in advance, so the wait is a skeleton rather than a blank. -->
           <StackPanel x:Name="PackSkeleton" Visibility="Collapsed">
-            <Border Style="{StaticResource Skeleton}" Width="620" Height="56" Margin="0,0,0,8" />
+            <Border Style="{StaticResource Skeleton}" Width="620" Height="56" Margin="{StaticResource GapTight}" />
             <Border Style="{StaticResource Skeleton}" Width="620" Height="56" />
           </StackPanel>
 
@@ -498,7 +514,7 @@
                 <Border x:Name="PackRowCard" local:Fx.Enter="row" Loaded="PackRow_Loaded"
                         Background="{StaticResource BgCard}" BorderThickness="3,1,1,1"
                         BorderBrush="{StaticResource Accent}" CornerRadius="{StaticResource RadRow}"
-                        Padding="14,12,14,13" Margin="0,0,0,8">
+                        Padding="14,12,14,13" Margin="{StaticResource GapTight}">
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="Auto" />
@@ -568,7 +584,7 @@
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Pack}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock x:Name="PackEmpty" Style="{StaticResource Muted}" MaxWidth="480"
                          HorizontalAlignment="Left" />
             </StackPanel>
@@ -584,7 +600,7 @@
 
           <ContentControl Style="{StaticResource Rule}" Content="白名单套装" Margin="0,24,0,10"
                           v:Ico.Of="{StaticResource I.Check}" />
-          <Grid Margin="0,0,0,12">
+          <Grid Margin="{StaticResource GapField}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
@@ -619,7 +635,7 @@
 
         <!-- session -->
         <StackPanel x:Name="PaneSessions" Visibility="Collapsed">
-          <Grid Margin="0,0,0,12">
+          <Grid Margin="{StaticResource GapField}">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="session" Margin="0"
                               v:Ico.Of="{StaticResource I.Log}" />
@@ -677,7 +693,7 @@
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Log}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock Text="没有 session" Style="{StaticResource Muted}" />
               <Button Style="{StaticResource BtnWide}" Content="去启动"
                       HorizontalAlignment="Stretch" Margin="0,12,0,0" Click="GoLaunch_Click"
@@ -795,7 +811,7 @@
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                 </Grid.ColumnDefinitions>
-                <Button Style="{StaticResource Btn}" MinWidth="140" Height="35"
+                <Button Style="{StaticResource BtnWide}"
                         Content="恢复跟随全局" Click="InstSetting_Reset"
                         ToolTip="清掉这个实例的 launch 覆盖" />
               </Grid>
@@ -840,10 +856,10 @@
                 <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,8,0,0">
                   <CheckBox x:Name="InstPreWaitBox" Style="{StaticResource Switch}" IsThreeState="True"
                             Content="等待命令执行完成后再继续启动（空=全局）"
-                            Click="InstSetting_Save" Margin="0,0,0,8" />
+                            Click="InstSetting_Save" Margin="{StaticResource GapTight}" />
                   <CheckBox x:Name="InstPauseBox" Style="{StaticResource Switch}" IsThreeState="True"
                             Content="该实例 pause on error（空=全局）"
-                            Click="InstSetting_Save" Margin="0,0,0,8" />
+                            Click="InstSetting_Save" Margin="{StaticResource GapTight}" />
                   <CheckBox x:Name="InstTelemetryBox" Style="{StaticResource Switch}" IsThreeState="True"
                             Content="该实例禁用遥测（空=全局）"
                             Click="InstSetting_Save" />
@@ -852,14 +868,13 @@
             </StackPanel>
           </Border>
 
-          <Button Style="{StaticResource BtnGhost}" Content="全局启动设置"
-                  Height="32" HorizontalAlignment="Center" Margin="0,4,0,8"
+          <Button Style="{StaticResource BtnGhost}" Content="全局启动设置" HorizontalAlignment="Center" Margin="0,4,0,8"
                   Click="GotoGlobalLaunch_Click" />
         </StackPanel>
 
         <!-- agent-preset -->
         <StackPanel x:Name="PanePresets" Visibility="Collapsed">
-          <Grid Margin="0,0,0,12">
+          <Grid Margin="{StaticResource GapField}">
             <ContentControl Style="{StaticResource SlabHead}" Content="agent-preset" Margin="0"
                             v:Ico.Of="{StaticResource I.Data}" />
           </Grid>
@@ -904,7 +919,7 @@
           <Border x:Name="NoPresets" Style="{StaticResource EmptyWell}" Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Mod}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock Text="没有 agent-preset" Style="{StaticResource Muted}" />
             </StackPanel>
           </Border>
@@ -917,7 +932,7 @@
       <Border Background="#99000000" MouseLeftButtonDown="IntroDim_Down" />
       <Border x:Name="IntroEditCard" MinWidth="440" MaxWidth="560" MaxHeight="480"
               HorizontalAlignment="Center" VerticalAlignment="Center"
-              Background="{StaticResource BgCard}" CornerRadius="7"
+              Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}"
               BorderBrush="{StaticResource LineBorder}" BorderThickness="1" Margin="20"
               MouseLeftButtonDown="IntroCard_Down">
         <Border.Effect>
@@ -939,8 +954,8 @@
                         HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,4">
             <StackPanel Margin="7,0,10,0">
               <TextBlock Text="版本描述" FontSize="{StaticResource FsBody}"
-                         Foreground="{StaticResource TextPrimary}" Margin="0,0,0,8" />
-              <TextBox x:Name="InfoBox" Height="32" Tag="名字下面那一行，留空则用发行号和终端/网页" />
+                         Foreground="{StaticResource TextPrimary}" Margin="{StaticResource GapTight}" />
+              <TextBox x:Name="InfoBox" Height="28" Tag="名字下面那一行，留空则用发行号和终端/网页" />
               <TextBlock Text="介绍" FontSize="{StaticResource FsBody}"
                          Foreground="{StaticResource TextPrimary}" Margin="0,12,0,6" />
               <TextBox x:Name="IntroBox" Height="64" AcceptsReturn="True" TextWrapping="Wrap"

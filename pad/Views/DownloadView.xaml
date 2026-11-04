@@ -89,15 +89,17 @@
     </Grid.ColumnDefinitions>
 
     <!-- Left rail is destinations only. Shelf categories live as chips inside 插件商店. -->
-    <Border x:Name="StoreRail" Grid.Column="0" Width="196" Background="{StaticResource BgSidebar}"
+    <Border x:Name="StoreRail" Grid.Column="0" Width="168" Background="{StaticResource BgSidebar}"
             BorderThickness="0,0,1,0" BorderBrush="{StaticResource LineBorder}">
-      <Grid>
-        <!-- Collapse sits in the corner; do not burn a whole row above 发行号. -->
-        <Button x:Name="StoreRailHide" Style="{StaticResource IcoBtn}" Content="‹"
-                HorizontalAlignment="Right" VerticalAlignment="Top"
-                Height="26" Width="26" Margin="0,6,6,0" Panel.ZIndex="2"
-                Click="StoreRailToggle_Click" ToolTip="收起侧栏" />
-        <StackPanel Margin="8,12,8,0">
+      <Grid Margin="8,12,8,0" local:Fx.SlideSelect="nav">
+        <Border Style="{StaticResource SlideThumbNav}">
+          <Border.RenderTransform>
+            <TranslateTransform />
+          </Border.RenderTransform>
+          <Border Width="3" HorizontalAlignment="Left" Margin="0,9" CornerRadius="2"
+                  Background="{StaticResource Accent}" />
+        </Border>
+        <StackPanel>
           <RadioButton x:Name="NavRelease" Style="{StaticResource NavItem}" Content="发行号"
                        v:Ico.Of="{StaticResource I.Block}" IsChecked="True" Checked="Nav_Checked"
                        GroupName="dlNav" Tag="release" />
@@ -110,11 +112,6 @@
         </StackPanel>
       </Grid>
     </Border>
-
-    <Button x:Name="StoreRailShow" Grid.Column="0" Width="18" MaxWidth="18"
-            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,12,0,0"
-            Style="{StaticResource BtnGhost}" Content="›" Padding="0" Panel.ZIndex="3"
-            Visibility="Collapsed" Click="StoreRailToggle_Click" ToolTip="展开侧栏" />
 
     <Grid Grid.Column="1">
       <!-- 发行号 -->
@@ -164,7 +161,7 @@
                   <TextBlock Text="node" Style="{StaticResource Label}" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock x:Name="NodeLine" Grid.Row="0" Grid.Column="1"
-                           Style="{StaticResource Mono}" Margin="0,0,0,8" />
+                           Style="{StaticResource Mono}" Margin="{StaticResource GapTight}" />
                 <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="0,0,14,0">
                   <Border x:Name="PnpmPip" Style="{StaticResource Pip}"
                           Background="{StaticResource InkDisabled}" />
@@ -188,7 +185,7 @@
           <Border Style="{StaticResource Slab}"
                   Visibility="{Binding HasRemoteReleases, Converter={StaticResource B2V}}">
             <StackPanel>
-              <Grid Margin="0,0,0,12">
+              <Grid Margin="{StaticResource GapField}">
                 <ContentControl Style="{StaticResource SlabHead}" Content="npm 发行号" Margin="0"
                                  v:Ico.Of="{StaticResource I.Globe}" VerticalAlignment="Center" />
                 <ContentControl Style="{StaticResource Quant}" HorizontalAlignment="Right"
@@ -234,7 +231,7 @@
           <Border Style="{StaticResource Slab}"
                   Visibility="{Binding HasReleases, Converter={StaticResource B2V}}">
             <StackPanel>
-              <Grid Margin="0,0,0,12">
+              <Grid Margin="{StaticResource GapField}">
                 <ContentControl Style="{StaticResource SlabHead}" Content="版本库" Margin="0"
                                  v:Ico.Of="{StaticResource I.Pack}" VerticalAlignment="Center" />
                 <ContentControl Style="{StaticResource Quant}" HorizontalAlignment="Right"
@@ -291,7 +288,7 @@
                   Visibility="{Binding ShowReleaseEmpty, Converter={StaticResource B2V}}">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Download}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock Text="未找到可用的 DSH" Style="{StaticResource SectionTitle}" />
             </StackPanel>
           </Border>
@@ -305,9 +302,10 @@
           <RowDefinition Height="*" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer x:Name="MarketScroll" Grid.Row="0" Padding="{StaticResource PadPage}"
+        <Grid Grid.Row="0">
+        <ScrollViewer x:Name="MarketScroll" Padding="{StaticResource PadPage}"
                       VerticalScrollBarVisibility="Auto">
-        <StackPanel>
+        <StackPanel Margin="0,0,0,28">
           <StackPanel>
             <StackPanel Visibility="Collapsed">
               <TextBlock x:Name="ShelfTitle" />
@@ -327,10 +325,10 @@
               </StackPanel>
               <Button x:Name="StoreMoreBtn" Style="{StaticResource Btn}" Content="筛选"
                       HorizontalAlignment="Right" VerticalAlignment="Center"
-                      Click="StoreMore_Click" Height="30" Padding="14,0" />
+                      Click="StoreMore_Click" Padding="14,0" />
             </Grid>
 
-            <Border Margin="0,16,0,0" Height="42" CornerRadius="{StaticResource RadCard}"
+            <Border Margin="0,16,0,0" Height="35" CornerRadius="{StaticResource RadCard}"
                     Background="{StaticResource BgCard}" BorderThickness="1"
                     BorderBrush="{StaticResource LineBorder}" ClipToBounds="True">
               <Grid>
@@ -348,13 +346,9 @@
                              Tag="搜索插件、作者、关键词…" KeyDown="Search_Key" />
                   </Grid>
                   <Button Grid.Column="1" x:Name="SearchBtn" Style="{StaticResource BtnPrimary}"
-                          Content="搜索" Height="32" Padding="20,0" Margin="0,0,5,0"
+                          Content="搜索" Padding="20,0" Margin="0,0,5,0"
                           Click="Search_Click" />
                 </Grid>
-                <!-- Focus halo: fades in with the caret (Fx.Edge), not a hard border swap. -->
-                <Border x:Name="SearchRing" IsHitTestVisible="False" Opacity="0"
-                        CornerRadius="{StaticResource RadCard}" BorderThickness="1.6"
-                        BorderBrush="{StaticResource Focus}" />
               </Grid>
             </Border>
 
@@ -362,7 +356,14 @@
             <ScrollViewer x:Name="ShelfChipScroll" Margin="0,14,0,0"
                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                           Focusable="False">
-              <StackPanel x:Name="ShelfChipRow" Orientation="Horizontal" />
+              <Grid x:Name="ShelfChipHost" local:Fx.SlideSelect="pill">
+                <Border Style="{StaticResource SlideThumbPill}">
+                  <Border.RenderTransform>
+                    <TranslateTransform />
+                  </Border.RenderTransform>
+                </Border>
+                <StackPanel x:Name="ShelfChipRow" Orientation="Horizontal" />
+              </Grid>
             </ScrollViewer>
 
             <StackPanel x:Name="ChipRow" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
@@ -373,13 +374,22 @@
               <RadioButton x:Name="ModeDownloads" Style="{StaticResource FilterTab}" Content="下载增长"
                            GroupName="storeMode" Margin="8,0,0,0" IsChecked="True" Visibility="Collapsed"
                            Checked="StoreMode_Changed" />
-              <RadioButton x:Name="PeriodDay" Style="{StaticResource FilterTab}" Content="日"
-                           GroupName="storePeriod" Checked="StorePeriod_Changed" />
-              <RadioButton x:Name="PeriodWeek" Style="{StaticResource FilterTab}" Content="周"
-                           GroupName="storePeriod" IsChecked="True" Margin="6,0,0,0"
-                           Checked="StorePeriod_Changed" />
-              <RadioButton x:Name="PeriodMonth" Style="{StaticResource FilterTab}" Content="月"
-                           GroupName="storePeriod" Margin="6,0,0,0" Checked="StorePeriod_Changed" />
+              <Grid local:Fx.SlideSelect="pill">
+                <Border Style="{StaticResource SlideThumbPill}">
+                  <Border.RenderTransform>
+                    <TranslateTransform />
+                  </Border.RenderTransform>
+                </Border>
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="PeriodDay" Style="{StaticResource FilterTab}" Content="日"
+                               GroupName="storePeriod" Checked="StorePeriod_Changed" />
+                  <RadioButton x:Name="PeriodWeek" Style="{StaticResource FilterTab}" Content="周"
+                               GroupName="storePeriod" IsChecked="True" Margin="6,0,0,0"
+                               Checked="StorePeriod_Changed" />
+                  <RadioButton x:Name="PeriodMonth" Style="{StaticResource FilterTab}" Content="月"
+                               GroupName="storePeriod" Margin="6,0,0,0" Checked="StorePeriod_Changed" />
+                </StackPanel>
+              </Grid>
               <TextBlock x:Name="StoreSortNote" Style="{StaticResource Muted}"
                          FontSize="{StaticResource FsSmall}" Margin="14,0,0,0"
                          VerticalAlignment="Center" />
@@ -388,13 +398,13 @@
             <StackPanel x:Name="StoreMore" Visibility="Collapsed" Margin="0,10,0,0">
               <StackPanel Orientation="Horizontal">
                 <StackPanel Margin="0,0,28,0">
-                  <TextBlock Text="版本" Style="{StaticResource Label}" Margin="0,0,0,8" />
-                  <ComboBox x:Name="TargetRelease" Width="160" Height="32" IsEditable="False"
+                  <TextBlock Text="版本" Style="{StaticResource Label}" Margin="{StaticResource GapTight}" />
+                  <ComboBox x:Name="TargetRelease" Width="160" Height="28" IsEditable="False"
                             ToolTip="这份实例钉的 DSH 发行号" />
                 </StackPanel>
                 <StackPanel>
-                  <TextBlock Text="装到" Style="{StaticResource Label}" Margin="0,0,0,8" />
-                  <ComboBox x:Name="TargetInstance" Width="240" Height="32"
+                  <TextBlock Text="装到" Style="{StaticResource Label}" Margin="{StaticResource GapTight}" />
+                  <ComboBox x:Name="TargetInstance" Width="240" Height="28"
                             ItemsSource="{Binding Instances}"
                             SelectionChanged="TargetInstance_Changed">
                     <ComboBox.ItemTemplate>
@@ -419,14 +429,14 @@
               <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                 <TextBlock Text="排序" Style="{StaticResource Label}" VerticalAlignment="Center"
                            Margin="0,0,8,0" />
-                <ComboBox x:Name="SortBox" Width="120" Height="30" SelectionChanged="Sort_Changed">
+                <ComboBox x:Name="SortBox" Width="120" Height="28" SelectionChanged="Sort_Changed">
                   <ComboBoxItem Tag="hot" Content="热度" IsSelected="True" />
                   <ComboBoxItem Tag="date" Content="最近更新" />
                   <ComboBoxItem Tag="name" Content="名称" />
                 </ComboBox>
                 <TextBlock Text="分类" Style="{StaticResource Label}" VerticalAlignment="Center"
                            Margin="18,0,8,0" />
-                <ComboBox x:Name="TagBox" Width="140" Height="30" SelectionChanged="Tag_Changed" />
+                <ComboBox x:Name="TagBox" Width="140" Height="28" SelectionChanged="Tag_Changed" />
                 <CheckBox x:Name="InstalledOnly" Content="只看已安装" Margin="18,0,0,0"
                           VerticalAlignment="Center" Checked="StoreFilter_Changed"
                           Unchecked="StoreFilter_Changed" />
@@ -435,7 +445,7 @@
 
             <!-- Hero：本周增长最快；首页默认就是这个视图 -->
             <Border x:Name="GrowthHero" Visibility="Collapsed" Height="172" Margin="0,18,0,0"
-                    CornerRadius="20" ClipToBounds="True">
+                    CornerRadius="{StaticResource RadCard}" ClipToBounds="True">
               <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                   <GradientStop Color="#1B2227" Offset="0" />
@@ -457,13 +467,13 @@
                              Margin="0,6,0,0" MaxWidth="560" HorizontalAlignment="Left"
                              TextTrimming="CharacterEllipsis" />
                   <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                    <Button Style="{StaticResource BtnPrimary}" Content="查看" Height="34"
+                    <Button Style="{StaticResource BtnPrimary}" Content="查看" Height="35"
                             Padding="20,0" Click="HeroOpen_Click" />
-                    <Button Style="{StaticResource Btn}" Content="安装" Height="34"
+                    <Button Style="{StaticResource Btn}" Content="安装" Height="35"
                             Padding="18,0" Margin="10,0,0,0" Click="HeroOpen_Click" />
                   </StackPanel>
                 </StackPanel>
-                <Border Grid.Column="1" Width="86" Height="86" CornerRadius="22"
+                <Border Grid.Column="1" Width="86" Height="86" CornerRadius="{StaticResource RadCard}"
                         Background="#33FFFFFF" VerticalAlignment="Center" Margin="20,0,4,0">
                   <v:PluginMark x:Name="HeroIcon" Width="70" Height="70" Size="70" />
                 </Border>
@@ -492,7 +502,7 @@
 
           </StackPanel>
 
-          <Border x:Name="MarketError" Style="{StaticResource BannerWarn}" Margin="0,0,0,16"
+          <Border x:Name="MarketError" Style="{StaticResource BannerWarn}" Margin="{StaticResource GapModule}"
                   Visibility="Collapsed">
             <Grid>
               <Grid.ColumnDefinitions>
@@ -529,7 +539,7 @@
                 <DataTemplate>
                   <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
                   <Grid Width="232" Margin="0,0,14,14" local:Fx.Enter="card">
-                  <Border MinHeight="178" CornerRadius="17" local:Fx.Hover="lift"
+                  <Border MinHeight="178" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
                           Cursor="Hand" Background="{StaticResource BgCard}"
                           BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                           Tag="{Binding}" MouseLeftButtonUp="Row_OpenDetail">
@@ -622,8 +632,8 @@
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Search}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
-              <TextBlock Text="无搜索结果" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
+              <TextBlock Text="无搜索结果" Style="{StaticResource SectionTitle}" Margin="{StaticResource GapTight}" />
               <Border Height="2" Background="{StaticResource Accent}" HorizontalAlignment="Left"
                       Width="34" />
               <TextBlock x:Name="EmptyText" Style="{StaticResource Muted}" Margin="0,15,0,0"
@@ -637,8 +647,21 @@
 
         </StackPanel>
         </ScrollViewer>
+        <!-- Soft dissolve into the page wash — hard ClipToBounds was cutting cards mid-face. -->
+        <Border IsHitTestVisible="False" VerticalAlignment="Bottom" Height="64"
+                Margin="0,0,9,0">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+              <GradientStop Color="#00EAEFF3" Offset="0" />
+              <GradientStop Color="#35EAEFF3" Offset="0.35" />
+              <GradientStop Color="#A8EAEFF3" Offset="0.72" />
+              <GradientStop Color="#FFEAEFF3" Offset="1" />
+            </LinearGradientBrush>
+          </Border.Background>
+        </Border>
+        </Grid>
         <Border Grid.Row="1" x:Name="PagerCard" Style="{StaticResource Slab}" Padding="10,7"
-                HorizontalAlignment="Center" Margin="0,0,0,16" Visibility="Collapsed">
+                HorizontalAlignment="Center" Margin="{StaticResource GapModule}" Visibility="Collapsed">
           <StackPanel Orientation="Horizontal" Height="23">
             <Button x:Name="FirstBtn" Style="{StaticResource IcoBtn}" Height="23" Width="26"
                     Click="First_Click" ToolTip="第一页">
@@ -678,7 +701,7 @@
             <StackPanel>
               <Border Style="{StaticResource Slab}">
                 <StackPanel>
-                  <Grid Margin="0,0,0,12">
+                  <Grid Margin="{StaticResource GapField}">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="Auto" />
                       <ColumnDefinition Width="*" />
@@ -693,8 +716,8 @@
                       <TextBlock x:Name="DetailBundle" Style="{StaticResource Muted}" Margin="0,6,0,0" />
                     </StackPanel>
                   </Grid>
-                  <TextBlock x:Name="DetailBody" Style="{StaticResource Body}" Margin="0,0,0,12" />
-                  <TextBlock x:Name="DetailMeta" Style="{StaticResource Muted}" Margin="0,0,0,12" />
+                  <TextBlock x:Name="DetailBody" Style="{StaticResource Body}" Margin="{StaticResource GapField}" />
+                  <TextBlock x:Name="DetailMeta" Style="{StaticResource Muted}" Margin="{StaticResource GapField}" />
                   <StackPanel Orientation="Horizontal">
                     <Button x:Name="DetailHomeBtn" Style="{StaticResource BtnWide}" Content="打开主页"
                             Margin="0,0,10,0" Click="DetailHome_Click"
@@ -707,7 +730,15 @@
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource Slab}" Padding="14,10">
-                <WrapPanel x:Name="DetailChips" />
+                <Grid x:Name="DetailChipHost" local:Fx.SlideSelect="pill"
+                      HorizontalAlignment="Left" VerticalAlignment="Top">
+                  <Border Style="{StaticResource SlideThumbPill}">
+                    <Border.RenderTransform>
+                      <TranslateTransform />
+                    </Border.RenderTransform>
+                  </Border>
+                  <WrapPanel x:Name="DetailChips" />
+                </Grid>
               </Border>
               <Border Style="{StaticResource Slab}">
                 <StackPanel>
@@ -762,7 +793,7 @@
           </Border>
           <Border Style="{StaticResource Slab}">
             <StackPanel>
-              <Grid Margin="0,0,0,8">
+              <Grid Margin="{StaticResource GapTight}">
                 <ContentControl Style="{StaticResource SlabHead}" Content="下载完成的" Margin="0"
                                 v:Ico.Of="{StaticResource I.Tasks}" HorizontalAlignment="Left"
                                 VerticalAlignment="Center" />

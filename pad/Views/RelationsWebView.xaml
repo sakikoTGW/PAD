@@ -11,7 +11,7 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <StackPanel Orientation="Horizontal" Margin="24,16,24,10">
+    <StackPanel Orientation="Horizontal" Margin="25,25,25,10">
       <Button x:Name="BackBtn" Style="{StaticResource BtnGhost}" Height="28" Padding="10,0"
               Margin="0,2,12,0" Content="‹ 管理" Click="Back_Click" ToolTip="回到管理卡片页" />
       <TextBlock Text="关系" FontSize="22" FontWeight="Bold"
@@ -20,7 +20,7 @@
                  Foreground="{StaticResource TextMuted}" />
     </StackPanel>
 
-    <Border Grid.Row="1" Margin="24,0,24,20" CornerRadius="16" ClipToBounds="True"
+    <Border Grid.Row="1" Margin="25,0,25,25" CornerRadius="{StaticResource RadCard}" ClipToBounds="True"
             Background="{StaticResource BgCard}" BorderBrush="{StaticResource LineDivider}"
             BorderThickness="1">
       <wv2:WebView2 x:Name="Web" DefaultBackgroundColor="Transparent" />

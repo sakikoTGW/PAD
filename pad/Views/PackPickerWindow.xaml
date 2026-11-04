@@ -55,7 +55,7 @@
 
   <Grid>
     <Border Background="#8C0B1420" />
-    <Border Width="980" MaxHeight="612" Background="{StaticResource BgCard}" CornerRadius="20"
+    <Border Width="980" MaxHeight="612" Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}"
             VerticalAlignment="Center" HorizontalAlignment="Center" ClipToBounds="True">
       <Border.Effect>
         <DropShadowEffect BlurRadius="28" ShadowDepth="6" Direction="270" Opacity="0.30"
@@ -99,7 +99,7 @@
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <TextBox x:Name="SearchBox" Height="34" Tag="搜索本机包库：名字 / 版本 / 内核…"
+          <TextBox x:Name="SearchBox" Height="28" Tag="搜索本机包库：名字 / 版本 / 内核…"
                    TextChanged="Search_Changed" />
           <TextBlock Grid.Column="1" x:Name="CountText" Style="{StaticResource Muted}"
                      VerticalAlignment="Center" Margin="12,0,0,0" />
@@ -113,8 +113,8 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <Border Background="{StaticResource BgPage}" BorderThickness="1"
-                          BorderBrush="{StaticResource LineBorder}" CornerRadius="12"
-                          Padding="14,12,12,12" Margin="0,0,0,8">
+                          BorderBrush="{StaticResource LineBorder}" CornerRadius="{StaticResource RadCard}"
+                          Padding="14,12,12,12" Margin="{StaticResource GapTight}">
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -146,7 +146,7 @@
                           </ItemsControl.ItemTemplate>
                         </ItemsControl>
                       </StackPanel>
-                      <Button Grid.Column="2" Style="{StaticResource BtnPrimary}" Height="34"
+                      <Button Grid.Column="2" Style="{StaticResource BtnPrimary}" Height="35"
                               Padding="18,0" VerticalAlignment="Center" Tag="{Binding}"
                               Content="{Binding ActionText}" Click="RowAction_Click" />
                     </Grid>
@@ -157,8 +157,8 @@
           </ScrollViewer>
 
           <StackPanel x:Name="SkeletonRows" VerticalAlignment="Top" Visibility="Collapsed">
-            <Border Style="{StaticResource Skeleton}" Height="78" Margin="0,0,0,8" />
-            <Border Style="{StaticResource Skeleton}" Height="78" Margin="0,0,0,8" />
+            <Border Style="{StaticResource Skeleton}" Height="78" Margin="{StaticResource GapTight}" />
+            <Border Style="{StaticResource Skeleton}" Height="78" Margin="{StaticResource GapTight}" />
             <Border Style="{StaticResource Skeleton}" Height="78" />
           </StackPanel>
 
@@ -180,8 +180,8 @@
                        Text="预检会先跑：内核匹配 / 插件下架 / 兼容豁免 / 版本冲突，不会盲目装。" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
               <Button x:Name="FromFileBtn" Style="{StaticResource BtnGhost}" Content="从文件…"
-                      Height="34" Padding="16,0" Margin="0,0,10,0" Click="FromFile_Click" />
-              <Button Style="{StaticResource Btn}" Content="取消" Height="34" Padding="20,0"
+                      Height="35" Padding="16,0" Margin="0,0,10,0" Click="FromFile_Click" />
+              <Button Style="{StaticResource Btn}" Content="取消" Height="35" Padding="20,0"
                       Click="Close_Click" />
             </StackPanel>
           </Grid>

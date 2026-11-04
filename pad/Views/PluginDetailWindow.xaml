@@ -16,7 +16,7 @@
       <StackPanel Margin="34,24,34,34" HorizontalAlignment="Center" MaxWidth="640">
 
         <!-- 头图卡：App Store 顶部（图标 / 名字 / 版本 / 获取按钮） -->
-        <Border Background="{StaticResource BgCard}" CornerRadius="20" Padding="24,24,22,22">
+        <Border Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}" Padding="24,24,22,22">
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto" />
@@ -55,10 +55,9 @@
             </StackPanel>
             <StackPanel Grid.Column="2" VerticalAlignment="Center">
               <Button x:Name="UpdateBtn" Style="{StaticResource BtnPrimary}"
-                      Content="更新" Height="38" Padding="24,0" FontSize="15" FontWeight="SemiBold"
+                      Content="更新" Height="35" Padding="24,0" FontSize="15" FontWeight="SemiBold"
                       Click="Update_Click" />
-              <Button x:Name="FavBtn" Style="{StaticResource BtnGhost}" Content="☆ 收藏"
-                      Height="30" Margin="0,8,0,0" Click="Fav_Click" />
+              <Button x:Name="FavBtn" Style="{StaticResource BtnGhost}" Content="☆ 收藏" Margin="0,8,0,0" Click="Fav_Click" />
             </StackPanel>
           </Grid>
         </Border>
@@ -76,7 +75,7 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate>
-                <Border Width="350" Height="218" CornerRadius="14" Margin="0,0,12,0"
+                <Border Width="350" Height="218" CornerRadius="{StaticResource RadCard}" Margin="0,0,12,0"
                         ClipToBounds="True" Background="{StaticResource BgSidebar}">
                   <Image Source="{Binding Converter={StaticResource PathBmp}}"
                          Stretch="UniformToFill" />
@@ -112,7 +111,7 @@
         <!-- 信息卡 -->
         <TextBlock Text="信息" FontSize="20" FontWeight="SemiBold"
                    Foreground="{StaticResource TextPrimary}" Margin="2,22,0,10" />
-        <Border Background="{StaticResource BgCard}" CornerRadius="16" Padding="18,6,18,6">
+        <Border Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}" Padding="18,6,18,6">
           <StackPanel>
             <Grid Height="38">
               <TextBlock Text="版本" Style="{StaticResource Muted}" FontSize="{StaticResource FsSmall}"

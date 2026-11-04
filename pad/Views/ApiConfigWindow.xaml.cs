@@ -16,6 +16,7 @@ public partial class ApiConfigWindow : Window
     public ApiConfigWindow()
     {
         InitializeComponent();
+        Loaded += (_, _) => Fx.DialogIn(this);
         SourceInitialized += (_, _) => WinIcon.Apply(this);
         Loaded += (_, _) => Paint();
     }

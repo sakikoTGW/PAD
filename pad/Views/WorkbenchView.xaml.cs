@@ -192,9 +192,8 @@ public partial class WorkbenchView : UserControl
     /// </summary>
     static void HoverLift(Border card)
     {
-        var lift = new TranslateTransform();
-        card.RenderTransform = lift;
-        var shadow = new DropShadowEffect
+        // Magnetic pointer follow + lift/shadow live on Fx.Hover; keep the soft border wash here.
+        card.Effect = new DropShadowEffect
         {
             BlurRadius = 26,
             ShadowDepth = 6,
@@ -202,36 +201,20 @@ public partial class WorkbenchView : UserControl
             Opacity = 0.10,
             Color = Color.FromRgb(0x20, 0x30, 0x3F),
         };
-        card.Effect = shadow;
         var line = (SolidColorBrush)Application.Current.Resources["LineBorder"];
         var border = new SolidColorBrush(line.Color) { Opacity = 0 };
         card.BorderThickness = new Thickness(1);
         card.BorderBrush = border;
+        Fx.SetHover(card, "lift");
 
         card.MouseEnter += (_, _) =>
         {
-            if (!Fx.Animated)
-            {
-                lift.Y = -2;
-                shadow.Opacity = 0.22;
-                border.Opacity = 1;
-                return;
-            }
-            lift.BeginAnimation(TranslateTransform.YProperty, Fx.Move(lift.Y, -2, 150));
-            shadow.BeginAnimation(DropShadowEffect.OpacityProperty, Fx.Fade(0.10, 0.22, 160));
+            if (!Fx.Animated) { border.Opacity = 1; return; }
             border.BeginAnimation(SolidColorBrush.OpacityProperty, Fx.Fade(0, 1, 160));
         };
         card.MouseLeave += (_, _) =>
         {
-            if (!Fx.Animated)
-            {
-                lift.Y = 0;
-                shadow.Opacity = 0.10;
-                border.Opacity = 0;
-                return;
-            }
-            lift.BeginAnimation(TranslateTransform.YProperty, Fx.Move(lift.Y, 0, 190));
-            shadow.BeginAnimation(DropShadowEffect.OpacityProperty, Fx.Fade(0.22, 0.10, 190));
+            if (!Fx.Animated) { border.Opacity = 0; return; }
             border.BeginAnimation(SolidColorBrush.OpacityProperty, Fx.Fade(1, 0, 190));
         };
     }
@@ -1286,8 +1269,8 @@ public partial class WorkbenchView : UserControl
     void PaintTransition()
     {
         CardHost.Children.Clear();
-        DshHost.Visibility = Visibility.Collapsed;
-        CardScroll.Visibility = Visibility.Visible;
+        Fx.SetShown(DshHost, false);
+        Fx.SetShown(CardScroll, true);
         if (_instMode && _scope is null)
         {
             CardHost.Children.Add(ScopeCard("读取中", 1, new TextBlock
@@ -1617,13 +1600,13 @@ public partial class WorkbenchView : UserControl
         // 项目视图：右栏 = 这个项目的 DSH 本体，不再由 PAD 画项目仪表盘。
         if (_project is not null)
         {
-            CardScroll.Visibility = Visibility.Collapsed;
-            DshHost.Visibility = Visibility.Visible;
+            Fx.SetShown(CardScroll, false);
+            Fx.SetShown(DshHost, true);
             ShowProjectDsh();
             return;
         }
-        DshHost.Visibility = Visibility.Collapsed;
-        CardScroll.Visibility = Visibility.Visible;
+        Fx.SetShown(DshHost, false);
+        Fx.SetShown(CardScroll, true);
         if (_instMode && _scope is null)
         {
             PaintInstanceCards(insts);

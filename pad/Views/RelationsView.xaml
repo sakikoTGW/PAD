@@ -7,14 +7,14 @@
                       Opacity="0.10" Color="#20303F" />
     <Style x:Key="RelCard" TargetType="Border">
       <Setter Property="Background" Value="{StaticResource BgCard}" />
-      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="CornerRadius" Value="{StaticResource RadCard}" />
       <Setter Property="Effect" Value="{StaticResource RelShadow}" />
       <Setter Property="Padding" Value="24,20,24,20" />
     </Style>
   </UserControl.Resources>
 
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="30,20,26,28">
+    <StackPanel Margin="{StaticResource PadPage}">
       <DockPanel LastChildFill="False" Margin="2,0,0,16">
         <TextBlock DockPanel.Dock="Left" Text="关系" FontSize="22" FontWeight="Bold"
                    Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center" />

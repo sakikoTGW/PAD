@@ -346,8 +346,11 @@ if (!read('Core/Launcher.cs').includes('ListBundles'))
 if (!manageXaml.includes('x:Name="BundleList"')) fail('管理页没有组合包名单')
 if (!manageXaml.includes('全部更新') && !manageXaml.includes('更新全部'))
   fail('管理页不能一次更新 TUI 和组合包')
-if (!read('Views/ManageView.xaml.cs').includes('PluginOp'))
-  fail('管理页更新不走 dsh plugin --profile update')
+{
+  const manageSrc = read('Views/ManageView.xaml.cs')
+  if (!manageSrc.includes('PluginCommands') && !manageSrc.includes('PluginOp'))
+    fail('管理页更新不走 dsh plugin --profile update（应经 PluginCommands）')
+}
 if (!read('Views/ManageView.xaml.cs').includes('LoadBundles'))
   fail('没启动时管理页也不列出 TUI / 组合包')
 if (!read('Views/ManageView.xaml.cs').includes('组合包更新不需要管理口'))

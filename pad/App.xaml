@@ -10,6 +10,14 @@
         <ResourceDictionary Source="Theme/Controls.xaml" />
         <ResourceDictionary Source="Theme/Inputs.xaml" />
       </ResourceDictionary.MergedDictionaries>
+      <!-- Kill the system dotted focus rectangle for every control. -->
+      <Style x:Key="{x:Static SystemParameters.FocusVisualStyleKey}">
+        <Setter Property="Control.Template">
+          <Setter.Value>
+            <ControlTemplate />
+          </Setter.Value>
+        </Setter>
+      </Style>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

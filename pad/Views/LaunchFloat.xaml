@@ -14,7 +14,7 @@
       <DropShadowEffect BlurRadius="32" ShadowDepth="6" Direction="270" Opacity="0.38"
                         Color="#FF19222A" />
     </Border.Effect>
-    <Border x:Name="Card" CornerRadius="14" Background="{StaticResource BgCard}"
+    <Border x:Name="Card" CornerRadius="{StaticResource RadCard}" Background="{StaticResource BgCard}"
             BorderBrush="{StaticResource LineBorder}" BorderThickness="1" Padding="22,20">
       <Grid>
         <Grid.RowDefinitions>

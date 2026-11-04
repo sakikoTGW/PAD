@@ -46,7 +46,7 @@
     <!-- 底部：导入整合包（对齐原型 v4） -->
     <Border x:Name="FootPanel" DockPanel.Dock="Bottom" Visibility="Collapsed" Margin="12,0,12,12">
       <StackPanel>
-        <Button x:Name="ImportBtn" Content="导入整合包" Height="30"
+        <Button x:Name="ImportBtn" Content="导入整合包"
                 HorizontalContentAlignment="Left" Padding="10,0"
                 Style="{StaticResource BtnSm}" Click="Import_Click"
                 ToolTip="从整合包建一个项目" />

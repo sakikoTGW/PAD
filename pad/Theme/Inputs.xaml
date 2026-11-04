@@ -96,8 +96,6 @@
                     BorderThickness="1" BorderBrush="{StaticResource LineBorder}" />
             <Border x:Name="hot" CornerRadius="{StaticResource RadCtl}" BorderThickness="1"
                     BorderBrush="{StaticResource AccentLight}" Opacity="0" />
-            <Border x:Name="ring" CornerRadius="{StaticResource RadCtl}" BorderThickness="1.6"
-                    BorderBrush="{StaticResource Focus}" Opacity="0" />
             <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Opacity="0"
                        Foreground="{StaticResource TextMuted}" IsHitTestVisible="False"
                        Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
@@ -113,7 +111,6 @@
               <Setter TargetName="hot" Property="Opacity" Value="1" />
             </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="ring" Property="Opacity" Value="1" />
               <Setter TargetName="hint" Property="Opacity" Value="0" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
@@ -332,13 +329,13 @@
     </Setter>
   </Style>
 
-  <!-- Selection is an outline plus a rail, never a fill: the row's own status colours
-       have to stay readable while it is selected. -->
+  <!-- Selection is a left rail only — no outline; row status colours stay readable. -->
   <Style x:Key="RowItem" TargetType="ListBoxItem">
     <Setter Property="Padding" Value="0" />
     <Setter Property="Margin" Value="0,0,0,6" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ListBoxItem">
@@ -349,17 +346,10 @@
             <Border Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadRow}"
                     BorderThickness="1" BorderBrush="{StaticResource LineDivider}" />
             <Border x:Name="hot" Background="{StaticResource AccentWash}"
-                    CornerRadius="{StaticResource RadRow}" BorderThickness="1"
-                    BorderBrush="{StaticResource AccentLight}" Opacity="0" />
-            <Border x:Name="sel" CornerRadius="{StaticResource RadRow}" BorderThickness="1.4"
-                    BorderBrush="{StaticResource Accent}" Opacity="0" />
+                    CornerRadius="{StaticResource RadRow}" Opacity="0" />
+            <!-- Rail is show/hide only — no ScaleY enter storyboard (list refresh was replaying it). -->
             <Border x:Name="rail" Width="3" HorizontalAlignment="Left" Margin="0,7"
-                    CornerRadius="2" Background="{StaticResource Accent}"
-                    RenderTransformOrigin="0.5,0.5" Opacity="0">
-              <Border.RenderTransform>
-                <ScaleTransform ScaleY="0.3" />
-              </Border.RenderTransform>
-            </Border>
+                    CornerRadius="2" Background="{StaticResource Accent}" Opacity="0" />
             <ContentPresenter Margin="12,9,12,10" />
           </Grid>
           <ControlTemplate.Triggers>
@@ -392,18 +382,7 @@
               </Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
-              <Setter TargetName="sel" Property="Opacity" Value="1" />
               <Setter TargetName="rail" Property="Opacity" Value="1" />
-              <Trigger.EnterActions>
-                <BeginStoryboard>
-                  <Storyboard>
-                    <DoubleAnimation Storyboard.TargetName="rail"
-                                     Storyboard.TargetProperty="RenderTransform.(ScaleTransform.ScaleY)"
-                                     To="1" Duration="{StaticResource DShort}"
-                                     EasingFunction="{StaticResource EaseOut}" />
-                  </Storyboard>
-                </BeginStoryboard>
-              </Trigger.EnterActions>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -433,8 +412,6 @@
             <Border x:Name="bd" Background="{StaticResource BgCard}"
                     BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                     CornerRadius="3" />
-            <Border x:Name="ring" CornerRadius="4" Margin="-2" BorderThickness="1.6"
-                    BorderBrush="{StaticResource Focus}" Opacity="0" />
             <v:Ico x:Name="mark" Glyph="{StaticResource I.Check}" Height="11" Opacity="0"
                    Foreground="{StaticResource AccentText}" HorizontalAlignment="Center"
                    VerticalAlignment="Center" />
@@ -444,9 +421,6 @@
               <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentWash}" />
               <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}" />
               <Setter TargetName="mark" Property="Opacity" Value="1" />
-            </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="ring" Property="Opacity" Value="1" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Opacity" Value="0.42" />
@@ -474,8 +448,6 @@
             <Grid x:Name="root" Width="38" Height="22" VerticalAlignment="Center">
               <Border Background="{StaticResource InkDisabled}" CornerRadius="11" />
               <Border x:Name="on" Background="{StaticResource Accent}" CornerRadius="11" Opacity="0" />
-              <Border x:Name="ring" CornerRadius="12" Margin="-2" BorderThickness="2"
-                      BorderBrush="{StaticResource Focus}" Opacity="0" />
               <Border x:Name="knob" Width="16" Height="16" CornerRadius="8" HorizontalAlignment="Left"
                       Margin="3,0,0,0" Background="{StaticResource BgCard}">
                 <Border.Effect>
@@ -519,9 +491,6 @@
                 </BeginStoryboard>
               </Trigger.ExitActions>
             </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="ring" Property="Opacity" Value="1" />
-            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="root" Property="Opacity" Value="0.42" />
               <Setter Property="Cursor" Value="Arrow" />
@@ -553,8 +522,6 @@
                     CornerRadius="{StaticResource RadRow}" Opacity="0" />
             <Border x:Name="sel" CornerRadius="{StaticResource RadRow}" BorderThickness="1.5"
                     BorderBrush="{StaticResource Accent}" Opacity="0" />
-            <Border x:Name="ring" CornerRadius="8" Margin="-2" BorderThickness="2"
-                    BorderBrush="{StaticResource Focus}" Opacity="0" />
             <Grid Margin="13,11,14,12">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -635,9 +602,6 @@
                 </BeginStoryboard>
               </Trigger.ExitActions>
             </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="ring" Property="Opacity" Value="1" />
-            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="root" Property="Opacity" Value="0.45" />
               <Setter Property="Cursor" Value="Arrow" />
@@ -671,8 +635,6 @@
                 <ScaleTransform ScaleX="0.86" ScaleY="0.86" />
               </Border.RenderTransform>
             </Border>
-            <Border x:Name="ring" CornerRadius="{StaticResource RadCtl}" Margin="1" BorderThickness="2"
-                    BorderBrush="{StaticResource Focus}" Opacity="0" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Margin="{TemplateBinding Padding}">
               <v:Ico Height="12" Margin="0,0,6,0" VerticalAlignment="Center"
@@ -717,9 +679,6 @@
                   </Storyboard>
                 </BeginStoryboard>
               </Trigger.ExitActions>
-            </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="ring" Property="Opacity" Value="1" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

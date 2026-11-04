@@ -210,11 +210,11 @@ public partial class VersionsView : UserControl, IRefreshable
     /// <summary>worker 上重新收集本机整合包，填 PackCatalog；UI 只显示结果（不摆技术说明）。</summary>
     async Task RefreshPacksAsync()
     {
-        PackEmpty.Visibility = Visibility.Collapsed;
+        Fx.SetShown(PackEmpty, false);
         await _state.ReloadPackCatalog();
         var n = _state.PackCatalog.Count;
         var error = _state.PackCatalogError;
-        PackEmpty.Visibility = n == 0 ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(PackEmpty, n == 0);
         if (n == 0)
         {
             PackEmptyText.Text = error.Length > 0 ? "整合包读不出来" : "本机没有整合包。";

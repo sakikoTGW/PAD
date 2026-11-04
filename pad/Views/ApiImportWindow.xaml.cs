@@ -16,6 +16,7 @@ public partial class ApiImportWindow : Window
     public ApiImportWindow()
     {
         InitializeComponent();
+        Loaded += (_, _) => Fx.DialogIn(this);
         SourceInitialized += (_, _) => WinIcon.Apply(this);
         Loaded += (_, _) => Paint();
     }

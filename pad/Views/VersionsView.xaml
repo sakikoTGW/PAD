@@ -104,7 +104,7 @@
           </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+        <StackPanel Grid.Row="1" Margin="{StaticResource GapField}">
           <TextBlock Text="添加或导入" Style="{StaticResource NavGroup}" Margin="13,8,5,4" />
           <Button Style="{StaticResource PickRow}" Height="34" Margin="8,0,8,0"
                   Click="Create_Click" HorizontalContentAlignment="Left">
@@ -142,9 +142,9 @@
     <ScrollViewer Grid.Column="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <!-- 整合包（插件部分）= 组件 + 对应内核（PCL「可安装 Mod」位）：本机搜到的整合包，选中后建实例。 -->
-        <Border Style="{StaticResource Slab}" Padding="20,16,18,14" Margin="0,0,0,12">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
-            <DockPanel Margin="0,0,0,8">
+            <DockPanel Margin="{StaticResource GapTight}">
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button Style="{StaticResource BtnPrimary}" Content="导出" Click="MakePack_Click"
                         v:Ico.Of="{StaticResource I.Download}" Margin="0,0,8,0"
@@ -158,7 +158,7 @@
             <ItemsControl x:Name="PackList" Margin="0,6,0,0">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Border Style="{StaticResource Slab}" Padding="14,10,12,10" Margin="0,0,0,8"
+                  <Border local:Fx.Enter="row" Style="{StaticResource Slab}" Padding="14,10,12,10" Margin="{StaticResource GapTight}"
                           ToolTip="{Binding Path}">
                     <Border.ContextMenu>
                       <ContextMenu>
@@ -212,7 +212,7 @@
           </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}" MaxWidth="420"
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}" MaxWidth="380"
                 HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,40,0,0"
                 Visibility="{Binding NeedsSetup, Converter={StaticResource B2V}}">
           <StackPanel>
@@ -226,9 +226,9 @@
         </Border>
 
         <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource B2V}}">
-          <Border Style="{StaticResource Slab}" Padding="20,16,18,16">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
-              <ContentControl Style="{StaticResource SlabHead}" Content="DSH 版本" Margin="0,0,0,12"
+              <ContentControl Style="{StaticResource SlabHead}" Content="DSH 版本" Margin="{StaticResource GapField}"
                               v:Ico.Of="{StaticResource I.Download}" />
               <StackPanel Orientation="Horizontal">
                 <ComboBox x:Name="PinRelease" Width="380" Height="28">
@@ -252,7 +252,7 @@
 
           <!-- 容器 = 本实例的启动配置 + 本机探测到的桌面端 / TUI。识别到就列在这里；
                点一行只是选中（学 PCL），右侧只有设置齿轮。 -->
-          <Border Style="{StaticResource Slab}" Padding="20,14,18,10">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="容器"
                               v:Ico.Of="{StaticResource I.Terminal}" />

@@ -85,8 +85,6 @@ public partial class DownloadView : UserControl, IRefreshable
         _win = win;
         DataContext = _state;
         Loaded += (_, _) => PaintShelfChips();
-        SearchBox.GotKeyboardFocus += (_, _) => Fx.Edge(SearchRing, true, 170);
-        SearchBox.LostKeyboardFocus += (_, _) => Fx.Edge(SearchRing, false, 220);
         HookResize();
         IsVisibleChanged += (_, e) =>
         {
@@ -135,6 +133,7 @@ public partial class DownloadView : UserControl, IRefreshable
         ShelfChipRow.Tag = want;
         _chipsPainted = true;
         SelectShelfChip(string.IsNullOrEmpty(_shelf) || _shelf is "dltasks" ? "recommend" : _shelf);
+        if (ShelfChipHost is not null) Fx.RefreshSlideSelect(ShelfChipHost);
     }
 
     void AddShelfChip(string id, string label, bool official)
@@ -290,7 +289,7 @@ public partial class DownloadView : UserControl, IRefreshable
         };
         if (node is null && _state.Settings.Launch.RuntimeInstall)
             ToolHint.Text += " 启动时会自动装进 runtime/node/。";
-        ToolHint.Visibility = ToolHint.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Fx.SetShown(ToolHint, !(ToolHint.Text.Length == 0));
         PickTarget();
     }
 
@@ -304,8 +303,11 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void Log(string line) => Dispatcher.BeginInvoke(() =>
     {
-        LogBox.Visibility = Visibility.Visible;
-        LogBox.Height = 170;
+        if (LogBox.Visibility != Visibility.Visible)
+        {
+            LogBox.Height = 170;
+            Fx.SetShown(LogBox, true);
+        }
         LogBox.AppendText(line + Environment.NewLine);
         LogBox.ScrollToEnd();
     });
@@ -371,10 +373,10 @@ public partial class DownloadView : UserControl, IRefreshable
     async Task InstallVersion(string version)
     {
         InstallBtn.IsEnabled = false;
-        Busy.Visibility = Visibility.Visible;
+        Fx.SetShown(Busy, true);
         if (InstallMeter is not null)
         {
-            InstallMeter.Visibility = Visibility.Visible;
+            Fx.SetShown(InstallMeter, true);
             Fx.MeterTo(InstallMeter, 6);
         }
         var progress = new Progress<string>(Log);
@@ -407,7 +409,7 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             poll.Stop();
             InstallBtn.IsEnabled = true;
-            Busy.Visibility = Visibility.Collapsed;
+            Fx.SetShown(Busy, false);
         }
     }
 
@@ -725,14 +727,14 @@ public partial class DownloadView : UserControl, IRefreshable
             ? string.Join(" ", lines.Take(2))
             : "请求被取消或超时，可能是网络 / 代理 / registry 不通。";
         MarketErrorHint.Text = "检查网络或代理；或到 设置 → 下载 改 registry / 超时，然后点重试。";
-        MarketError.Visibility = Visibility.Visible;
+        Fx.SetShown(MarketError, true);
     }
 
     void Working(string? what)
     {
         MarketStatus.Text = what ?? "";
-        MarketStatus.Visibility = what is null ? Visibility.Collapsed : Visibility.Visible;
-        MarketBusy.Visibility = what is null ? Visibility.Collapsed : Visibility.Visible;
+        Fx.SetShown(MarketStatus, !(what is null));
+        Fx.SetShown(MarketBusy, !(what is null));
         SearchBtn.IsEnabled = what is null;
         ClearBtn.IsEnabled = what is null;
     }
@@ -795,14 +797,14 @@ public partial class DownloadView : UserControl, IRefreshable
         _live?.Cancel();
         var live = _live = new CancellationTokenSource();
 
-        MarketError.Visibility = Visibility.Collapsed;
+        Fx.SetShown(MarketError, false);
         ResultCount.Text = "";
-        EmptyCard.Visibility = Visibility.Collapsed;
-        if (EmptyCrossBtn is not null) EmptyCrossBtn.Visibility = Visibility.Collapsed;
+        Fx.SetShown(EmptyCard, false);
+        if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
         var first = ResultList.ItemsSource is null;
         if (first) ResultCard.Visibility = Visibility.Collapsed;
         PagerCard.Visibility = Visibility.Collapsed;
-        LoadCard.Visibility = first ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(LoadCard, first);
         Working("正在搜索");
 
         try
@@ -823,7 +825,7 @@ public partial class DownloadView : UserControl, IRefreshable
             MarketPinyinIndex.Prewarm(_state.Launcher);
             if (App.ShotPage == "market-more")
             {
-                StoreMore.Visibility = Visibility.Visible;
+                Fx.SetShown(StoreMore, true);
                 StoreMoreAngle.Angle = 180;
             }
             if (App.ShotPage == "market-detail" && page.Rows.Count > 0) QueueStoreDetailShot(page.Rows[0]);
@@ -842,7 +844,7 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             if (!live.IsCancellationRequested)
             {
-                LoadCard.Visibility = Visibility.Collapsed;
+                Fx.SetShown(LoadCard, false);
                 Working(null);
             }
         }
@@ -953,7 +955,7 @@ public partial class DownloadView : UserControl, IRefreshable
     void StoreMore_Click(object sender, RoutedEventArgs e)
     {
         var show = StoreMore.Visibility != Visibility.Visible;
-        StoreMore.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(StoreMore, show);
         StoreMoreAngle.Angle = show ? 180 : 0;
     }
 
@@ -1015,11 +1017,11 @@ public partial class DownloadView : UserControl, IRefreshable
         EmptyText.Text = text.Length == 0
             ? $"“{shelf.Label}”暂时没有结果"
             : $"“{shelf.Label}”中没有结果，可换关键词或到「全部」再搜";
-        EmptyCard.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(EmptyCard, empty);
         if (EmptyCrossBtn is not null)
         {
             var offerCross = empty && shelf.Id is not ("plugin" or "recommend");
-            EmptyCrossBtn.Visibility = offerCross ? Visibility.Visible : Visibility.Collapsed;
+            Fx.SetShown(EmptyCrossBtn, offerCross);
             EmptyCrossBtn.Content = text.Length > 0 ? "在全部插件中搜索" : "浏览全部插件";
         }
 
@@ -1108,13 +1110,6 @@ public partial class DownloadView : UserControl, IRefreshable
             System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    /// <summary>供 --shot-page 用：截收起的侧栏。</summary>
-    public void CollapseRailForShot()
-    {
-        StoreRail.Visibility = Visibility.Collapsed;
-        StoreRailShow.Visibility = Visibility.Visible;
-    }
-
     /// <summary>供 --shot-page 用：打开推荐增长榜。</summary>
     public void ShowGrowthShot()
     {
@@ -1147,28 +1142,21 @@ public partial class DownloadView : UserControl, IRefreshable
         if (_heroRow is not null) OpenStoreDetail(_heroRow);
     }
 
-    void StoreRailToggle_Click(object sender, RoutedEventArgs e)
-    {
-        var hide = StoreRail.Visibility == Visibility.Visible;
-        StoreRail.Visibility = hide ? Visibility.Collapsed : Visibility.Visible;
-        StoreRailShow.Visibility = hide ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     async Task LoadGrowth()
     {
         if (_growthBusy) return;
         _growthBusy = true;
         MarketPinyinIndex.Prewarm(_state.Launcher);
-        MarketError.Visibility = Visibility.Collapsed;
-        EmptyCard.Visibility = Visibility.Collapsed;
+        Fx.SetShown(MarketError, false);
+        Fx.SetShown(EmptyCard, false);
         ResultCard.Visibility = Visibility.Visible;
         PagerCard.Visibility = Visibility.Collapsed;
         GrowthHero.Visibility = Visibility.Collapsed;
         ChipRow.Visibility = Visibility.Visible;
         StoreMoreBtn.Visibility = Visibility.Collapsed;
         StoreModeLink.Content = "浏览全部插件 ›";
-        if (EmptyCrossBtn is not null) EmptyCrossBtn.Visibility = Visibility.Collapsed;
-        LoadCard.Visibility = ResultList.ItemsSource is null ? Visibility.Visible : Visibility.Collapsed;
+        if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
+        Fx.SetShown(LoadCard, ResultList.ItemsSource is null);
         StoreSectionTitle.Text = "推荐";
         StoreSectionSub.Text = _storeMode == "stars" ? "Star 增长" : "下载增长";
         StoreSectionRight.Text = "";
@@ -1200,7 +1188,7 @@ public partial class DownloadView : UserControl, IRefreshable
             StoreSectionRight.Text = boards.FromCache ? $"缓存 · {boards.GeneratedText}" : $"更新 · {boards.GeneratedText}";
             var any = rows.Count > 0;
             ResultCard.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-            EmptyCard.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
+            Fx.SetShown(EmptyCard, !(any));
             EmptyText.Text = "暂时拉不到增长数据（网络或 GitHub 限流）";
             if (any)
             {
@@ -1227,13 +1215,13 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             ResultList.ItemsSource = null;
             ResultCard.Visibility = Visibility.Collapsed;
-            EmptyCard.Visibility = Visibility.Visible;
+            Fx.SetShown(EmptyCard, true);
             EmptyText.Text = PadError.Describe(ex);
         }
         finally
         {
             _growthBusy = false;
-            LoadCard.Visibility = Visibility.Collapsed;
+            Fx.SetShown(LoadCard, false);
             Working(null);
         }
     }
@@ -1277,7 +1265,7 @@ public partial class DownloadView : UserControl, IRefreshable
         }
 
         _state.SelectedInstance = inst;
-        MarketError.Visibility = Visibility.Collapsed;
+        Fx.SetShown(MarketError, false);
         if (busy is Button btn) btn.IsEnabled = false;
         _win.Toast($"开始装 {row.Name} → {inst.Name}");
         Working($"正在装 {row.Name}");
@@ -1441,6 +1429,7 @@ public partial class DownloadView : UserControl, IRefreshable
             rb.Checked += Chip_Checked;
             DetailChips.Children.Add(rb);
         }
+        if (DetailChipHost is not null) Fx.RefreshSlideSelect(DetailChipHost);
     }
 
     void Chip_Checked(object sender, RoutedEventArgs e)

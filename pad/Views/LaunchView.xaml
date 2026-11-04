@@ -62,7 +62,7 @@
           <Border Style="{StaticResource EmptyWell}">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Plus}"
-                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+                              HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock Text="还没有实例" Style="{StaticResource SectionTitle}" />
               <Button Style="{StaticResource BtnWidePrimary}" Content="新建"
                       HorizontalAlignment="Stretch" Margin="0,12,0,0" Click="Step_Click"

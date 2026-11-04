@@ -41,7 +41,7 @@ public partial class LaunchView : UserControl, IRefreshable
     {
         if (KeyWarn is null) return;
         var probe = CredentialsGate.Inspect(_state.Launcher, _state.SelectedInstance, _state.Settings);
-        KeyWarn.Visibility = probe.Configured ? Visibility.Collapsed : Visibility.Visible;
+        Fx.SetShown(KeyWarn, !(probe.Configured));
     }
 
     void PaintRunBtn()

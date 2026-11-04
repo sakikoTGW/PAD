@@ -93,71 +93,80 @@
                   BorderThickness="0,0,0,1" BorderBrush="{StaticResource ChromeHairline}"
                   MouseLeftButtonDown="TitleBar_Drag">
             <Grid>
-              <Grid x:Name="TopMode">
-                <StackPanel x:Name="BrandMark" Orientation="Horizontal" Margin="10,0,0,0"
-                            VerticalAlignment="Center" IsHitTestVisible="False" Opacity="0">
-                  <!-- Light plate + teal rim; asset is head-crop for small chrome. -->
-                  <Border x:Name="BrandLogoPlate" Width="42" Height="42" CornerRadius="21"
-                          Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
-                          Margin="0,0,10,0" VerticalAlignment="Center" SnapsToDevicePixels="True">
-                    <Border.Effect>
-                      <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.5"
-                                        Color="#FF159CB7" />
-                    </Border.Effect>
-                    <Image x:Name="BrandLogo" Width="38" Height="38"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Stretch="Uniform" SnapsToDevicePixels="True"
-                           RenderOptions.BitmapScalingMode="HighQuality">
-                      <Image.Clip>
-                        <EllipseGeometry Center="19,19" RadiusX="18.5" RadiusY="18.5" />
-                      </Image.Clip>
-                    </Image>
-                  </Border>
-                  <TextBlock x:Name="BrandText" Text="PAD" Foreground="{StaticResource TextOnAccent}"
-                             FontFamily="{StaticResource FontMono}" FontSize="18" FontWeight="Bold"
-                             VerticalAlignment="Center" />
-                </StackPanel>
+              <!-- Brand+tabs ↔ back+title swap here; window buttons stay put on the right. -->
+              <Grid x:Name="ChromeStage" ClipToBounds="True" Margin="0,0,72,0">
+                <Grid x:Name="TopMode">
+                  <Grid.RenderTransform>
+                    <TranslateTransform x:Name="TopModeShift" />
+                  </Grid.RenderTransform>
+                  <StackPanel x:Name="BrandMark" Orientation="Horizontal" Margin="10,0,0,0"
+                              VerticalAlignment="Center" IsHitTestVisible="False" Opacity="0">
+                    <!-- Light plate + teal rim; asset is head-crop for small chrome. -->
+                    <Border x:Name="BrandLogoPlate" Width="42" Height="42" CornerRadius="21"
+                            Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
+                            Margin="0,0,10,0" VerticalAlignment="Center" SnapsToDevicePixels="True">
+                      <Border.Effect>
+                        <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.5"
+                                          Color="#FF159CB7" />
+                      </Border.Effect>
+                      <Image x:Name="BrandLogo" Width="38" Height="38"
+                             HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Stretch="Uniform" SnapsToDevicePixels="True"
+                             RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Clip>
+                          <EllipseGeometry Center="19,19" RadiusX="18.5" RadiusY="18.5" />
+                        </Image.Clip>
+                      </Image>
+                    </Border>
+                    <TextBlock x:Name="BrandText" Text="PAD" Foreground="{StaticResource TextOnAccent}"
+                               FontFamily="{StaticResource FontMono}" FontSize="18" FontWeight="Bold"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
 
-                <Grid x:Name="TabStrip" Height="27" HorizontalAlignment="Center"
-                      VerticalAlignment="Center">
-                  <Border x:Name="TabPill" Width="72" Height="27" HorizontalAlignment="Left"
-                          CornerRadius="13.5" Background="{StaticResource BgCard}">
-                    <Border.RenderTransform>
-                      <TranslateTransform x:Name="TabPillShift" />
-                    </Border.RenderTransform>
-                  </Border>
-                  <StackPanel x:Name="TabRow" Orientation="Horizontal">
-                    <RadioButton x:Name="TabLaunch" Style="{StaticResource TitleTab}" Content="启动"
-                                 v:Ico.Of="{StaticResource I.Play}"
-                                 IsChecked="True" Checked="Tab_Checked" Tag="launch" />
-                    <RadioButton x:Name="TabManage" Style="{StaticResource TitleTab}" Content="管理"
-                                 v:Ico.Of="{StaticResource I.Data}"
-                                 Checked="Tab_Checked" Tag="manage" />
-                    <RadioButton x:Name="TabDownload" Style="{StaticResource TitleTab}" Content="下载"
-                                 v:Ico.Of="{StaticResource I.Download}"
-                                 Checked="Tab_Checked" Tag="download" />
-                    <RadioButton x:Name="TabTasks" Style="{StaticResource TitleTab}" Content="任务"
-                                 v:Ico.Of="{StaticResource I.Tasks}"
-                                 Checked="Tab_Checked" Tag="tasks" Visibility="Collapsed" />
-                    <RadioButton x:Name="TabSettings" Style="{StaticResource TitleTab}" Content="设置"
-                                 v:Ico.Of="{StaticResource I.Gear}"
-                                 Checked="Tab_Checked" Tag="settings" />
+                  <Grid x:Name="TabStrip" Height="27" HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <Border x:Name="TabPill" Width="72" Height="27" HorizontalAlignment="Left"
+                            CornerRadius="13.5" Background="{StaticResource BgCard}">
+                      <Border.RenderTransform>
+                        <TranslateTransform x:Name="TabPillShift" />
+                      </Border.RenderTransform>
+                    </Border>
+                    <StackPanel x:Name="TabRow" Orientation="Horizontal">
+                      <RadioButton x:Name="TabLaunch" Style="{StaticResource TitleTab}" Content="启动"
+                                   v:Ico.Of="{StaticResource I.Play}"
+                                   IsChecked="True" Checked="Tab_Checked" Tag="launch" />
+                      <RadioButton x:Name="TabManage" Style="{StaticResource TitleTab}" Content="管理"
+                                   v:Ico.Of="{StaticResource I.Data}"
+                                   Checked="Tab_Checked" Tag="manage" />
+                      <RadioButton x:Name="TabDownload" Style="{StaticResource TitleTab}" Content="功能"
+                                   v:Ico.Of="{StaticResource I.Mod}"
+                                   Checked="Tab_Checked" Tag="download" />
+                      <RadioButton x:Name="TabTasks" Style="{StaticResource TitleTab}" Content="任务"
+                                   v:Ico.Of="{StaticResource I.Tasks}"
+                                   Checked="Tab_Checked" Tag="tasks" Visibility="Collapsed" />
+                      <RadioButton x:Name="TabSettings" Style="{StaticResource TitleTab}" Content="设置"
+                                   v:Ico.Of="{StaticResource I.Gear}"
+                                   Checked="Tab_Checked" Tag="settings" />
+                    </StackPanel>
+                  </Grid>
+                </Grid>
+
+                <Grid x:Name="InnerMode" Visibility="Collapsed">
+                  <Grid.RenderTransform>
+                    <TranslateTransform x:Name="InnerModeShift" />
+                  </Grid.RenderTransform>
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="15,0,0,0">
+                    <Button x:Name="BackBtn" Style="{StaticResource IcoBtnChrome}" Click="Back_Click">
+                      <v:Ico Glyph="{StaticResource I.Back}" Height="13" />
+                    </Button>
+                    <TextBlock x:Name="InnerTitle" Foreground="{StaticResource TextOnAccent}"
+                               FontSize="{StaticResource FsTitle}" VerticalAlignment="Center"
+                               Margin="12,1,0,0" />
+                    <TextBlock x:Name="InnerBadge" Foreground="{StaticResource ChromeInkDim}"
+                               FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
+                               VerticalAlignment="Center" Margin="14,2,0,0" Visibility="Collapsed" />
                   </StackPanel>
                 </Grid>
-              </Grid>
-
-              <Grid x:Name="InnerMode" Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="15,0,0,0">
-                  <Button x:Name="BackBtn" Style="{StaticResource IcoBtnChrome}" Click="Back_Click">
-                    <v:Ico Glyph="{StaticResource I.Back}" Height="13" />
-                  </Button>
-                  <TextBlock x:Name="InnerTitle" Foreground="{StaticResource TextOnAccent}"
-                             FontSize="{StaticResource FsTitle}" VerticalAlignment="Center"
-                             Margin="12,1,0,0" />
-                  <TextBlock x:Name="InnerBadge" Foreground="{StaticResource ChromeInkDim}"
-                             FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
-                             VerticalAlignment="Center" Margin="14,2,0,0" Visibility="Collapsed" />
-                </StackPanel>
               </Grid>
 
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -207,7 +216,7 @@
             <Border x:Name="MsgDim" Background="#99000000" />
             <Border x:Name="MsgCard" MinWidth="400" MaxWidth="520" MaxHeight="460"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Background="{StaticResource BgCard}" CornerRadius="7"
+                    Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}"
                     BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                     Margin="20" FocusManager.IsFocusScope="True">
               <Border.Effect>
@@ -264,7 +273,7 @@
             <Border Background="#99000000" MouseLeftButtonDown="MdDim_Down" />
             <Border x:Name="MdCard" MinWidth="420" MaxWidth="560" MaxHeight="480"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Background="{StaticResource BgCard}" CornerRadius="7"
+                    Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCard}"
                     BorderBrush="{StaticResource LineBorder}" BorderThickness="1" Margin="20">
               <Border.Effect>
                 <DropShadowEffect BlurRadius="20" ShadowDepth="4" Direction="270" Opacity="0.28"
@@ -293,11 +302,6 @@
             </Border>
           </Grid>
 
-          <!-- Kept for Fx.Edge callers; permanently collapsed — LineBorder read as the
-               persistent pale halo on the rounded surplus. -->
-          <Border x:Name="EdgeRing" Grid.RowSpan="2" BorderThickness="1"
-                  BorderBrush="{StaticResource ChromeHairline}" CornerRadius="10"
-                  Visibility="Collapsed" IsHitTestVisible="False" />
         </Grid>
         </Border>
       </Grid>

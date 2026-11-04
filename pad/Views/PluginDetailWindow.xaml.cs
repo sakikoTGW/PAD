@@ -25,6 +25,7 @@ public partial class PluginDetailWindow : Window
         Func<Task<IReadOnlyList<string>>>? versions = null, Action<string>? installVersion = null)
     {
         InitializeComponent();
+        Loaded += (_, _) => Fx.DialogIn(this);
         _row = row;
         _install = install;
         _loadVersions = versions;

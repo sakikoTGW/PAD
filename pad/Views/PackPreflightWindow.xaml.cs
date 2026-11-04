@@ -74,15 +74,16 @@ public partial class PackPreflightWindow : Window
     public PackPreflightWindow()
     {
         InitializeComponent();
+        Loaded += (_, _) => Fx.DialogIn(this);
     }
 
     /// <summary>切到阶段 1（安装前检查）。</summary>
     public void ShowPreflight(PreflightView view)
     {
-        StageCheck.Visibility = Visibility.Visible;
-        StageReport.Visibility = Visibility.Collapsed;
-        CheckButtons.Visibility = Visibility.Visible;
-        ReportButtons.Visibility = Visibility.Collapsed;
+        Fx.SetShown(StageCheck, true);
+        Fx.SetShown(StageReport, false);
+        Fx.SetShown(CheckButtons, true);
+        Fx.SetShown(ReportButtons, false);
         StageTitle.Text = "安装前检查";
         StageSub.Text = "先算清楚会发生什么，再由你决定。";
         Title = "安装前检查 · " + view.PackLabel;
@@ -90,14 +91,14 @@ public partial class PackPreflightWindow : Window
         InstanceLabel.Text = view.InstanceLabel;
         CheckLines.ItemsSource = view.Lines;
         DetailLines.ItemsSource = view.DetailLines;
-        DetailLines.Visibility = view.DetailLines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(DetailLines, view.DetailLines.Count > 0);
         AcceptRiskBox.Content = view.AcceptRiskText;
-        AcceptRiskBox.Visibility = view.ShowAcceptRisk ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(AcceptRiskBox, view.ShowAcceptRisk);
         AcceptRiskBox.IsChecked = view.ShowAcceptRisk && view.AcceptRiskChecked;
         SkipMissingBox.Content = view.SkipText;
-        SkipMissingBox.Visibility = view.ShowSkip ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(SkipMissingBox, view.ShowSkip);
         SkipMissingBox.IsChecked = view.ShowSkip && view.SkipChecked;
-        Options.Visibility = view.ShowAcceptRisk || view.ShowSkip ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(Options, view.ShowAcceptRisk || view.ShowSkip);
         StartBtn.Content = view.StartText;
         StartBtn.IsEnabled = view.CanStart;
         _canStart = view.CanStart;
@@ -107,10 +108,10 @@ public partial class PackPreflightWindow : Window
     /// <summary>切到阶段 2（安装报告）。</summary>
     public void ShowReport(ReportView view)
     {
-        StageCheck.Visibility = Visibility.Collapsed;
-        StageReport.Visibility = Visibility.Visible;
-        CheckButtons.Visibility = Visibility.Collapsed;
-        ReportButtons.Visibility = Visibility.Visible;
+        Fx.SetShown(StageCheck, false);
+        Fx.SetShown(StageReport, true);
+        Fx.SetShown(CheckButtons, false);
+        Fx.SetShown(ReportButtons, true);
         StageTitle.Text = "安装报告";
         StageSub.Text = "结果都写进账本；缺件随时可修复，不会静默失败。";
         Title = "安装报告 · " + view.PackLabel;
@@ -120,12 +121,12 @@ public partial class PackPreflightWindow : Window
         StatusPill.DataContext = new { Tone = view.StatusTone };
         GapPill.Content = view.GapText;
         GapPill.DataContext = new { Tone = "warn" };
-        GapPill.Visibility = view.ShowGap ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(GapPill, view.ShowGap);
         LedgerText.Text = view.LedgerText;
         StatTiles.ItemsSource = view.Stats;
         ReportLines.ItemsSource = view.Lines;
         ReportHint.Text = view.Hint;
-        RepairBtn.Visibility = view.ShowRepair ? Visibility.Visible : Visibility.Collapsed;
+        Fx.SetShown(RepairBtn, view.ShowRepair);
     }
 
     /// <summary>安装中：锁住两个阶段的动作，避免双击/重复提交。</summary>

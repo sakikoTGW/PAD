@@ -11,7 +11,7 @@
     <ScrollViewer Grid.Row="0" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <!-- 身份：名字/版本/图标/说明 -->
-        <Border Style="{StaticResource Slab}" Padding="20,16,18,16">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
             <ContentControl Style="{StaticResource SlabHead}" Content="整合包"
                             v:Ico.Of="{StaticResource I.Pack}" />
@@ -31,7 +31,7 @@
               <TextBox Grid.Column="1" x:Name="NameBox" Height="28" Margin="0,0,14,8" />
               <TextBlock Grid.Column="2" Text="版本" VerticalAlignment="Center" />
               <TextBox Grid.Column="3" x:Name="VersionBox" Height="28" Margin="0,0,10,8" />
-              <Border Grid.Column="4" Grid.RowSpan="2" Width="52" Height="52" CornerRadius="10"
+              <Border Grid.Column="4" Grid.RowSpan="2" Width="52" Height="52" CornerRadius="{StaticResource RadCard}"
                       Background="{StaticResource BgCard}" BorderThickness="1"
                       BorderBrush="{StaticResource LineDivider}" Margin="6,0,0,0"
                       VerticalAlignment="Center" Cursor="Hand" ToolTip="选图标"
@@ -51,7 +51,7 @@
         </Border>
 
         <!-- 核心：单选 -->
-        <Border Style="{StaticResource Slab}" Padding="20,14,18,10" Margin="0,10,0,0">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
             <ContentControl Style="{StaticResource SlabHead}" Content="核心"
                             v:Ico.Of="{StaticResource I.Gear}" />
@@ -61,7 +61,7 @@
         </Border>
 
         <!-- 容器：单选；决定 profile 和默认插件 -->
-        <Border Style="{StaticResource Slab}" Padding="20,14,18,10" Margin="0,10,0,0">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
             <ContentControl Style="{StaticResource SlabHead}" Content="容器"
                             v:Ico.Of="{StaticResource I.Terminal}" />
@@ -71,7 +71,7 @@
         </Border>
 
         <!-- 插件：多选，至少一个 -->
-        <Border Style="{StaticResource Slab}" Padding="20,14,18,12" Margin="0,10,0,0">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
             <ContentControl Style="{StaticResource SlabHead}" Content="插件"
                             v:Ico.Of="{StaticResource I.Plus}" />
@@ -95,7 +95,7 @@
         </Border>
 
         <!-- 导出成哪种：清单包（小、要联网装插件） / 便携包（带 PAD 和实例，打开就能跑） -->
-        <Border Style="{StaticResource Slab}" Padding="20,14,18,16" Margin="0,10,0,0">
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
           <StackPanel>
             <ContentControl Style="{StaticResource SlabHead}" Content="导出形式"
                             v:Ico.Of="{StaticResource I.Download}" />
