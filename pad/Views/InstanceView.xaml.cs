@@ -63,6 +63,7 @@ public partial class InstanceView : UserControl, IRefreshable
         }
         LoadSessions();
         LoadOverview();
+        if (PaneOverview is not null) Fx.MarkEnter(PaneOverview);
     }
 
     void LoadSessions()
@@ -84,19 +85,42 @@ public partial class InstanceView : UserControl, IRefreshable
 
     void ShowPane(string tag)
     {
-        PaneOverview.Visibility = tag == "overview" ? Visibility.Visible : Visibility.Collapsed;
-        PaneSettings.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
-        PanePlugins.Visibility = tag is "plugins" or "bundles" ? Visibility.Visible : Visibility.Collapsed;
-        PanePacks.Visibility = tag == "packs" ? Visibility.Visible : Visibility.Collapsed;
-        PaneSessions.Visibility = tag == "sessions" ? Visibility.Visible : Visibility.Collapsed;
-        PanePresets.Visibility = tag == "presets" ? Visibility.Visible : Visibility.Collapsed;
-        if (tag == "sessions") LoadSessions();
-        if (tag == "packs") { _ = LoadPacks(); _ = LoadSetList(); }
-        if (tag is "plugins" or "bundles") LoadPlugins();
-        if (tag == "presets") LoadPresets();
-        if (tag == "settings") LoadInstSettings();
-        if (tag == "overview") LoadOverview();
-        if (Fx.Animated && Pane(tag) is { } pane) Fx.PageIn(pane);
+        var next = Pane(tag) as FrameworkElement;
+        var leaving =
+            PaneOverview.Visibility == Visibility.Visible ? (FrameworkElement)PaneOverview
+            : PaneSettings.Visibility == Visibility.Visible ? PaneSettings
+            : PanePlugins.Visibility == Visibility.Visible ? PanePlugins
+            : PanePacks.Visibility == Visibility.Visible ? PanePacks
+            : PaneSessions.Visibility == Visibility.Visible ? PaneSessions
+            : PanePresets.Visibility == Visibility.Visible ? PanePresets
+            : null;
+
+        void ShowNext()
+        {
+            PaneOverview.Visibility = tag == "overview" ? Visibility.Visible : Visibility.Collapsed;
+            PaneSettings.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
+            PanePlugins.Visibility = tag is "plugins" or "bundles" ? Visibility.Visible : Visibility.Collapsed;
+            PanePacks.Visibility = tag == "packs" ? Visibility.Visible : Visibility.Collapsed;
+            PaneSessions.Visibility = tag == "sessions" ? Visibility.Visible : Visibility.Collapsed;
+            PanePresets.Visibility = tag == "presets" ? Visibility.Visible : Visibility.Collapsed;
+            if (tag == "sessions") LoadSessions();
+            if (tag == "packs") { _ = LoadPacks(); _ = LoadSetList(); }
+            if (tag is "plugins" or "bundles") LoadPlugins();
+            if (tag == "presets") LoadPresets();
+            if (tag == "settings") LoadInstSettings();
+            if (tag == "overview") LoadOverview();
+            if (next is not null)
+            {
+                next.Opacity = 1;
+                next.UpdateLayout();
+                Fx.RevealEnter(next);
+            }
+        }
+
+        if (Fx.Animated && leaving is not null && next is not null && !ReferenceEquals(leaving, next))
+            Fx.PageOut(leaving, ShowNext);
+        else
+            ShowNext();
     }
 
     UIElement? Pane(string tag) => tag switch

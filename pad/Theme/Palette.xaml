@@ -113,6 +113,14 @@
   <Thickness x:Key="PadCard">18,15,18,17</Thickness>
   <Thickness x:Key="PadRow">12,10,12,11</Thickness>
 
+  <!-- Vertical rhythm between modules. Only these three — no 9/10/14/15 one-offs.
+       GapTight  = switches / field rows inside a slab
+       GapField  = slab head → body, label stacks, in-pane section breaks
+       GapModule = between Slabs / Cards on a page -->
+  <Thickness x:Key="GapTight">0,0,0,8</Thickness>
+  <Thickness x:Key="GapField">0,0,0,12</Thickness>
+  <Thickness x:Key="GapModule">0,0,0,16</Thickness>
+
   <!-- Motion tokens, designed by response time rather than by "feels nice":
        90ms  press/colour — feedback has to land with the press, not after it
        160ms hover/reveal — seen dozens of times a day: present, never showy

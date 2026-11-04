@@ -502,7 +502,9 @@
 
   <Style x:Key="RadioCard" TargetType="RadioButton">
     <Setter Property="Cursor" Value="Hand" />
-    <Setter Property="Margin" Value="0,0,0,8" />
+    <!-- GapTight only — never override Margin on instances (local Margin replaces the whole
+         Thickness and drops the bottom gap, which is how WT/conhost stuck together). -->
+    <Setter Property="Margin" Value="{StaticResource GapTight}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Template">
       <Setter.Value>

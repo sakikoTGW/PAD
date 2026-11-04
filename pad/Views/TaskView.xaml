@@ -34,9 +34,9 @@
                KeyDown="Search_Key" />
     </StackPanel>
 
-    <ScrollViewer Grid.Row="1" Padding="25,16,25,25" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <Grid>
-        <Border Style="{StaticResource Slab}" Padding="25,22,25,25" MaxWidth="380"
+        <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}" MaxWidth="380"
                 HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,40,0,0"
                 Visibility="{Binding NoneRunning, Converter={StaticResource B2V}}">
           <StackPanel>

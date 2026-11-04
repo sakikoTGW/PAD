@@ -121,7 +121,8 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void PaintShelves()
     {
-        var want = string.Join('\n', Market.Shelves.Select(s => $"{s.Id}|{s.Label}|{s.Query}"));
+        var want = string.Join('\n',
+            Market.Shelves.Select(s => $"{s.Id}|{s.Label}|{s.Query}|{s.Description}"));
         if (_shelvesPainted && (ShelfNav.Tag as string) == want) return;
         ShelfNav.Children.Clear();
         var glyphs = new Geometry?[]
@@ -153,6 +154,54 @@ public partial class DownloadView : UserControl, IRefreshable
 
     public void OnShown()
     {
+        PaintChrome();
+        if (_shelf == "dltasks")
+        {
+            PaintDlTasks();
+            StartDlPoll();
+            if (PaneDlTasks is not null) Fx.MarkEnter(PaneDlTasks);
+            return;
+        }
+        if (string.IsNullOrEmpty(_shelf))
+        {
+            if (PaneRelease is not null) Fx.MarkEnter(PaneRelease);
+            if (_state.Settings.Download.AutoFetchOnOpen) _ = FetchVersions();
+            return;
+        }
+        if (PaneMarket is not null) Fx.MarkEnter(PaneMarket);
+        if (!_state.Settings.Download.AutoFetchOnOpen) return;
+        _from = 0;
+        _ = Load();
+    }
+
+    /// <summary>
+    /// Startup warm: tool lines, npm DSH packument, and first page of every community shelf
+    /// (fills <see cref="Market.Search"/> cache so 终端 / 插件 / … open without a stall).
+    /// </summary>
+    public async Task WarmAsync()
+    {
+        await Dispatcher.InvokeAsync(PaintChrome);
+        if (_state.Settings.Download.AutoFetchOnOpen)
+        {
+            try { await FetchVersions(); }
+            catch { /* registry down — OnShown will retry */ }
+        }
+
+        var size = Math.Clamp((int)(_win.ActualHeight / 17), 10, 100);
+        foreach (var shelf in Market.Shelves)
+        {
+            try
+            {
+                await Market.Search(shelf.Query, "", 0, CancellationToken.None, size);
+            }
+            catch { /* one shelf failing must not abort the rest */ }
+        }
+        try { MarketPinyinIndex.Prewarm(_state.Launcher); }
+        catch { /* best-effort */ }
+    }
+
+    void PaintChrome()
+    {
         PaintShelves();
         var def = _state.Settings.Launch.DefaultRelease;
         if (string.IsNullOrWhiteSpace(VersionBox.Text) && def.Length > 0)
@@ -175,20 +224,6 @@ public partial class DownloadView : UserControl, IRefreshable
             ToolHint.Text += " 启动时会自动装进 runtime/node/。";
         ToolHint.Visibility = ToolHint.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         PickTarget();
-        if (_shelf == "dltasks")
-        {
-            PaintDlTasks();
-            StartDlPoll();
-            return;
-        }
-        if (!_state.Settings.Download.AutoFetchOnOpen) return;
-        if (string.IsNullOrEmpty(_shelf))
-            _ = FetchVersions();
-        else
-        {
-            _from = 0;
-            _ = Load();
-        }
     }
 
     void Tool(Border pip, TextBlock line, string? path, string missing)
@@ -364,38 +399,80 @@ public partial class DownloadView : UserControl, IRefreshable
 
         var release = tag == "release";
         var tasks = tag == "dltasks";
-        PaneRelease.Visibility = release ? Visibility.Visible : Visibility.Collapsed;
-        PaneMarket.Visibility = !release && !tasks ? Visibility.Visible : Visibility.Collapsed;
-        if (PaneDlTasks is not null)
-            PaneDlTasks.Visibility = tasks ? Visibility.Visible : Visibility.Collapsed;
+        FrameworkElement next = tasks && PaneDlTasks is not null ? PaneDlTasks
+            : release ? PaneRelease
+            : PaneMarket;
+        var leaving =
+            PaneDlTasks is not null && PaneDlTasks.Visibility == Visibility.Visible ? (FrameworkElement)PaneDlTasks
+            : PaneRelease.Visibility == Visibility.Visible ? PaneRelease
+            : PaneMarket.Visibility == Visibility.Visible ? PaneMarket
+            : null;
 
-        if (tasks)
+        var paneChanged = leaving is null || !ReferenceEquals(leaving, next);
+
+        void ShowNext()
         {
-            _shelf = "dltasks";
-            PaintDlTasks();
-            StartDlPoll();
-            if (Fx.Animated && PaneDlTasks is not null) Fx.PageIn(PaneDlTasks);
-            return;
+            PaneRelease.Visibility = release ? Visibility.Visible : Visibility.Collapsed;
+            PaneMarket.Visibility = !release && !tasks ? Visibility.Visible : Visibility.Collapsed;
+            if (PaneDlTasks is not null)
+                PaneDlTasks.Visibility = tasks ? Visibility.Visible : Visibility.Collapsed;
+
+            if (tasks)
+            {
+                _shelf = "dltasks";
+                PaintDlTasks();
+                StartDlPoll();
+                if (paneChanged)
+                {
+                    next.Opacity = 1;
+                    next.UpdateLayout();
+                    Fx.RevealEnter(next);
+                }
+                return;
+            }
+
+            StopDlPoll();
+            ShowMarketList();
+            if (paneChanged)
+            {
+                next.Opacity = 1;
+                next.UpdateLayout();
+                Fx.RevealEnter(next);
+            }
+            if (release) { _shelf = ""; return; }
+
+            if (_shelf == tag) return;
+            _shelf = tag;
+            var shelf = Shelf();
+            ShelfTitle.Text = $"{shelf.Label} · {shelf.Query}";
+            ShelfTitle.ToolTip = shelf.Query;
+            PaintShelfCopy(shelf);
+            SearchBox.Clear();
+            _from = 0;
+            PickTarget();
+            _ = Load();
         }
 
-        StopDlPoll();
-        ShowMarketList();
-        if (Fx.Animated) Fx.PageIn(release ? PaneRelease : PaneMarket);
-        if (release) { _shelf = ""; return; }
-
-        if (_shelf == tag) return;
-        _shelf = tag;
-        var shelf = Shelf();
-        ShelfTitle.Text = $"{shelf.Label} · {shelf.Query}";
-        ShelfTitle.ToolTip = shelf.Query;
-        SearchBox.Clear();
-        _from = 0;
-        PickTarget();
-        _ = Load();
+        if (Fx.Animated && paneChanged && leaving is not null)
+            Fx.PageOut(leaving, ShowNext);
+        else
+            ShowNext();
     }
 
-    (string Id, string Label, string Query) Shelf() =>
+    (string Id, string Label, string Query, string Description) Shelf() =>
         Market.Shelves.FirstOrDefault(s => s.Id == _shelf, Market.Shelves[0]);
+
+    void PaintShelfCopy((string Id, string Label, string Query, string Description) shelf)
+    {
+        StoreHeading.Text = "插件商店";
+        StoreSubtitle.Text = shelf.Label + "分类";
+        ShelfInfoTitle.Text = shelf.Label + " · 同一商店的查询货架";
+        ShelfInfoText.Text = string.IsNullOrWhiteSpace(shelf.Description)
+            ? "这个分类与其他货架共用列表、搜索和安装流程，只改变 npm 查询范围。"
+            : shelf.Description;
+        ShelfQuery.Text = shelf.Query;
+        SearchBox.Tag = $"在“{shelf.Label}”中搜索名称、作者、关键词…";
+    }
 
     void StartDlPoll()
     {
@@ -876,8 +953,9 @@ public partial class DownloadView : UserControl, IRefreshable
         ChipRow.Visibility = Visibility.Collapsed;
         StoreMoreBtn.Visibility = Visibility.Visible;
         StoreModeLink.Content = "‹ 返回增长榜";
-        StoreSectionTitle.Text = "全部插件";
-        StoreSectionSub.Text = $"{page.Total:N0} 个插件";
+        var shelf = Shelf();
+        StoreSectionTitle.Text = shelf.Id == "plugin" ? "全部插件" : shelf.Label;
+        StoreSectionSub.Text = $"{page.Total:N0} 个 npm 包";
         StoreSectionRight.Text = text.Length == 0 ? ""
             : _pinyin ? $"拼音/首字母匹配 {shown.Count} 个"
             : _crossShelf ? $"已跨货架找到 {shown.Count} 个"
@@ -887,8 +965,8 @@ public partial class DownloadView : UserControl, IRefreshable
         ResultCard.Visibility = page.Rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
         EmptyText.Text = SearchBox.Text.Trim().Length == 0
-            ? "无搜索结果"
-            : "无搜索结果，请尝试搜索其英文名称";
+            ? $"“{shelf.Label}”货架暂时没有结果"
+            : $"“{shelf.Label}”中没有结果，请尝试英文名称或切换分类";
         EmptyCard.Visibility = page.Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
         ResultCount.Text = $"{page.Total:N0} 个插件";

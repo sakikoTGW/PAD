@@ -54,9 +54,20 @@ public partial class SettingsView : UserControl, IRefreshable
         }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    public void OnShown() => Paint();
+    public void OnShown()
+    {
+        _ = PaintAsync(waitProbe: false);
+        // Parent PageIn already showed this pane — claim titles so a later revisit stays put.
+        var pane = PaneOf(_layer) ?? PaneLaunch;
+        if (pane is not null) Fx.MarkEnter(pane);
+    }
 
-    void Paint()
+    /// <summary>Startup warm: paint launch/terminal fields now; DSH sniff continues in the background.</summary>
+    public Task WarmAsync() => PaintAsync(waitProbe: false);
+
+    void Paint() => _ = PaintAsync(waitProbe: false);
+
+    async Task PaintAsync(bool waitProbe)
     {
         _loading = true;
         var wt = Proc.Which("wt");
@@ -81,7 +92,8 @@ public partial class SettingsView : UserControl, IRefreshable
         // 嗅探会扫盘根/模块目录（轻量但不可忽略）：放到 worker 上，填到再显示（D21/D22）。
         DshHomeBox.Text = string.IsNullOrWhiteSpace(s.Launch.DshHome) ? "" : s.Launch.DshHome;
         DshCliBox.Text = s.Launch.DshCli;
-        _ = LoadProbeAsync(++_probeGen, s);
+        var probeGen = ++_probeGen;
+        var probeTask = LoadProbeAsync(probeGen, s);
         OptWt.IsChecked = s.Kind == TerminalKind.WindowsTerminal && wt is not null;
         OptConhost.IsChecked = s.Kind == TerminalKind.Conhost
                                || (s.Kind == TerminalKind.WindowsTerminal && wt is null);
@@ -150,7 +162,7 @@ public partial class SettingsView : UserControl, IRefreshable
         InstallTimeoutBox.Text = s.Download.InstallTimeoutSec.ToString();
         GatewayTimeoutBox.Text = s.Download.GatewayTimeoutSec.ToString();
         ShelvesBox.Text = string.Join('\n',
-            s.Download.Shelves.Select(x => $"{x.Id}|{x.Label}|{x.Query}"));
+            s.Download.Shelves.Select(x => $"{x.Id}|{x.Label}|{x.Query}|{x.Description}"));
         PresetsBox.Text = string.Join('\n',
             s.Download.RegistryPresets.Select(x => $"{x.Label}|{x.Url}"));
         PaintRegistryButtons(s.Download.RegistryPresets);
@@ -187,7 +199,12 @@ public partial class SettingsView : UserControl, IRefreshable
         }
         PaintApiReady();
         _loading = false;
-        if (_dshInventory is null) _ = ScanDshAsync();
+        var scanTask = _dshInventory is null ? ScanDshAsync() : Task.CompletedTask;
+        if (waitProbe)
+        {
+            await probeTask;
+            await scanTask;
+        }
     }
 
     // ------------------------------------------------------------------ 本机 DSH 探测
@@ -210,6 +227,8 @@ public partial class SettingsView : UserControl, IRefreshable
         SniffLine.Text = string.IsNullOrWhiteSpace(probe.Bin) || RelToRoot(probe.Bin) == DshBinLine.Text
             ? ""
             : "自动搜索 " + probe.Bin;
+        SniffLine.Visibility = string.IsNullOrWhiteSpace(SniffLine.Text)
+            ? Visibility.Collapsed : Visibility.Visible;
         DshTuiLine.Text = probe.Tui ?? "未找到";
         if (string.IsNullOrWhiteSpace(DshHomeBox.Text) && probe.HomeExists)
             DshHomeBox.Text = probe.Home;
@@ -449,29 +468,22 @@ public partial class SettingsView : UserControl, IRefreshable
     void Nav_Checked(object sender, RoutedEventArgs e)
     {
         if (PaneLaunch is null || PaneApi is null || sender is not RadioButton { Tag: string tag }) return;
+        var next = tag switch
+        {
+            "api" => (FrameworkElement)PaneApi,
+            "ui" => PaneUi,
+            "download" => PaneDownload,
+            "other" => PaneOther,
+            _ => PaneLaunch,
+        };
+        var leaving = PaneOf(_layer);
+        if (ReferenceEquals(leaving, next) && next.Visibility == Visibility.Visible)
+        {
+            _layer = tag;
+            return;
+        }
+
         _layer = tag;
-        PaneApi.Visibility = tag == "api" ? Visibility.Visible : Visibility.Collapsed;
-        PaneLaunch.Visibility = tag == "launch" ? Visibility.Visible : Visibility.Collapsed;
-        PaneUi.Visibility = tag == "ui" ? Visibility.Visible : Visibility.Collapsed;
-        PaneDownload.Visibility = tag == "download" ? Visibility.Visible : Visibility.Collapsed;
-        PaneOther.Visibility = tag == "other" ? Visibility.Visible : Visibility.Collapsed;
-        if (tag == "api")
-        {
-            ShowApiList();
-            PaintApiReady();
-        }
-        if (Fx.Animated)
-        {
-            var pane = tag switch
-            {
-                "api" => PaneApi,
-                "ui" => PaneUi,
-                "download" => PaneDownload,
-                "other" => PaneOther,
-                _ => PaneLaunch,
-            };
-            Fx.PageIn(pane);
-        }
         ResetBtn.ToolTip = tag switch
         {
             "api" => "API Key 不能一键清空",
@@ -480,7 +492,41 @@ public partial class SettingsView : UserControl, IRefreshable
             "other" => "初始化其他",
             _ => "初始化启动",
         };
+
+        void ShowNext()
+        {
+            PaneApi.Visibility = tag == "api" ? Visibility.Visible : Visibility.Collapsed;
+            PaneLaunch.Visibility = tag == "launch" ? Visibility.Visible : Visibility.Collapsed;
+            PaneUi.Visibility = tag == "ui" ? Visibility.Visible : Visibility.Collapsed;
+            PaneDownload.Visibility = tag == "download" ? Visibility.Visible : Visibility.Collapsed;
+            PaneOther.Visibility = tag == "other" ? Visibility.Visible : Visibility.Collapsed;
+            if (tag == "api")
+            {
+                ShowApiList();
+                PaintApiReady();
+            }
+            // Sub-page: titles cascade once; body stays. Revisit → MarkEnter already claimed.
+            next.Opacity = 1;
+            next.UpdateLayout();
+            Fx.RevealEnter(next);
+        }
+
+        if (Fx.Animated && leaving is not null && leaving.Visibility == Visibility.Visible
+            && !ReferenceEquals(leaving, next))
+            Fx.PageOut(leaving, ShowNext);
+        else
+            ShowNext();
     }
+
+    FrameworkElement? PaneOf(string layer) => layer switch
+    {
+        "api" => PaneApi,
+        "ui" => PaneUi,
+        "download" => PaneDownload,
+        "other" => PaneOther,
+        "launch" => PaneLaunch,
+        _ => null,
+    };
 
     void Reset_Click(object sender, RoutedEventArgs e)
     {
@@ -795,18 +841,37 @@ public partial class SettingsView : UserControl, IRefreshable
 
     async void PinSniffed_Click(object sender, RoutedEventArgs e)
     {
-        var bin = _dshInventory?.Clis
-                      .Select(c => c.Bin)
-                      .FirstOrDefault(b => b.EndsWith("bin.js", StringComparison.OrdinalIgnoreCase))
-                  ?? DshSniff.Bin() ?? PickBin();
-        if (bin is null) return;
-        await PinBin(bin);
+        var win = Window.GetWindow(this) as MainWindow;
+        PinBinBtn.IsEnabled = false;
+        try
+        {
+            // Disk sniff must not run on the UI thread (BinCandidates can walk a lot).
+            var inventory = _dshInventory;
+            var bin = await Task.Run(() =>
+                inventory?.Clis
+                    .Select(c => c.Bin)
+                    .FirstOrDefault(b => b.EndsWith("bin.js", StringComparison.OrdinalIgnoreCase))
+                ?? DshSniff.Bin());
+            if (bin is null)
+            {
+                bin = PickBin();
+                if (bin is null) return;
+            }
+            win?.Toast("正在纳入本机 DSH…");
+            await PinBin(bin);
+        }
+        finally
+        {
+            PinBinBtn.IsEnabled = true;
+        }
     }
 
     async void PickBin_Click(object sender, RoutedEventArgs e)
     {
         var bin = PickBin();
         if (bin is null) return;
+        if (Window.GetWindow(this) is MainWindow win)
+            win.Toast("正在纳入所选 DSH…");
         await PinBin(bin);
     }
 
@@ -844,16 +909,17 @@ public partial class SettingsView : UserControl, IRefreshable
 
     async Task PinBin(string bin)
     {
+        var win = Window.GetWindow(this) as MainWindow;
         try
         {
             await _state.Launcher.PinExisting(bin, null, CancellationToken.None);
             _state.Reload();
             Paint();
+            win?.Toast("已纳入本机 DSH");
         }
         catch (Exception ex)
         {
-            if (Window.GetWindow(this) is MainWindow w)
-                w.Toast(PadError.Describe(ex), bad: true);
+            win?.Toast(PadError.Describe(ex), bad: true);
         }
     }
 
@@ -1037,13 +1103,20 @@ public partial class SettingsView : UserControl, IRefreshable
         var list = new List<ShelfPref>();
         foreach (var raw in (text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
-            var parts = raw.Split('|');
+            var parts = raw.Split('|', 4);
             if (parts.Length < 2) continue;
             var id = parts[0].Trim();
             var label = parts.Length >= 3 ? parts[1].Trim() : id;
             var query = parts.Length >= 3 ? parts[2].Trim() : parts[1].Trim();
+            var description = parts.Length >= 4 ? parts[3].Trim() : "";
             if (id.Length == 0 || query.Length == 0) continue;
-            list.Add(new ShelfPref { Id = id, Label = label, Query = query });
+            list.Add(new ShelfPref
+            {
+                Id = id,
+                Label = label,
+                Query = query,
+                Description = description,
+            });
         }
         return list;
     }

@@ -1433,11 +1433,13 @@ if (!read('MainWindow.xaml.cs').includes('BrandText.Text'))
 if (!read('Core/Models.cs').includes('brandText') || !read('Core/Models.cs').includes('animSpeed'))
   fail('pad.json 没有 brandText / animSpeed')
 {
-  // 页面切换的"同一页不重播入场"现在落在 Swap()：先判 same，入场只在 !same 时跑。
+  // 页面切换：先判 same；离场 PageOut，入场统一 PageIn（不再按页挑 choreography）。
   const swap = read('MainWindow.xaml.cs')
   if (!/var same = ReferenceEquals\(Host\.Content, page\)/.test(swap))
     fail('切到同一页不先判 same（会重播入场）')
-  if (!/if \(!same\)[\s\S]{0,600}Fx\.EnterPage/.test(swap))
+  if (!swap.includes('Fx.PageOut') || !swap.includes('Fx.PageIn'))
+    fail('切页没有统一的 PageOut / PageIn')
+  if (!/if \(!same\)[\s\S]{0,800}Fx\.PageIn/.test(swap))
     fail('切到同一页还重播入场')
 }
 

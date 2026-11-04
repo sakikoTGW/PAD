@@ -8,35 +8,86 @@
         mc:Ignorable="d"
         Title="PAD" Width="1000" Height="620"
         Icon="pack://application:,,,/Assets/pad.ico"
-        WindowStyle="None" AllowsTransparency="False" ResizeMode="CanMinimize"
-        Background="{StaticResource BgPage}" WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" ResizeMode="CanMinimize"
+        Background="Transparent" WindowStartupLocation="CenterScreen"
         AllowDrop="True" PreviewDragOver="Window_DragOver" Drop="Window_Drop"
         TextOptions.TextFormattingMode="Display"
         ToolTipService.InitialShowDelay="700" ToolTipService.BetweenShowDelay="200"
         FontFamily="{StaticResource FontUI}" UseLayoutRounding="True" SnapsToDevicePixels="True">
 
-  <!-- A normal (non-layered) window: DWM composes it on the GPU, so opacity and
-       transform animations never pay for a full-window layered blit. The corner
-       rounding and outer shadow come from DWM (see Core/Dwm.cs) instead of a
-       DropShadowEffect wrapped around the whole visual tree. -->
+  <!-- Layered shell morph: HWND tiles to the destination with transparent surplus;
+       OuterShell grows/shrinks from the old size (see ApplyPageSize). PageIn can run
+       in parallel on grow so content appears while the card opens. -->
   <WindowChrome.WindowChrome>
     <WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0"
                   CornerRadius="0" UseAeroCaptionButtons="False" />
   </WindowChrome.WindowChrome>
 
-  <Border x:Name="OuterShell" Margin="0" Background="Transparent" CornerRadius="10">
-    <Border CornerRadius="10">
-      <Grid>
-        <!-- Steam-style skin: wallpaper under a wash so text stays readable. -->
-        <Image x:Name="Wallpaper" Stretch="UniformToFill" StretchDirection="Both"
-               Opacity="0.4" Visibility="Collapsed" IsHitTestVisible="False" />
-        <Border x:Name="PageWash" Background="{StaticResource BgPage}" IsHitTestVisible="False" />
+  <Grid>
+    <!-- Boot handoff: chrome plate slides up; brand flies to BrandMark; progress fades. -->
+    <Border x:Name="BootCover" Background="Transparent" CornerRadius="10"
+            Visibility="Visible" Panel.ZIndex="200" IsHitTestVisible="True"
+            ClipToBounds="True">
+      <Grid x:Name="BootRoot">
+        <Border x:Name="BootPlate" Background="{StaticResource BgChrome}" CornerRadius="10">
+          <Border.RenderTransform>
+            <TranslateTransform x:Name="BootPlateShift" />
+          </Border.RenderTransform>
+        </Border>
+        <StackPanel x:Name="BootBrand" Orientation="Horizontal" HorizontalAlignment="Center"
+                    VerticalAlignment="Center" IsHitTestVisible="False">
+          <StackPanel.RenderTransform>
+            <TranslateTransform x:Name="BootBrandShift" />
+          </StackPanel.RenderTransform>
+          <Border x:Name="BootLogoPlate" Width="42" Height="42" CornerRadius="21"
+                  Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
+                  Margin="0,0,10,0" VerticalAlignment="Center" SnapsToDevicePixels="True">
+            <Border.Effect>
+              <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.5"
+                                Color="#FF159CB7" />
+            </Border.Effect>
+            <Image x:Name="BootLogo" Width="38" Height="38"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Stretch="Uniform" SnapsToDevicePixels="True"
+                   RenderOptions.BitmapScalingMode="HighQuality">
+              <Image.Clip>
+                <EllipseGeometry Center="19,19" RadiusX="18.5" RadiusY="18.5" />
+              </Image.Clip>
+            </Image>
+          </Border>
+          <TextBlock x:Name="BootBrandText" Text="PAD" Foreground="{StaticResource TextOnAccent}"
+                     FontFamily="{StaticResource FontMono}" FontSize="18" FontWeight="Bold"
+                     VerticalAlignment="Center" />
+        </StackPanel>
+        <ProgressBar x:Name="BootProgress" Style="{StaticResource Meter}" Height="3"
+                     Minimum="0" Maximum="100" Value="0" VerticalAlignment="Bottom"
+                     Margin="56,0,56,40" IsHitTestVisible="False" />
+      </Grid>
+    </Border>
 
+    <!-- No HitShield on the surplus: #01000000 made the pre-tiled HWND a visible
+         rectangle. Surplus stays truly transparent; clicks may pass through briefly. -->
+    <!-- Clip is exact; ShellBleed is 2px oversized so the rounded AA samples chrome instead
+         of a pale fringe on the transparent surplus (covers the persistent corner halo). -->
+    <Border x:Name="OuterShell" Margin="0" Background="Transparent" CornerRadius="10"
+            HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ClipToBounds="True">
+      <Grid>
+        <Border x:Name="ShellBleed" Margin="-1.5" Background="{StaticResource BgChrome}"
+                CornerRadius="11.5" IsHitTestVisible="False" />
+        <Border x:Name="ShellFace" Background="{StaticResource BgChrome}" CornerRadius="10"
+                ClipToBounds="True">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition x:Name="ChromeRow" Height="50" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
+
+          <!-- Inset page fill so the outer rounded rim stays chrome (covers bottom/side AA). -->
+          <Border x:Name="PageWash" Grid.Row="1" Margin="1,0,1,1"
+                  Background="{StaticResource BgPage}" IsHitTestVisible="False" />
+          <Image x:Name="Wallpaper" Grid.Row="1" Margin="1,0,1,1" Stretch="UniformToFill"
+                 StretchDirection="Both" Opacity="0.4" Visibility="Collapsed"
+                 IsHitTestVisible="False" />
 
           <Border x:Name="ChromeBar" Grid.Row="0" Background="{StaticResource BgChrome}"
                   BorderThickness="0,0,0,1" BorderBrush="{StaticResource ChromeHairline}"
@@ -44,7 +95,7 @@
             <Grid>
               <Grid x:Name="TopMode">
                 <StackPanel x:Name="BrandMark" Orientation="Horizontal" Margin="10,0,0,0"
-                            VerticalAlignment="Center" IsHitTestVisible="False">
+                            VerticalAlignment="Center" IsHitTestVisible="False" Opacity="0">
                   <!-- Light plate + teal rim; asset is head-crop for small chrome. -->
                   <Border x:Name="BrandLogoPlate" Width="42" Height="42" CornerRadius="21"
                           Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
@@ -120,7 +171,7 @@
             </Grid>
           </Border>
 
-          <Grid Grid.Row="1">
+          <Grid Grid.Row="1" Margin="1,0,1,1">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="*" />
@@ -241,14 +292,15 @@
               </Grid>
             </Border>
           </Grid>
+
+          <!-- Kept for Fx.Edge callers; permanently collapsed — LineBorder read as the
+               persistent pale halo on the rounded surplus. -->
+          <Border x:Name="EdgeRing" Grid.RowSpan="2" BorderThickness="1"
+                  BorderBrush="{StaticResource ChromeHairline}" CornerRadius="10"
+                  Visibility="Collapsed" IsHitTestVisible="False" />
         </Grid>
-        <!-- 1px edge ring. It is an overlay, not the content border, because a border drawn
-             by the resizing container lands on fractional pixels while the window is between
-             two sizes — that is the bottom edge that blinked. It fades out for the bounds
-             travel and back in when they land (MainWindow.Swap / RevealAfterResize). -->
-        <Border x:Name="EdgeRing" BorderThickness="1" BorderBrush="{StaticResource LineBorder}"
-                IsHitTestVisible="False" />
+        </Border>
       </Grid>
     </Border>
-  </Border>
+  </Grid>
 </Window>

@@ -93,19 +93,23 @@
          `dsh plugin add` could not install. -->
     <Border x:Name="StoreRail" Grid.Column="0" Width="196" Background="{StaticResource BgSidebar}"
             BorderThickness="0,0,1,0" BorderBrush="{StaticResource LineBorder}">
-      <StackPanel Margin="8,10,8,0">
+      <Grid>
+        <!-- Collapse sits in the corner; do not burn a whole row above 发行号. -->
         <Button x:Name="StoreRailHide" Style="{StaticResource IcoBtn}" Content="‹"
-                HorizontalAlignment="Right" Height="26" Width="26" Margin="0,0,2,6"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Height="26" Width="26" Margin="0,6,6,0" Panel.ZIndex="2"
                 Click="StoreRailToggle_Click" ToolTip="收起侧栏" />
-        <RadioButton x:Name="NavRelease" Style="{StaticResource NavItem}" Content="发行号"
-                     v:Ico.Of="{StaticResource I.Block}" IsChecked="True" Checked="Nav_Checked"
-                     GroupName="dlNav" Tag="release" />
-        <TextBlock Text="社区资源" Style="{StaticResource NavGroup}" />
-        <StackPanel x:Name="ShelfNav" />
-        <RadioButton x:Name="NavDlTasks" Style="{StaticResource NavItem}" Content="下载任务"
-                     v:Ico.Of="{StaticResource I.Tasks}" Checked="Nav_Checked"
-                     GroupName="dlNav" Tag="dltasks" />
-      </StackPanel>
+        <StackPanel Margin="8,12,8,0">
+          <RadioButton x:Name="NavRelease" Style="{StaticResource NavItem}" Content="发行号"
+                       v:Ico.Of="{StaticResource I.Block}" IsChecked="True" Checked="Nav_Checked"
+                       GroupName="dlNav" Tag="release" />
+          <TextBlock Text="社区资源" Style="{StaticResource NavGroup}" />
+          <StackPanel x:Name="ShelfNav" />
+          <RadioButton x:Name="NavDlTasks" Style="{StaticResource NavItem}" Content="下载任务"
+                       v:Ico.Of="{StaticResource I.Tasks}" Checked="Nav_Checked"
+                       GroupName="dlNav" Tag="dltasks" />
+        </StackPanel>
+      </Grid>
     </Border>
 
     <Button x:Name="StoreRailShow" Grid.Column="0" Width="18" MaxWidth="18"
@@ -115,7 +119,7 @@
 
     <Grid Grid.Column="1">
       <!-- 发行号 -->
-      <ScrollViewer x:Name="PaneRelease" Padding="25" VerticalScrollBarVisibility="Auto">
+      <ScrollViewer x:Name="PaneRelease" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
         <StackPanel>
           <Border Style="{StaticResource Slab}">
             <StackPanel>
@@ -133,7 +137,7 @@
                           IsEditable="True"
                           FontFamily="{StaticResource FontMono}" />
               </Grid>
-              <Grid Height="35" Margin="0,9,0,0" HorizontalAlignment="Left">
+              <Grid Height="35" Margin="0,8,0,0" HorizontalAlignment="Left">
                 <StackPanel Orientation="Horizontal">
                   <Button x:Name="FetchBtn" Style="{StaticResource BtnWide}" Content="刷新"
                           Margin="0,0,20,0" Click="Fetch_Click"
@@ -145,7 +149,7 @@
                                   VerticalAlignment="Center" Visibility="Collapsed" />
                 </StackPanel>
               </Grid>
-              <Border Style="{StaticResource Divider}" Margin="0,17,0,13" />
+              <Border Style="{StaticResource Divider}" Margin="0,12,0,12" />
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="Auto" />
@@ -161,7 +165,7 @@
                   <TextBlock Text="node" Style="{StaticResource Label}" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock x:Name="NodeLine" Grid.Row="0" Grid.Column="1"
-                           Style="{StaticResource Mono}" Margin="0,0,0,6" />
+                           Style="{StaticResource Mono}" Margin="0,0,0,8" />
                 <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal" Margin="0,0,14,0">
                   <Border x:Name="PnpmPip" Style="{StaticResource Pip}"
                           Background="{StaticResource InkDisabled}" />
@@ -175,12 +179,12 @@
             </StackPanel>
           </Border>
 
-              <Grid Height="8" Margin="0,12,0,0">
-                <ProgressBar x:Name="InstallMeter" Style="{StaticResource Meter}" Height="8"
-                            Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" />
-              </Grid>
-              <TextBox x:Name="LogBox" Style="{StaticResource LogBox}" Height="0" Visibility="Collapsed"
-                   Margin="0,0,0,15" />
+          <!-- Own modules: Collapsed takes no space; when shown, GapModule matches Slab-to-Slab. -->
+          <ProgressBar x:Name="InstallMeter" Style="{StaticResource Meter}" Height="8"
+                       Minimum="0" Maximum="100" Value="0" Visibility="Collapsed"
+                       Margin="{StaticResource GapModule}" />
+          <TextBox x:Name="LogBox" Style="{StaticResource LogBox}" Height="0" Visibility="Collapsed"
+                   Margin="{StaticResource GapModule}" />
 
           <Border Style="{StaticResource Slab}"
                   Visibility="{Binding HasRemoteReleases, Converter={StaticResource B2V}}">
@@ -283,7 +287,7 @@
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,22,25,25" MaxWidth="380"
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}" MaxWidth="380"
                   HorizontalAlignment="Center" Margin="0,40,0,0"
                   Visibility="{Binding ShowReleaseEmpty, Converter={StaticResource B2V}}">
             <StackPanel>
@@ -302,7 +306,7 @@
           <RowDefinition Height="*" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer x:Name="MarketScroll" Grid.Row="0" Padding="25,25,25,10"
+        <ScrollViewer x:Name="MarketScroll" Grid.Row="0" Padding="{StaticResource PadPage}"
                       VerticalScrollBarVisibility="Auto">
         <StackPanel>
           <StackPanel>
@@ -316,7 +320,7 @@
             </StackPanel>
             <Grid>
               <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                <TextBlock Text="插件商店" FontSize="33" FontWeight="Bold"
+                <TextBlock x:Name="StoreHeading" Text="插件商店" FontSize="33" FontWeight="Bold"
                            Foreground="{StaticResource TextPrimary}" />
                 <TextBlock x:Name="StoreSubtitle" Text="社区插件 · 一键安装"
                            Style="{StaticResource Muted}" FontSize="{StaticResource FsSmall}"
@@ -326,6 +330,24 @@
                       HorizontalAlignment="Right" VerticalAlignment="Center"
                       Click="StoreMore_Click" Height="30" Padding="14,0" />
             </Grid>
+
+            <Border x:Name="ShelfInfo" Style="{StaticResource HintBar}" Margin="0,14,0,0">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                  <TextBlock x:Name="ShelfInfoTitle" FontWeight="SemiBold"
+                             Foreground="{StaticResource AccentText}" />
+                  <TextBlock x:Name="ShelfInfoText" Style="{StaticResource Muted}"
+                             Margin="0,3,0,0" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" x:Name="ShelfQuery" Style="{StaticResource Mono}"
+                           Margin="18,0,0,0" VerticalAlignment="Center"
+                           ToolTip="发送给 npm registry 的查询条件" />
+              </Grid>
+            </Border>
 
             <Border Margin="0,16,0,0" Height="42" CornerRadius="21"
                     Background="{StaticResource BgCard}" BorderThickness="1"
@@ -372,12 +394,12 @@
             <StackPanel x:Name="StoreMore" Visibility="Collapsed" Margin="0,10,0,0">
               <StackPanel Orientation="Horizontal">
                 <StackPanel Margin="0,0,28,0">
-                  <TextBlock Text="版本" Style="{StaticResource Label}" Margin="0,0,0,6" />
+                  <TextBlock Text="版本" Style="{StaticResource Label}" Margin="0,0,0,8" />
                   <ComboBox x:Name="TargetRelease" Width="160" Height="32" IsEditable="False"
                             ToolTip="这份实例钉的 DSH 发行号" />
                 </StackPanel>
                 <StackPanel>
-                  <TextBlock Text="装到" Style="{StaticResource Label}" Margin="0,0,0,6" />
+                  <TextBlock Text="装到" Style="{StaticResource Label}" Margin="0,0,0,8" />
                   <ComboBox x:Name="TargetInstance" Width="240" Height="32"
                             ItemsSource="{Binding Instances}"
                             SelectionChanged="TargetInstance_Changed">
@@ -476,7 +498,7 @@
 
           </StackPanel>
 
-          <Border x:Name="MarketError" Style="{StaticResource BannerWarn}" Margin="0,0,0,15"
+          <Border x:Name="MarketError" Style="{StaticResource BannerWarn}" Margin="0,0,0,16"
                   Visibility="Collapsed">
             <Grid>
               <Grid.ColumnDefinitions>
@@ -598,13 +620,13 @@
             </StackPanel>
           </Border>
 
-          <Border x:Name="EmptyCard" Style="{StaticResource Slab}" Padding="25,22,25,25"
+          <Border x:Name="EmptyCard" Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}"
                   MaxWidth="380" HorizontalAlignment="Center" Margin="0,40,0,0"
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Search}"
                               HorizontalAlignment="Left" Margin="0,0,0,12" />
-              <TextBlock Text="无搜索结果" Style="{StaticResource SectionTitle}" Margin="0,0,0,9" />
+              <TextBlock Text="无搜索结果" Style="{StaticResource SectionTitle}" Margin="0,0,0,8" />
               <Border Height="2" Background="{StaticResource Accent}" HorizontalAlignment="Left"
                       Width="34" />
               <TextBlock x:Name="EmptyText" Style="{StaticResource Muted}" Margin="0,15,0,0" />
@@ -651,7 +673,7 @@
                          VerticalAlignment="Center" Margin="8,0,0,0" />
             </StackPanel>
           </Border>
-          <ScrollViewer Grid.Row="1" Padding="25" VerticalScrollBarVisibility="Auto">
+          <ScrollViewer Grid.Row="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
             <StackPanel>
               <Border Style="{StaticResource Slab}">
                 <StackPanel>
@@ -671,7 +693,7 @@
                     </StackPanel>
                   </Grid>
                   <TextBlock x:Name="DetailBody" Style="{StaticResource Body}" Margin="0,0,0,12" />
-                  <TextBlock x:Name="DetailMeta" Style="{StaticResource Muted}" Margin="0,0,0,14" />
+                  <TextBlock x:Name="DetailMeta" Style="{StaticResource Muted}" Margin="0,0,0,12" />
                   <StackPanel Orientation="Horizontal">
                     <Button x:Name="DetailHomeBtn" Style="{StaticResource BtnWide}" Content="打开主页"
                             Margin="0,0,10,0" Click="DetailHome_Click"
@@ -725,7 +747,7 @@
         </Grid>
       </Grid>
 
-      <ScrollViewer x:Name="PaneDlTasks" Padding="25" VerticalScrollBarVisibility="Auto"
+      <ScrollViewer x:Name="PaneDlTasks" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto"
                     Visibility="Collapsed">
         <StackPanel>
           <Border Style="{StaticResource Slab}">

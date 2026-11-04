@@ -11,6 +11,7 @@
 | [proposals/install-concept/index.html](proposals/install-concept/index.html) | **「装整合包」概念原型**：版本页安装▾ / 实例页包库选择器 / 预检授权与安装报告（D108 已按此落地，三张 HTML+PNG） |
 | [pack-v2-superset.md](pack-v2-superset.md) | pack v2：超集 + PackForge `.dspack` 双向兼容（适配器/市场/registry/compat 安装已落地，见 EVIDENCE/D101、D102） |
 | [launcher-design.md](launcher-design.md) | 启动器功能 |
+| [community-market.md](community-market.md) | 社区资源货架：插件 / 终端 / 技能与工具 / 宿主与官方的用途、查询范围与自定义格式 |
 | [launcher-pcl-depth.md](launcher-pcl-depth.md) | 学 PCL 的功能深化：设置两层、窗口补全 CLI |
 | [launcher-architecture.md](launcher-architecture.md) | 引擎 / 数据 / 命令 |
 | [launcher-p0.md](launcher-p0.md) | P0 计划（已落地） |

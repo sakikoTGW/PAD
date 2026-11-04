@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,19 +13,38 @@ public partial class ManageView : UserControl, IRefreshable
     readonly MainWindow _win;
     readonly AppState _state = AppState.Current;
     readonly Packs _packs;
+    readonly ObservableCollection<BundleRow> _bundleRows = [];
+    readonly ObservableCollection<InstRow> _instRows = [];
     List<WorkspaceNode> _nodes = [];
     bool _loadingBundles;
     bool _bundleBusy;
     CancellationTokenSource? _iconCts;
+    string? _bundlesInstId;
 
     /// <summary>实例列表的一行：名字/版本 + 运行状态（启动器先要能看出哪个在跑）。</summary>
-    public sealed class InstRow
+    public sealed class InstRow : System.ComponentModel.INotifyPropertyChanged
     {
+        bool _live;
+
         public required Instance Inst { get; init; }
-        public bool Live { get; init; }
+
+        public bool Live
+        {
+            get => _live;
+            set
+            {
+                if (_live == value) return;
+                _live = value;
+                PropertyChanged?.Invoke(this, new(nameof(Live)));
+                PropertyChanged?.Invoke(this, new(nameof(StateText)));
+            }
+        }
+
         public string Name => Inst.Name;
         public string Version => Inst.Dsh.Version;
         public string StateText => Live ? "在跑" : "已停";
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     }
 
     public ManageView(MainWindow win)
@@ -42,7 +62,34 @@ public partial class ManageView : UserControl, IRefreshable
         _ = Refresh();
     }
 
-    /// <summary>实例列表带运行状态；状态随 RefreshRunning 变化就地重画。</summary>
+    /// <summary>
+    /// Startup prewarm: paint instances + bundle roster from disk before the first switch,
+    /// so manage enter only pays the shell morph (and a live gateway probe if something is running).
+    /// </summary>
+    public void Prepare()
+    {
+        _state.RefreshRunning();
+        PaintInstances();
+        LoadBundles();
+    }
+
+    /// <summary>Fetch plugin icons for every instance; call after <see cref="Prepare"/>.</summary>
+    public async Task WarmIconsAsync(CancellationToken ct = default)
+    {
+        foreach (var inst in _state.Instances.ToList())
+        {
+            ct.ThrowIfCancellationRequested();
+            try { await _state.Launcher.EnsureBundleIcons(inst, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch { /* offline / bad package — Kind label stays */ }
+        }
+        await Dispatcher.InvokeAsync(() =>
+        {
+            if (_state.SelectedInstance is not null) PaintBundleRows();
+        });
+    }
+
+    /// <summary>实例列表带运行状态；同序同 id 就地改 Live，避免整表重绑闪选中描边。</summary>
     void PaintInstances()
     {
         var keep = _state.SelectedInstance;
@@ -53,11 +100,26 @@ public partial class ManageView : UserControl, IRefreshable
                 Live = _state.Running.Any(r => r.Entry.Instance == i.Id),
             })
             .ToList();
-        InstList.ItemsSource = rows;
+
+        if (_instRows.Count == rows.Count
+            && _instRows.Zip(rows, (a, b) => a.Inst.Id == b.Inst.Id).All(x => x))
+        {
+            for (var i = 0; i < rows.Count; i++)
+                _instRows[i].Live = rows[i].Live;
+        }
+        else
+        {
+            _instRows.Clear();
+            foreach (var r in rows) _instRows.Add(r);
+        }
+
+        if (!ReferenceEquals(InstList.ItemsSource, _instRows))
+            InstList.ItemsSource = _instRows;
+
         if (keep is not null)
-            InstList.SelectedItem = rows.FirstOrDefault(r => r.Inst.Id == keep.Id);
-        else if (rows.Count > 0)
-            InstList.SelectedItem = rows[0];
+            InstList.SelectedItem = _instRows.FirstOrDefault(r => r.Inst.Id == keep.Id);
+        else if (_instRows.Count > 0 && InstList.SelectedItem is null)
+            InstList.SelectedItem = _instRows[0];
     }
 
     void SelectInstance(Instance? inst)
@@ -92,8 +154,9 @@ public partial class ManageView : UserControl, IRefreshable
     void Waiting(bool busy)
     {
         ProbeSpinner.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        TreeSkeleton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        if (busy) Tree.ItemsSource = null;
+        // Hot update: keep the current tree while probing. Skeleton only when empty.
+        var empty = Tree.ItemsSource is null;
+        TreeSkeleton.Visibility = busy && empty ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void Count(string text)
@@ -172,7 +235,10 @@ public partial class ManageView : UserControl, IRefreshable
             try
             {
                 BundleProfile.ItemsSource = null;
-                BundleList.ItemsSource = null;
+                _bundleRows.Clear();
+                _bundlesInstId = null;
+                if (!ReferenceEquals(BundleList.ItemsSource, _bundleRows))
+                    BundleList.ItemsSource = _bundleRows;
             }
             finally { _loadingBundles = false; }
             BundleEmpty.Visibility = Visibility.Collapsed;
@@ -188,7 +254,11 @@ public partial class ManageView : UserControl, IRefreshable
         _loadingBundles = true;
         try
         {
-            BundleProfile.ItemsSource = names;
+            // Keep the combo as-is when the profile list did not change — rebind flickers selection.
+            if (BundleProfile.ItemsSource is not IList<string> cur
+                || cur.Count != names.Count
+                || !cur.SequenceEqual(names))
+                BundleProfile.ItemsSource = names;
             BundleProfile.SelectedItem = pick;
         }
         finally { _loadingBundles = false; }
@@ -221,7 +291,10 @@ public partial class ManageView : UserControl, IRefreshable
         var inst = _state.SelectedInstance;
         if (inst is null)
         {
-            BundleList.ItemsSource = null;
+            _bundleRows.Clear();
+            _bundlesInstId = null;
+            if (!ReferenceEquals(BundleList.ItemsSource, _bundleRows))
+                BundleList.ItemsSource = _bundleRows;
             BundleEmpty.Visibility = Visibility.Collapsed;
             return;
         }
@@ -235,7 +308,26 @@ public partial class ManageView : UserControl, IRefreshable
             if (r.IconPath.Length == 0) continue;
             if (Skin.LoadBitmap(r.IconPath) is null) r.IconPath = "";
         }
-        BundleList.ItemsSource = rows;
+
+        // Hot reload: same profile+spec keys → patch fields in place so Fx.Enter rows
+        // do not rebuild and cascade again every time OnShown probes.
+        if (_bundlesInstId == inst.Id
+            && _bundleRows.Count == rows.Count
+            && _bundleRows.Zip(rows, (a, b) => a.Profile == b.Profile && a.Spec == b.Spec).All(x => x))
+        {
+            for (var i = 0; i < rows.Count; i++)
+                _bundleRows[i].HotReloadFrom(rows[i]);
+        }
+        else
+        {
+            _bundleRows.Clear();
+            foreach (var r in rows) _bundleRows.Add(r);
+            _bundlesInstId = inst.Id;
+        }
+
+        if (!ReferenceEquals(BundleList.ItemsSource, _bundleRows))
+            BundleList.ItemsSource = _bundleRows;
+
         if (pick is null)
         {
             BundleEmpty.Text = "这份实例还没有 profile";

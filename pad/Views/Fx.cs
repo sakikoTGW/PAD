@@ -60,13 +60,27 @@ public static class Fx
     public static readonly DependencyProperty EnterProperty = DependencyProperty.RegisterAttached(
         "Enter", typeof(string), typeof(Fx), new PropertyMetadata(null, OnEnterChanged));
 
+    static readonly DependencyProperty EnteredProperty = DependencyProperty.RegisterAttached(
+        "Entered", typeof(bool), typeof(Fx), new PropertyMetadata(false));
+
     public static void SetEnter(DependencyObject d, string value) => d.SetValue(EnterProperty, value);
 
     public static string? GetEnter(DependencyObject d) => (string?)d.GetValue(EnterProperty);
 
+    static bool GetEntered(DependencyObject d) => (bool)d.GetValue(EnteredProperty);
+
+    static void SetEntered(DependencyObject d, bool value) => d.SetValue(EnteredProperty, value);
+
     static void OnEnterChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is not FrameworkElement fe) return;
+        // title / label: first-show only via RevealEnter / MarkEnter — not Loaded
+        // (Collapsed panes already Load at startup, which would burn the one-shot).
+        if (e.NewValue as string is "title" or "label")
+        {
+            fe.Loaded -= OnLoaded;
+            return;
+        }
         fe.Loaded -= OnLoaded;
         fe.Loaded += OnLoaded;
     }
@@ -101,6 +115,115 @@ public static class Fx
             BeginTime = delay,
             EasingFunction = Settle,
         });
+    }
+
+    /// <summary>
+    /// Claim title/label enters as already shown (no motion). Use after a parent PageIn so a
+    /// later sub-page revisit does not replay them.
+    /// </summary>
+    public static void MarkEnter(DependencyObject root)
+    {
+        foreach (var fe in CollectEnter(root, "title", "label"))
+            SetEntered(fe, true);
+    }
+
+    /// <summary>
+    /// Cascade unrevealed heads, then field labels once the first title is halfway —
+    /// same idea as the plugin store chrome across shelf switches.
+    /// </summary>
+    public static void RevealEnter(DependencyObject root)
+    {
+        var titles = CollectEnter(root, "title");
+        titles.RemoveAll(GetEntered);
+        var labels = CollectEnter(root, "label");
+        labels.RemoveAll(GetEntered);
+        if (titles.Count == 0 && labels.Count == 0) return;
+
+        if (root is UIElement page)
+        {
+            if (titles.Count > 0) OrderByPosition(page, titles);
+            if (labels.Count > 0) OrderByPosition(page, labels);
+        }
+
+        if (!Animated)
+        {
+            foreach (var fe in titles)
+                SnapEnter(fe);
+            foreach (var fe in labels)
+                SnapEnter(fe);
+            return;
+        }
+
+        const int titleFade = 200;
+        const int titleRise = 300;
+        const int labelFade = 160;
+        const int labelRise = 220;
+        // Labels start when the first title fade is halfway through.
+        var labelGate = titles.Count > 0
+            ? TimeSpan.FromMilliseconds(MsValue(titleFade / 2))
+            : TimeSpan.Zero;
+
+        for (var i = 0; i < titles.Count; i++)
+            PlayEnter(titles[i], rise: 8, fadeMs: titleFade, riseMs: titleRise, At(i, 36, 280));
+
+        for (var i = 0; i < labels.Count; i++)
+            PlayEnter(labels[i], rise: 5, fadeMs: labelFade, riseMs: labelRise,
+                labelGate + At(i, 22, 200));
+    }
+
+    static void SnapEnter(FrameworkElement fe)
+    {
+        SetEntered(fe, true);
+        fe.BeginAnimation(UIElement.OpacityProperty, null);
+        fe.Opacity = 1;
+        fe.RenderTransform = Transform.Identity;
+    }
+
+    static void PlayEnter(FrameworkElement fe, double rise, int fadeMs, int riseMs, TimeSpan delay)
+    {
+        SetEntered(fe, true);
+        fe.BeginAnimation(UIElement.OpacityProperty, null);
+        if (fe.RenderTransform is TranslateTransform old)
+            old.BeginAnimation(TranslateTransform.YProperty, null);
+        fe.Opacity = 0;
+        var shift = new TranslateTransform { Y = rise };
+        fe.RenderTransform = shift;
+        fe.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(fadeMs))
+        {
+            BeginTime = delay,
+            EasingFunction = FadeEase,
+        });
+        shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(rise, 0, Ms(riseMs))
+        {
+            BeginTime = delay,
+            EasingFunction = Settle,
+        });
+    }
+
+    static List<FrameworkElement> CollectEnter(DependencyObject root, params string[] kinds)
+    {
+        var into = new List<FrameworkElement>();
+        CollectEnterWalk(root, 0, into, kinds);
+        return into;
+    }
+
+    static bool IsEnterKind(string? kind, string[] kinds)
+    {
+        if (kind is null) return false;
+        foreach (var k in kinds)
+            if (k == kind) return true;
+        return false;
+    }
+
+    static void CollectEnterWalk(DependencyObject node, int depth, List<FrameworkElement> into,
+        string[] kinds)
+    {
+        if (depth > 24 || into.Count >= 48) return;
+        if (node is FrameworkElement fe && IsEnterKind(GetEnter(fe), kinds)
+            && fe.Visibility == Visibility.Visible)
+            into.Add(fe);
+        foreach (var child in Children(node))
+            CollectEnterWalk(child, depth + 1, into, kinds);
     }
 
     /// <summary>Position of an element's container inside the list that generated it.</summary>
@@ -286,6 +409,11 @@ public static class Fx
                     delay = TimeSpan.FromMilliseconds(120 + Math.Min((index - 1) * 34, 220));
                 }
                 break;
+            case PageMotion.Cascade:
+                // Unified tab/pane enter: clear top→bottom beat, readable gap between parts.
+                (rise, scale, slide, dur, fade) = (10, 1, 0, 280, 170);
+                delay = At(index, 48, 560);
+                break;
             default: // Drift
                 (rise, scale, slide, dur, fade) = (8, 0.985, 0, 300, 180);
                 delay = At(index, 26, 240);
@@ -337,41 +465,360 @@ public static class Fx
         TimeSpan.FromMilliseconds(Math.Min(index * stagger, cap));
 
     /// <summary>
-    /// The page swap for a pane inside one page. One composed entrance — fade, a 12px rise,
-    /// a barely-there 0.988 scale — so the pane reads as a surface arriving.
+    /// Sync blank before the first paint after a Content swap. Call this the instant the
+    /// page is attached so the old layout never flashes at full opacity.
     /// </summary>
-    public static void PageIn(UIElement page)
+    public static void PrepareEnter(UIElement page)
     {
-        if (!Animated)
+        page.BeginAnimation(UIElement.OpacityProperty, null);
+        page.Opacity = 1;
+        page.RenderTransform = Transform.Identity;
+        var (rail, main) = SplitRailMain(page);
+        if (rail is null && main is null)
         {
-            CrossFade(page);
+            HideSurface(page);
             return;
         }
-        page.Opacity = 0;
-        var shift = new TranslateTransform { Y = 12 };
-        var scale = new ScaleTransform(0.988, 0.988);
-        var group = new TransformGroup();
-        group.Children.Add(scale);
-        group.Children.Add(shift);
-        page.RenderTransform = group;
-        page.RenderTransformOrigin = new Point(0.5, 0.5);
+        if (rail is not null) HideRail(rail);
+        if (main is not null) HideMain(main);
+    }
 
-        page.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(170))
+    /// <summary>
+    /// Enter after a white hold: main fades in + scales up; left rail rises from below.
+    /// Same choreography for top tabs and in-page panes (pane-only = main path).
+    /// <paramref name="withShell"/> — running beside a SizeTo morph: opacity only (no scale /
+    /// rail stagger). Scale+stagger on top of per-frame shell layout was the main hitch.
+    /// </summary>
+    public static void PageIn(UIElement page, bool withShell = false)
+    {
+        PrepareEnter(page);
+        if (!Animated) { RevealNow(page); return; }
+        if (page is FrameworkElement fe) fe.UpdateLayout();
+
+        var (rail, main) = SplitRailMain(page);
+        if (withShell)
+        {
+            // No white hold — SizeTo already owns the beat; keep compositor light.
+            if (rail is null && main is null) { PlayFadeOnly(page); return; }
+            if (main is not null) PlayFadeOnly(main);
+            if (rail is not null) PlayFadeOnly(rail);
+            return;
+        }
+
+        // Hold full white (~wash showing through) then reveal.
+        var hold = TimeSpan.FromMilliseconds(MsValue(70));
+
+        if (rail is null && main is null)
+        {
+            PlayMain(page, hold);
+            return;
+        }
+        if (main is not null) PlayMain(main, hold);
+        if (rail is not null) PlayRail(rail, hold + TimeSpan.FromMilliseconds(MsValue(40)));
+    }
+
+    static void PlayFadeOnly(UIElement el)
+    {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.RenderTransform = Transform.Identity;
+        el.Opacity = 0;
+        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(320))
         {
             EasingFunction = FadeEase,
         });
-        shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(12, 0, Ms(320))
+        if (el is not FrameworkElement rail) return;
+        foreach (var item in RailItems(rail))
         {
-            EasingFunction = Settle,
-        });
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.988, 1, Ms(320))
+            item.BeginAnimation(UIElement.OpacityProperty, null);
+            item.RenderTransform = Transform.Identity;
+            item.Opacity = 1;
+        }
+    }
+
+    /// <summary>
+    /// Leave into white: fade the whole page out (wash behind shows). Opacity stays 0 so the
+    /// swap never flashes the departing layout; PrepareEnter/PageIn revive the next page.
+    /// </summary>
+    public static void PageOut(UIElement page, Action? done = null)
+    {
+        page.BeginAnimation(UIElement.OpacityProperty, null);
+        if (!Animated)
         {
-            EasingFunction = Settle,
-        });
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.988, 1, Ms(320))
+            page.Opacity = 0;
+            done?.Invoke();
+            return;
+        }
+
+        var fade = new DoubleAnimation(page.Opacity, 0, Ms(160)) { EasingFunction = Exit };
+        EventHandler? handler = null;
+        handler = (_, _) =>
         {
-            EasingFunction = Settle,
+            fade.Completed -= handler!;
+            page.BeginAnimation(UIElement.OpacityProperty, null);
+            page.Opacity = 0;
+            page.RenderTransform = Transform.Identity;
+            done?.Invoke();
+        };
+        fade.Completed += handler;
+        page.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    static void RevealNow(UIElement page)
+    {
+        var (rail, main) = SplitRailMain(page);
+        if (rail is null && main is null) { ShowSurface(page); return; }
+        if (rail is not null) ShowRailNow(rail);
+        if (main is not null) ShowSurface(main);
+    }
+
+    static void HideSurface(UIElement el)
+    {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.Opacity = 0;
+        el.RenderTransform = Transform.Identity;
+    }
+
+    static void ShowSurface(UIElement el)
+    {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.Opacity = 1;
+        el.RenderTransform = Transform.Identity;
+    }
+
+    static void ShowRailNow(FrameworkElement rail)
+    {
+        ShowSurface(rail);
+        foreach (var item in RailItems(rail))
+            ShowSurface(item);
+    }
+
+    static void HideMain(FrameworkElement main)
+    {
+        main.BeginAnimation(UIElement.OpacityProperty, null);
+        main.Opacity = 0;
+        var scale = new ScaleTransform(0.96, 0.96);
+        main.RenderTransform = scale;
+        main.RenderTransformOrigin = new Point(0.5, 0.45);
+    }
+
+    static void HideRail(FrameworkElement rail)
+    {
+        rail.BeginAnimation(UIElement.OpacityProperty, null);
+        rail.Opacity = 0;
+        rail.RenderTransform = Transform.Identity;
+        foreach (var item in RailItems(rail))
+            HideRailItem(item);
+    }
+
+    static void HideRailItem(FrameworkElement item)
+    {
+        item.BeginAnimation(UIElement.OpacityProperty, null);
+        item.Opacity = 0;
+        item.RenderTransform = new TranslateTransform { Y = 16 };
+        item.RenderTransformOrigin = new Point(0.5, 1);
+    }
+
+    static void PlayMain(UIElement main, TimeSpan begin)
+    {
+        if (main is FrameworkElement fe)
+        {
+            HideMain(fe);
+            var scale = (ScaleTransform)fe.RenderTransform;
+            fe.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(320))
+            {
+                BeginTime = begin,
+                EasingFunction = FadeEase,
+            });
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.96, 1, Ms(420))
+            {
+                BeginTime = begin,
+                EasingFunction = Settle,
+            });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.96, 1, Ms(420))
+            {
+                BeginTime = begin,
+                EasingFunction = Settle,
+            });
+            return;
+        }
+        HideSurface(main);
+        main.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(320))
+        {
+            BeginTime = begin,
+            EasingFunction = FadeEase,
         });
+    }
+
+    static void PlayRail(FrameworkElement rail, TimeSpan begin)
+    {
+        var items = RailItems(rail);
+        if (items.Count == 0)
+        {
+            // No parts to cascade — whole rail rises as one.
+            rail.Opacity = 0;
+            rail.RenderTransform = new TranslateTransform { Y = 28 };
+            var shift = (TranslateTransform)rail.RenderTransform;
+            rail.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(280))
+            {
+                BeginTime = begin,
+                EasingFunction = FadeEase,
+            });
+            shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(28, 0, Ms(380))
+            {
+                BeginTime = begin,
+                EasingFunction = Settle,
+            });
+            return;
+        }
+
+        // Shell arrives with the first item so the white hold stays clean.
+        rail.Opacity = 0;
+        rail.RenderTransform = Transform.Identity;
+        rail.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(200))
+        {
+            BeginTime = begin,
+            EasingFunction = FadeEase,
+        });
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            HideRailItem(item);
+            var delay = begin + At(i, 52, 560);
+            var shift = (TranslateTransform)item.RenderTransform;
+            item.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(240))
+            {
+                BeginTime = delay,
+                EasingFunction = FadeEase,
+            });
+            shift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(16, 0, Ms(320))
+            {
+                BeginTime = delay,
+                EasingFunction = Settle,
+            });
+        }
+    }
+
+    /// <summary>Left-rail parts, top→bottom. List rows, nav buttons, then tagged / sections.</summary>
+    static List<FrameworkElement> RailItems(FrameworkElement rail)
+    {
+        var items = new List<FrameworkElement>();
+        CollectRailParts(rail, 0, items);
+        if (items.Count == 0)
+            items = StaggerTargets(rail);
+        OrderByPosition(rail, items);
+        if (items.Count > 16) items.RemoveRange(16, items.Count - 16);
+        return items;
+    }
+
+    static void CollectRailParts(DependencyObject node, int depth, List<FrameworkElement> into)
+    {
+        if (depth > 10 || into.Count >= 16) return;
+
+        if (node is ItemsControl ic)
+        {
+            // Header / chrome sitting above the list (manage "实例" title, etc.).
+            if (VisualTreeHelper.GetParent(ic) is Panel host)
+            {
+                foreach (var sibling in Children(host))
+                {
+                    if (ReferenceEquals(sibling, ic)) break;
+                    if (sibling is FrameworkElement fe && fe.Visibility == Visibility.Visible
+                        && fe.ActualHeight > 1 && into.Count < 16)
+                        into.Add(fe);
+                }
+            }
+            for (var i = 0; i < ic.Items.Count && into.Count < 16; i++)
+            {
+                if (ic.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement row
+                    && row.Visibility == Visibility.Visible)
+                    into.Add(row);
+            }
+            return;
+        }
+
+        if (node is Panel panel && panel is not System.Windows.Controls.Primitives.UniformGrid)
+        {
+            var kids = new List<FrameworkElement>();
+            foreach (var child in Children(panel))
+            {
+                if (child is FrameworkElement fe && fe.Visibility == Visibility.Visible)
+                    kids.Add(fe);
+            }
+            // Flat nav stack (settings / download): each child is one beat.
+            if (kids.Count >= 2 && kids.All(k => k is not ItemsControl && k is not Grid))
+            {
+                foreach (var k in kids)
+                {
+                    if (into.Count >= 16) break;
+                    if (k.ActualHeight > 1 || k.ActualWidth > 1) into.Add(k);
+                }
+                return;
+            }
+            foreach (var k in kids) CollectRailParts(k, depth + 1, into);
+            return;
+        }
+
+        if (node is Border { Child: DependencyObject inner })
+        {
+            CollectRailParts(inner, depth + 1, into);
+            return;
+        }
+
+        foreach (var child in Children(node))
+            CollectRailParts(child, depth + 1, into);
+    }
+
+    /// <summary>
+    /// Left column = rail, everything else in the root two-column grid = main.
+    /// Pane-only surfaces (settings layer, download shelf) have no split → main path.
+    /// </summary>
+    static (FrameworkElement? Rail, FrameworkElement? Main) SplitRailMain(UIElement page)
+    {
+        if (page is not DependencyObject root) return (null, null);
+        var grid = FindColumnGrid(root, 0);
+        if (grid is null) return (null, null);
+
+        FrameworkElement? rail = null;
+        FrameworkElement? main = null;
+        foreach (var child in Children(grid))
+        {
+            if (child is not FrameworkElement fe || fe.Visibility != Visibility.Visible) continue;
+            var col = Grid.GetColumn(fe);
+            if (col <= 0)
+            {
+                // Skip zero-width rail toggles (download's thin reopen strip).
+                if (fe.Width is > 0 and < 28) continue;
+                rail ??= fe;
+            }
+            else
+            {
+                main ??= fe;
+            }
+        }
+        if (rail is null || main is null) return (null, null);
+        return (rail, main);
+    }
+
+    static Grid? FindColumnGrid(DependencyObject node, int depth)
+    {
+        if (depth > 6) return null;
+        if (node is Grid g && g.ColumnDefinitions.Count >= 2 && VisibleColumnChildren(g) >= 2)
+            return g;
+        foreach (var child in Children(node))
+        {
+            var hit = FindColumnGrid(child, depth + 1);
+            if (hit is not null) return hit;
+        }
+        return null;
+    }
+
+    static int VisibleColumnChildren(Grid g)
+    {
+        var n = 0;
+        foreach (var child in Children(g))
+            if (child is FrameworkElement { Visibility: Visibility.Visible }) n++;
+        return n;
     }
 
     /// <summary>Reduced motion: no travel, no scale, just a short comprehension-grade fade.</summary>
@@ -607,6 +1054,95 @@ public static class Fx
     }
 
     /// <summary>
+    /// Mask morph: animate a rounded clip rect. Content behind stays at final layout; only
+    /// the reveal aperture moves (grow = open, shrink = close).
+    /// </summary>
+    public static void ClipRectTo(RectangleGeometry geo, Rect from, Rect to, int ms,
+        Action? done = null)
+    {
+        geo.BeginAnimation(RectangleGeometry.RectProperty, null);
+        geo.Rect = from;
+        if (!Animated)
+        {
+            geo.Rect = to;
+            done?.Invoke();
+            return;
+        }
+
+        var a = new RectAnimation(from, to, Ms(ms)) { EasingFunction = Settle };
+        EventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            a.Completed -= handler!;
+            geo.BeginAnimation(RectangleGeometry.RectProperty, null);
+            geo.Rect = to;
+            done?.Invoke();
+        };
+        a.Completed += handler;
+        geo.BeginAnimation(RectangleGeometry.RectProperty, a);
+    }
+
+    /// <summary>
+    /// Page-size shell morph: animate OuterShell width and/or height while the HWND stays
+    /// put. Null means "leave this axis alone" so the caller can widen first, then drop the
+    /// bottom edge — two readable edges from a fixed top-left. Layout reflow here is
+    /// intentional (the surplus around the shell is transparent).
+    /// </summary>
+    public static void SizeTo(FrameworkElement element, double? width, double? height, int ms,
+        Action? done = null)
+    {
+        if (!Animated)
+        {
+            if (width is { } w0)
+            {
+                element.BeginAnimation(FrameworkElement.WidthProperty, null);
+                element.Width = w0;
+            }
+            if (height is { } h0)
+            {
+                element.BeginAnimation(FrameworkElement.HeightProperty, null);
+                element.Height = h0;
+            }
+            done?.Invoke();
+            return;
+        }
+
+        var pending = 0;
+        if (width is not null) pending++;
+        if (height is not null) pending++;
+        if (pending == 0)
+        {
+            done?.Invoke();
+            return;
+        }
+
+        if (width is { } tw)
+        {
+            var a = new DoubleAnimation(tw, Ms(ms)) { EasingFunction = Settle };
+            EventHandler? onW = null;
+            onW = (_, _) =>
+            {
+                a.Completed -= onW!;
+                if (--pending == 0) done?.Invoke();
+            };
+            a.Completed += onW;
+            element.BeginAnimation(FrameworkElement.WidthProperty, a);
+        }
+        if (height is { } th)
+        {
+            var a = new DoubleAnimation(th, Ms(ms)) { EasingFunction = Settle };
+            EventHandler? onH = null;
+            onH = (_, _) =>
+            {
+                a.Completed -= onH!;
+                if (--pending == 0) done?.Invoke();
+            };
+            a.Completed += onH;
+            element.BeginAnimation(FrameworkElement.HeightProperty, a);
+        }
+    }
+
+    /// <summary>
     /// A To-only animation: WPF starts it from the live presentation value, so a second
     /// click retargets the pill mid-flight instead of jumping to a fixed origin.
     /// </summary>
@@ -633,6 +1169,9 @@ public static class Fx
     static Duration Ms(int value) => new(TimeSpan.FromMilliseconds(MsValue(value)));
 
     static int MsValue(int value) => Math.Max(1, (int)Math.Round(value * _speed));
+
+    /// <summary>User <c>AnimSpeed</c>-scaled span for callers outside this class (boot handoff, etc.).</summary>
+    public static TimeSpan Span(int ms) => TimeSpan.FromMilliseconds(MsValue(ms));
 
     /// <summary>Animate a determinate meter. PAD has real step ratios during launch.</summary>
     public static void MeterTo(ProgressBar bar, double to, int ms = 320)
@@ -727,4 +1266,7 @@ public enum PageMotion
 
     /// <summary>Two beats at once: the lead block travels slowly while the rest cascade under it.</summary>
     Combo,
+
+    /// <summary>Unified tab/pane enter: parts rise top→bottom with a clear stagger.</summary>
+    Cascade,
 }

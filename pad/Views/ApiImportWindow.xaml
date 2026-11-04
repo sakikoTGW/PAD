@@ -14,7 +14,7 @@
     <StackPanel>
       <ContentControl Style="{StaticResource SlabHead}" Content="导入 API Key"
                       v:Ico.Of="{StaticResource I.Key}" />
-      <Grid Height="28" Margin="0,0,0,9">
+      <Grid Height="28" Margin="0,0,0,8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="88" />
           <ColumnDefinition Width="*" />

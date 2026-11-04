@@ -265,25 +265,69 @@ public sealed class DshProfile
 /// One row of <c>dsh.profile.bundles</c> plus the version sitting in that
 /// profile's <c>node_modules</c>. The manage page updates these without a management port.
 /// </summary>
-public sealed class BundleRow
+public sealed class BundleRow : System.ComponentModel.INotifyPropertyChanged
 {
+    string _version = "";
+    string _latest = "";
+    string _iconPath = "";
+
     public string Profile { get; init; } = "";
     public string Spec { get; init; } = "";
     public string Kind { get; init; } = "";
-    public string Version { get; init; } = "";
     public string Description { get; init; } = "";
     public List<string> Keywords { get; init; } = [];
     public string Repository { get; init; } = "";
     public string PackageDir { get; init; } = "";
-    public string Latest { get; set; } = "";
-    public string IconPath { get; set; } = "";
     /// <summary>true = 由 DSH 发行号自带（解析到 versions/&lt;ver&gt;/.pnpm），不是装在 profile 里的第三方插件。</summary>
     public bool Provided { get; init; }
+
+    public string Version
+    {
+        get => _version;
+        set
+        {
+            if (_version == value) return;
+            _version = value;
+            Notify(nameof(Version));
+            Notify(nameof(VersionText));
+        }
+    }
+
+    public string Latest
+    {
+        get => _latest;
+        set { if (_latest == value) return; _latest = value; Notify(nameof(Latest)); }
+    }
+
+    public string IconPath
+    {
+        get => _iconPath;
+        set
+        {
+            if (_iconPath == value) return;
+            _iconPath = value;
+            Notify(nameof(IconPath));
+            Notify(nameof(HasIcon));
+        }
+    }
 
     public string VersionText => !string.IsNullOrEmpty(Version)
         ? Version
         : Provided ? "由 DSH 提供" : "未装到磁盘";
     public bool HasIcon => !string.IsNullOrEmpty(IconPath);
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    void Notify(string name) =>
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+
+    /// <summary>Patch mutable fields from a freshly probed row without replacing the list item.</summary>
+    public void HotReloadFrom(BundleRow other)
+    {
+        Version = other.Version;
+        Latest = other.Latest;
+        IconPath = other.IconPath;
+    }
 }
 
 /// <summary>A live process PAD started, tracked in <c>runtime.json</c>.</summary>
@@ -583,9 +627,12 @@ public sealed class CardPref
 
 /// <summary>一个 npm 货架：左栏一项。</summary>
 public sealed class ShelfPref
-{    [JsonPropertyName("id")] public string Id { get; set; } = "";
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("label")] public string Label { get; set; } = "";
     [JsonPropertyName("query")] public string Query { get; set; } = "";
+    /// <summary>Shown under the shared store heading; empty uses a generic query explanation.</summary>
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
 }
 
 /// <summary>registry 快捷按钮。</summary>
@@ -645,6 +692,7 @@ public sealed class DownloadPrefs
             s.Id = (s.Id ?? "").Trim();
             s.Label = (s.Label ?? "").Trim();
             s.Query = (s.Query ?? "").Trim();
+            s.Description = (s.Description ?? "").Trim();
         }
         Shelves.RemoveAll(s => s.Id.Length == 0 || s.Query.Length == 0);
         if (Shelves.Count == 0) Shelves = DefaultShelves();
@@ -660,10 +708,14 @@ public sealed class DownloadPrefs
 
     public static List<ShelfPref> DefaultShelves() =>
     [
-        new() { Id = "plugin", Label = "插件", Query = "keywords:dsh-plugin" },
-        new() { Id = "tui", Label = "终端", Query = "@deepseek-harness-tui" },
-        new() { Id = "skill", Label = "技能与工具", Query = "keywords:dsh-plugin skill" },
-        new() { Id = "host", Label = "宿主与官方", Query = "@deepseek-ai/dsh-host" },
+        new() { Id = "plugin", Label = "插件", Query = "keywords:dsh-plugin",
+            Description = "扩展 DSH 能力的社区插件；安装到所选实例的 profile。" },
+        new() { Id = "tui", Label = "终端", Query = "@deepseek-harness-tui",
+            Description = "终端界面、TUI 外壳与命令行交互组件。" },
+        new() { Id = "skill", Label = "技能与工具", Query = "keywords:dsh-plugin skill",
+            Description = "提供技能、自动化流程和开发工具的插件；结果可能与“插件”重叠。" },
+        new() { Id = "host", Label = "宿主与官方", Query = "@deepseek-ai/dsh-host",
+            Description = "官方宿主、载体和运行时集成组件；并非都适合直接安装。" },
     ];
 
     public static DownloadPrefs Defaults() => new()

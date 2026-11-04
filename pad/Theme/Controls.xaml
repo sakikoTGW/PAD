@@ -18,6 +18,7 @@
     <Setter Property="FontFamily" Value="{StaticResource FontDisplay}" />
     <Setter Property="FontSize" Value="{StaticResource FsSection}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="v:Fx.Enter" Value="title" />
   </Style>
 
   <Style x:Key="CardTitle" TargetType="TextBlock">
@@ -26,6 +27,7 @@
     <Setter Property="FontSize" Value="{StaticResource FsTitle}" />
     <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Margin" Value="0,0,0,8" />
+    <Setter Property="v:Fx.Enter" Value="title" />
   </Style>
 
   <Style x:Key="Body" TargetType="TextBlock">
@@ -55,6 +57,8 @@
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="{StaticResource FsMicro}" />
     <Setter Property="FontWeight" Value="SemiBold" />
+    <!-- Form field captions: emerge after title heads are halfway (see Fx.RevealEnter). -->
+    <Setter Property="v:Fx.Enter" Value="label" />
   </Style>
 
   <!-- ============================ surfaces ============================ -->
@@ -69,14 +73,14 @@
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{StaticResource LineDivider}" />
     <Setter Property="Padding" Value="{StaticResource PadCard}" />
-    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Margin" Value="{StaticResource GapModule}" />
   </Style>
 
   <!-- PCL's card: 25 down each side, and enough room above the body that the card's
        own title is not crowding it. Used wherever a page groups a form or a list. -->
   <Style x:Key="Slab" TargetType="Border" BasedOn="{StaticResource Card}">
     <Setter Property="Padding" Value="{StaticResource PadSlab}" />
-    <Setter Property="Margin" Value="0,0,0,15" />
+    <Setter Property="Margin" Value="{StaticResource GapModule}" />
   </Style>
 
   <Style x:Key="SlabTitle" TargetType="TextBlock">
@@ -84,7 +88,7 @@
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="{StaticResource FsRow}" />
     <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Margin" Value="{StaticResource GapField}" />
   </Style>
 
   <!-- PCL MyCard.Title: accent, 13px bold, sitting at the top of the card. -->
@@ -93,7 +97,8 @@
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="{StaticResource FsBody}" />
     <Setter Property="FontWeight" Value="Bold" />
-    <Setter Property="Margin" Value="0,0,0,18" />
+    <Setter Property="Margin" Value="{StaticResource GapModule}" />
+    <Setter Property="v:Fx.Enter" Value="title" />
   </Style>
 
   <!-- Figma-style pictogram: a 14px path sitting in a 26px accent-wash tile.
@@ -134,11 +139,12 @@
   </Style>
 
   <Style x:Key="SlabHead" TargetType="ContentControl">
-    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Margin" Value="{StaticResource GapField}" />
     <Setter Property="Focusable" Value="False" />
     <Setter Property="IsTabStop" Value="False" />
     <Setter Property="HorizontalAlignment" Value="Left" />
     <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="v:Fx.Enter" Value="title" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ContentControl">
@@ -163,7 +169,7 @@
     <Setter Property="Background" Value="{StaticResource BgSubtle}" />
     <Setter Property="CornerRadius" Value="{StaticResource RadRow}" />
     <Setter Property="Padding" Value="{StaticResource PadRow}" />
-    <Setter Property="Margin" Value="0,0,0,6" />
+    <Setter Property="Margin" Value="{StaticResource GapTight}" />
   </Style>
 
   <!-- PCL MyListItem Clickable: one box per row, hover wash, click opens the next layer. -->
@@ -985,8 +991,10 @@
     </Setter>
   </Style>
 
+  <!-- 28 matches form-row Grids / TextBox Height=28; 30 overflowed the slot and
+       WPF layout-clipped the bottom border (浏览 looked like an open U). -->
   <Style x:Key="Btn" TargetType="Button">
-    <Setter Property="Height" Value="30" />
+    <Setter Property="Height" Value="28" />
     <Setter Property="Padding" Value="13,0" />
     <Setter Property="Foreground" Value="{StaticResource TextBody}" />
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />

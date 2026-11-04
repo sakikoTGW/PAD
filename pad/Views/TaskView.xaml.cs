@@ -39,6 +39,9 @@ public partial class TaskView : UserControl, IRefreshable
         StartPoll();
     }
 
+    /// <summary>Startup warm: read job list so the first open is not an empty flash.</summary>
+    public void Prepare() => Load();
+
     void StartPoll()
     {
         StopPoll();

@@ -17,7 +17,7 @@
         <StackPanel>
           <ContentControl Style="{StaticResource SlabHead}" Content="配置管理"
                           v:Ico.Of="{StaticResource I.Gear}" />
-          <Grid Height="28" Margin="0,0,0,9">
+          <Grid Height="28" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
@@ -49,7 +49,7 @@
         <StackPanel>
           <ContentControl Style="{StaticResource SlabHead}" Content="装载配置"
                           v:Ico.Of="{StaticResource I.Folder}" />
-          <Grid Height="28" Margin="0,0,0,10">
+          <Grid Height="28" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="120" />
               <ColumnDefinition Width="*" />
@@ -61,7 +61,7 @@
           <ItemsControl x:Name="ApiMatchList">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
-                <Grid Height="40" Margin="0,0,0,6">
+                <Grid Height="40" Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="100" />
                     <ColumnDefinition Width="72" />
@@ -164,7 +164,7 @@
                 </Grid>
               </Border>
               <StackPanel Grid.Column="1" x:Name="ProviderDetail" Margin="16,0,0,0">
-                <Grid Height="28" Margin="0,0,0,9">
+                <Grid Height="28" Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="*" />
@@ -173,7 +173,7 @@
                   <TextBox Grid.Column="1" x:Name="ProviderRouteBox" Height="28"
                            FontFamily="{StaticResource FontMono}" Tag="acme-gateway" />
                 </Grid>
-                <Grid Height="28" Margin="0,0,0,9">
+                <Grid Height="28" Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="*" />
@@ -181,7 +181,7 @@
                   <TextBlock Text="显示名" Style="{StaticResource Muted}" VerticalAlignment="Center" />
                   <TextBox Grid.Column="1" x:Name="ProviderNameBox" Height="28" />
                 </Grid>
-                <Grid Height="28" Margin="0,0,0,9">
+                <Grid Height="28" Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="*" />
@@ -190,7 +190,7 @@
                   <TextBox Grid.Column="1" x:Name="ProviderUrlBox" Height="28"
                            FontFamily="{StaticResource FontMono}" Tag="https://api.example/v1" />
                 </Grid>
-                <Grid Height="28" Margin="0,0,0,9">
+                <Grid Height="28" Margin="0,0,0,8">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="*" />
@@ -200,7 +200,7 @@
                             FontFamily="{StaticResource FontMono}" />
                 </Grid>
                 <TextBlock Text="模型 id，一行一个，顺序即优先度" Style="{StaticResource Muted}"
-                           Margin="0,0,0,6" />
+                           Margin="0,0,0,8" />
                 <TextBox x:Name="ProviderModelsBox" Height="88" AcceptsReturn="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto" LostFocus="ProviderModels_Lost"
                          FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />

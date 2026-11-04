@@ -31,6 +31,8 @@ public partial class MainWindow : Window
         ["settings"] = "设置",
     };
 
+    const double ShellRadius = 10;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -40,11 +42,15 @@ public partial class MainWindow : Window
         DragOver += Window_DragOver;
         Drop += Window_Drop;
         StageRailList.CollapseClicked += () => ToggleRail();
+        // ClipToBounds is rectangular; CornerRadius alone does not clip children. Without this
+        // clip the card reads as a square once DWM HWND rounding is off for the morph surplus.
+        OuterShell.SizeChanged += (_, _) => SyncShellClip();
         ApplyWindowPrefs();
         ApplyBrand();
         Show("launch");
         Loaded += (_, _) =>
         {
+            SyncShellClip();
             UiWatchdog.QuietFor(TimeSpan.FromSeconds(15));
             MoveTabPill(CurrentTab());
             ApplyBrand();
@@ -108,35 +114,226 @@ public partial class MainWindow : Window
                 _ = ShotPackConceptWindowAsync(App.ShotPath);
             else if (App.ShotPath is not null)
                 ScheduleShot(App.ShotPath);
-            if (App.ShotPath is null) PrewarmPages();
+            if (App.ShotPath is null) _ = WarmBootAsync();
         };
     }
 
     /// <summary>
-    /// Building a page's visual tree costs more than animating it. Pay that while the
-    /// window is idle (one page per idle turn, so it never becomes a startup hitch), and
-    /// the first click on 管理 / 下载 / 设置 only pays layout.
+    /// Show the brand boot plate, warm data underneath, then hand brand off to the chrome
+    /// mark while the plate slides up. Fast machines still get a short beat so the motion reads.
     /// </summary>
-    void PrewarmPages()
+    async Task WarmBootAsync()
     {
-        var queue = new Queue<string>(["manage", "download", "settings", "tasks"]);
-        void Step()
+        // Short floor so the plate still reads on a cold cache; no artificial stall.
+        const int minShowMs = 160;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        BeginBootCover();
+        try { await WarmDataAsync(); }
+        catch (Exception ex) { App.ReportPage(ex); }
+        SetBootProgress(100);
+        var left = minShowMs - (int)sw.ElapsedMilliseconds;
+        if (left > 0) await Task.Delay(left);
+        await PlayBootHandoffAsync();
+    }
+
+    void BeginBootCover()
+    {
+        // Sync title / logo / custom asset with 个性化 before the plate shows.
+        ApplyBrand();
+        ApplySkin();
+        BrandMark.Opacity = BrandMark.Visibility == Visibility.Visible ? 0 : 1;
+        BootPlateShift.BeginAnimation(TranslateTransform.YProperty, null);
+        BootBrandShift.BeginAnimation(TranslateTransform.XProperty, null);
+        BootBrandShift.BeginAnimation(TranslateTransform.YProperty, null);
+        BootPlateShift.Y = 0;
+        BootBrandShift.X = 0;
+        BootBrandShift.Y = 0;
+        BootProgress.BeginAnimation(UIElement.OpacityProperty, null);
+        BootProgress.Opacity = 1;
+        BootProgress.Value = 0;
+        BootCover.Visibility = Visibility.Visible;
+        BootCover.Opacity = 1;
+        BootCover.IsHitTestVisible = true;
+    }
+
+    void SetBootProgress(double value)
+    {
+        if (!Dispatcher.CheckAccess())
         {
-            if (queue.Count == 0) return;
-            var name = queue.Dequeue();
+            Dispatcher.BeginInvoke(() => SetBootProgress(value));
+            return;
+        }
+        BootProgress.Value = Math.Clamp(value, 0, 100);
+    }
+
+    async Task PlayBootHandoffAsync()
+    {
+        // 动效关：直接露顶栏，不跑交接。
+        if (!Fx.Animated)
+        {
+            EndBootCover();
+            return;
+        }
+
+        ApplyBrand();
+        ApplySkin();
+        UpdateLayout();
+        BrandMark.UpdateLayout();
+        BootBrand.UpdateLayout();
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Base ≥750ms; 动画速度 (AnimSpeed) stretches/shortens like every other Fx motion.
+        var beat = Fx.Span(750);
+        var fade = Fx.Span(220);
+        var ease = new System.Windows.Media.Animation.CubicEase
+        {
+            EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut,
+        };
+
+        BootProgress.BeginAnimation(UIElement.OpacityProperty,
+            new System.Windows.Media.Animation.DoubleAnimation(1, 0, fade)
+            {
+                EasingFunction = ease,
+            });
+
+        var plate = new System.Windows.Media.Animation.DoubleAnimation(
+            0, -BootCover.ActualHeight - 8, beat)
+        {
+            EasingFunction = ease,
+        };
+
+        var flyBrand = BootBrand.Visibility == Visibility.Visible
+            && BrandMark.Visibility == Visibility.Visible;
+        double dx = 0, dy = 0;
+        if (flyBrand)
+        {
             try
             {
-                var page = Page(name);
-                if (page is FrameworkElement fe && fe.Parent is null)
-                    fe.Measure(new Size(Math.Max(ActualWidth, 800), Math.Max(ActualHeight, 520)));
-                // 管理 paints from a disk scan; start it now so the first switch has cards to
-                // stagger instead of an empty grid.
-                if (page is WorkbenchView wb) wb.Prepare();
+                // Common ancestor: window root Grid (BootCover and OuterShell are siblings).
+                var root = (Visual)Content;
+                var from = BootBrand.TransformToAncestor(root).Transform(new Point(0, 0));
+                var to = BrandMark.TransformToAncestor(root).Transform(new Point(0, 0));
+                dx = to.X - from.X;
+                dy = to.Y - from.Y;
             }
-            catch (Exception ex) { App.ReportPage(ex); }
-            Dispatcher.BeginInvoke(new Action(Step), DispatcherPriority.ApplicationIdle);
+            catch
+            {
+                flyBrand = false;
+            }
         }
-        Dispatcher.BeginInvoke(new Action(Step), DispatcherPriority.ApplicationIdle);
+
+        void Done(object? _, EventArgs __)
+        {
+            EndBootCover();
+            tcs.TrySetResult();
+        }
+
+        if (flyBrand)
+        {
+            var brandX = new System.Windows.Media.Animation.DoubleAnimation(0, dx, beat)
+            {
+                EasingFunction = ease,
+            };
+            var brandY = new System.Windows.Media.Animation.DoubleAnimation(0, dy, beat)
+            {
+                EasingFunction = ease,
+            };
+            brandY.Completed += Done;
+            BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plate);
+            BootBrandShift.BeginAnimation(TranslateTransform.XProperty, brandX);
+            BootBrandShift.BeginAnimation(TranslateTransform.YProperty, brandY);
+        }
+        else
+        {
+            // 顶栏名称/logo 都关：只收蓝底板。
+            BootBrand.Visibility = Visibility.Collapsed;
+            plate.Completed += Done;
+            BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plate);
+        }
+
+        await tcs.Task;
+    }
+
+    void EndBootCover()
+    {
+        BootPlateShift.BeginAnimation(TranslateTransform.YProperty, null);
+        BootBrandShift.BeginAnimation(TranslateTransform.XProperty, null);
+        BootBrandShift.BeginAnimation(TranslateTransform.YProperty, null);
+        BootProgress.BeginAnimation(UIElement.OpacityProperty, null);
+        BootPlateShift.Y = 0;
+        BootBrandShift.X = 0;
+        BootBrandShift.Y = 0;
+        BootProgress.Opacity = 1;
+        BootProgress.Value = 0;
+        BootCover.Visibility = Visibility.Collapsed;
+        BootCover.IsHitTestVisible = false;
+        BrandMark.Opacity = 1;
+    }
+
+    async Task WarmDataAsync()
+    {
+        ManageView? manage = null;
+        SettingsView? settings = null;
+        DownloadView? download = null;
+
+        SetBootProgress(12);
+        await Dispatcher.InvokeAsync(() =>
+        {
+            foreach (var name in new[] { "manage", "download", "settings", "tasks" })
+            {
+                try
+                {
+                    var page = Page(name);
+                    if (page is FrameworkElement fe && fe.Parent is null)
+                        fe.Measure(new Size(Math.Max(ActualWidth, 800), Math.Max(ActualHeight, 520)));
+                    switch (page)
+                    {
+                        case ManageView mv:
+                            manage = mv;
+                            mv.Prepare();
+                            break;
+                        case SettingsView sv:
+                            settings = sv;
+                            break;
+                        case DownloadView dv:
+                            download = dv;
+                            break;
+                        case TaskView tv:
+                            tv.Prepare();
+                            break;
+                        case WorkbenchView wb:
+                            wb.Prepare();
+                            break;
+                    }
+                }
+                catch (Exception ex) { App.ReportPage(ex); }
+            }
+        });
+        SetBootProgress(40);
+
+        // Critical path: settings shelves (terminal / command override). Network market
+        // prewarm + icons + packs keep filling in the background after handoff.
+        if (settings is not null)
+        {
+            try { await settings.WarmAsync(); }
+            catch (Exception ex) { App.ReportPage(ex); }
+        }
+        SetBootProgress(78);
+
+        if (manage is not null)
+            _ = WarmBg(manage.WarmIconsAsync());
+        if (download is not null)
+            _ = WarmBg(download.WarmAsync());
+        else
+            _ = WarmBg(Task.Run(() => MarketPinyinIndex.Prewarm(AppState.Current.Launcher)));
+        _ = WarmBg(AppState.Current.ReloadPacks());
+        SetBootProgress(96);
+    }
+
+    static async Task WarmBg(Task task)
+    {
+        try { await task; }
+        catch (Exception ex) { App.ReportPage(ex); }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -144,6 +341,8 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         WinIcon.Apply(this);
         Dwm.Round(this);
+        // CenterScreen only for the first show; leave it on and the first size morph recenters.
+        WindowStartupLocation = WindowStartupLocation.Manual;
     }
 
     /// <summary>
@@ -154,8 +353,9 @@ public partial class MainWindow : Window
     public void ApplyWindowPrefs()
     {
         var ui = AppState.Current.Settings.Ui;
-        // The opaque window owns no outer band: DWM draws the shadow and the corners.
-        OuterShell.Margin = AllowsTransparency ? new Thickness(ui.WindowMargin) : new Thickness(0);
+        // No inset margin: a transparent band around the card read as "wider than the window".
+        // The visible shape is OuterShell's rounded clip; shadow stays inside that card.
+        OuterShell.Margin = new Thickness(0);
         ChromeRow.Height = new GridLength(ui.ChromeHeight);
         // Window.Opacity only exists on a layered window; on an opaque one it is ignored
         // by the compositor, so do not pretend to apply it.
@@ -170,7 +370,8 @@ public partial class MainWindow : Window
     /// <summary>Last sizing decision; surfaced in the --shot sidecar so a mismatch is provable.</summary>
     string _lastSize = "(none)";
 
-    public bool ApplyPageSize(string page, bool animate)
+    public bool ApplyPageSize(string page, bool animate, Action? onDone = null,
+        Action? onReveal = null)
     {
         var work = SystemParameters.WorkArea;
         var maxW = Math.Max(880, work.Width - 24);
@@ -189,62 +390,171 @@ public partial class MainWindow : Window
             wantH = Math.Min(ui.WindowHeight, maxH);
         }
 
-        if (Math.Abs(Width - wantW) < 1 && Math.Abs(Height - wantH) < 1) return false;
+        if (Math.Abs(Width - wantW) < 1 && Math.Abs(Height - wantH) < 1)
+        {
+            onDone?.Invoke();
+            return false;
+        }
 
-        // Anchor the top-right corner. The window widens to the LEFT first, then the bottom
-        // edge travels down. Centring would move four edges at once and read as one blurry
-        // jump; two anchored beats read as two edges.
-        var left = Math.Max(work.Left, Math.Min(Left + (Width - wantW), work.Right - wantW));
-        var top = Math.Max(work.Top, Math.Min(Top, work.Bottom - wantH));
+        // Pin top-left. If the target would hang off the work area, shrink the target —
+        // never slide Left/Top to make room (that read as the anchor jumping on first manage).
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        var left = Left;
+        var top = Top;
+        if (left < work.Left) left = work.Left;
+        if (top < work.Top) top = work.Top;
+        wantW = Math.Min(wantW, Math.Max(1, work.Right - left));
+        wantH = Math.Min(wantH, Math.Max(1, work.Bottom - top));
+
+        if (Math.Abs(Width - wantW) < 1 && Math.Abs(Height - wantH) < 1
+            && Math.Abs(Left - left) < 1 && Math.Abs(Top - top) < 1)
+        {
+            onDone?.Invoke();
+            return false;
+        }
 
         _lastSize = $"{page}: want {wantW:F0}x{wantH:F0} from {Width:F0}x{Height:F0} animate={animate} fx={Fx.Animated}";
 
         if (!animate || !Fx.Animated)
         {
-            _stagedGen++;
-            Fx.StopBounds();
-            Width = wantW;
-            Height = wantH;
+            StopShellReveal();
             Left = left;
             Top = top;
+            Width = wantW;
+            Height = wantH;
+            onDone?.Invoke();
             return false;
         }
 
-        var grow = wantW > Width || wantH > Height;
-        BeginStagedBounds(left, top, wantW, wantH, grow);
+        var grow = wantW > Width + 0.5 || wantH > Height + 0.5;
+        BeginShellReveal(left, top, wantW, wantH, grow, onDone, onReveal);
         return true;
     }
 
     int _stagedGen;
 
     /// <summary>
-    /// Two beats with a deliberate hold between them: widen to the left (~190ms), hold a
-    /// beat (~70ms), then let the bottom edge travel down (~190ms). Shrinking mirrors the
-    /// path — bottom up, hold, left in — so the window leaves the way it arrived.
+    /// Shell SizeTo morph: lock OuterShell at the old size, tile HWND (transparent surplus),
+    /// then grow/shrink the shell. <paramref name="onReveal"/> fires when SizeTo starts
+    /// (both directions) so PageIn can run in parallel with the card motion.
     /// </summary>
-    void BeginStagedBounds(double left, double top, double width, double height, bool grow)
+    void BeginShellReveal(double left, double top, double wantW, double wantH, bool grow,
+        Action? onDone, Action? onReveal = null)
     {
-        const int beat = 190;
-        const int hold = 70;
+        const int beat = 520;
         var gen = ++_stagedGen;
+        Fx.StopBounds();
+
+        var m = OuterShell.Margin;
+        var fromShellW = Math.Max(1, Width - m.Left - m.Right);
+        var fromShellH = Math.Max(1, Height - m.Top - m.Bottom);
+        var toShellW = Math.Max(1, wantW - m.Left - m.Right);
+        var toShellH = Math.Max(1, wantH - m.Top - m.Bottom);
+
+        Dwm.SetCorners(this, round: false);
+
+        void Land()
+        {
+            if (gen != _stagedGen) return;
+            FinishShellReveal();
+            Dwm.SetCorners(this, round: true);
+            onDone?.Invoke();
+        }
+
+        // Lock at the old size before HWND changes — Stretch must never see the big frame.
+        LockShell(fromShellW, fromShellH);
+        UpdateLayout();
+
         if (grow)
         {
-            Fx.StepBounds(this, left, null, width, null, beat);
-            AfterDelay(beat + hold, () =>
-            {
-                if (gen != _stagedGen) return;
-                Fx.StepBounds(this, null, top, null, height, beat);
-            });
+            Left = left;
+            Top = top;
+            Width = wantW;
+            Height = wantH;
+            Left = left;
+            Top = top;
+            UpdateLayout();
+            // Start SizeTo before PageIn so the first frames are size-only (less hitch).
+            Fx.SizeTo(OuterShell, toShellW, toShellH, beat, Land);
+            onReveal?.Invoke();
         }
         else
         {
-            Fx.StepBounds(this, null, top, null, height, beat);
-            AfterDelay(beat + hold, () =>
+            Fx.SizeTo(OuterShell, toShellW, toShellH, beat, () =>
             {
                 if (gen != _stagedGen) return;
-                Fx.StepBounds(this, left, null, width, null, beat);
+                Left = left;
+                Top = top;
+                Width = wantW;
+                Height = wantH;
+                Left = left;
+                Top = top;
+                Land();
             });
+            onReveal?.Invoke();
         }
+    }
+
+    void LockShell(double width, double height)
+    {
+        OuterShell.BeginAnimation(FrameworkElement.WidthProperty, null);
+        OuterShell.BeginAnimation(FrameworkElement.HeightProperty, null);
+        OuterShell.HorizontalAlignment = HorizontalAlignment.Left;
+        OuterShell.VerticalAlignment = VerticalAlignment.Top;
+        OuterShell.Width = width;
+        OuterShell.Height = height;
+        SyncShellClip(width, height);
+    }
+
+    /// <summary>
+    /// Keep the rounded clip in sync with OuterShell. Mutate the live geometry — reallocating
+    /// a new RectangleGeometry on every SizeChanged during SizeTo was a steady GC/layout hitch.
+    /// </summary>
+    void SyncShellClip(double? width = null, double? height = null)
+    {
+        var w = width ?? OuterShell.ActualWidth;
+        var h = height ?? OuterShell.ActualHeight;
+        if (w < 1 || h < 1) return;
+
+        if (OuterShell.Clip is RectangleGeometry geo && !geo.IsFrozen)
+        {
+            var r = geo.Rect;
+            if (Math.Abs(r.Width - w) < 0.25 && Math.Abs(r.Height - h) < 0.25
+                && Math.Abs(geo.RadiusX - ShellRadius) < 0.1)
+                return;
+            geo.RadiusX = ShellRadius;
+            geo.RadiusY = ShellRadius;
+            geo.Rect = new Rect(0, 0, w, h);
+            return;
+        }
+
+        OuterShell.Clip = new RectangleGeometry(new Rect(0, 0, w, h), ShellRadius, ShellRadius);
+    }
+
+    void FinishShellReveal()
+    {
+        ResetShellLayout();
+    }
+
+    void StopShellReveal()
+    {
+        _stagedGen++;
+        Fx.StopBounds();
+        if (OuterShell.Clip is RectangleGeometry geo)
+            geo.BeginAnimation(RectangleGeometry.RectProperty, null);
+        ResetShellLayout();
+        Dwm.SetCorners(this, round: true);
+    }
+
+    void ResetShellLayout()
+    {
+        OuterShell.BeginAnimation(FrameworkElement.WidthProperty, null);
+        OuterShell.BeginAnimation(FrameworkElement.HeightProperty, null);
+        OuterShell.ClearValue(WidthProperty);
+        OuterShell.ClearValue(HeightProperty);
+        OuterShell.HorizontalAlignment = HorizontalAlignment.Stretch;
+        OuterShell.VerticalAlignment = VerticalAlignment.Stretch;
+        SyncShellClip();
     }
 
     void AfterDelay(int ms, Action run)
@@ -346,8 +656,15 @@ public partial class MainWindow : Window
         var logoOn = ui.ShowLogo ? Visibility.Visible : Visibility.Collapsed;
         BrandLogoPlate.Visibility = logoOn;
         BrandLogo.Visibility = logoOn;
-        BrandText.Text = string.IsNullOrWhiteSpace(ui.BrandText) ? "PAD" : ui.BrandText.Trim();
+        BootLogoPlate.Visibility = logoOn;
+        BootLogo.Visibility = logoOn;
+        var title = string.IsNullOrWhiteSpace(ui.BrandText) ? "PAD" : ui.BrandText.Trim();
+        BrandText.Text = title;
+        BootBrandText.Text = title;
         BrandText.Visibility = ui.ShowBrand ? Visibility.Visible : Visibility.Collapsed;
+        BootBrandText.Visibility = ui.ShowBrand ? Visibility.Visible : Visibility.Collapsed;
+        BootBrand.Visibility = ui.ShowBrand || ui.ShowLogo
+            ? Visibility.Visible : Visibility.Collapsed;
         ApplyWindowPrefs();
     }
 
@@ -356,7 +673,9 @@ public partial class MainWindow : Window
     {
         var ui = AppState.Current.Settings.Ui;
         var bundled = new Uri("pack://application:,,,/Assets/pad-logo.png");
-        BrandLogo.Source = Skin.LoadBitmap(ui.LogoPath, bundled);
+        var logo = Skin.LoadBitmap(ui.LogoPath, bundled);
+        BrandLogo.Source = logo;
+        BootLogo.Source = logo;
 
         var paper = Skin.LoadBitmap(WallpaperPick(ui));
         if (paper is null)
@@ -613,6 +932,8 @@ public partial class MainWindow : Window
         if (Page("settings") is SettingsView sv) sv.OpenLayer("launch");
     }
 
+    int _swapGen;
+
     void Swap(string name)
     {
         _page = name;
@@ -623,61 +944,88 @@ public partial class MainWindow : Window
             if (page is DependencyObject d)
                 VisualTreeGuard.ThrowIfSelfHosted(d);
             var same = ReferenceEquals(Host.Content, page);
+            var gen = ++_swapGen;
 
-            // Order matters: detach the old page, start the bounds travel, attach the rail,
-            // then hand the motion to the page's own parts. The page is visible the whole
-            // time — a switch must never show a blank rectangle — and each page arrives with
-            // its own choreography (see MotionFor).
-            if (!same) Host.Content = page;
-            var resizing = ApplyPageSize(name, animate: true);
-            AttachStageRail(page, animate: false);
-            if (!same)
+            // Order: leave → attach blank page → shell SizeTo + PageIn in parallel both ways.
+            void Arrive()
             {
-                if (!resizing) UpdateLayout();
-                Fx.BusyFor(resizing ? 820 : 460);
-                Fx.EnterPage(page, MotionFor(name));
-                if (resizing)
+                if (gen != _swapGen) return;
+                if (!ReferenceEquals(Host.Content, page))
                 {
-                    // The edge cannot be drawn crisply while the window is between sizes:
-                    // fade it out for the travel, back in once the bounds have landed.
-                    Fx.Edge(EdgeRing, false, 90);
-                    AfterDelay(470, () => Fx.Edge(EdgeRing, true, 160));
+                    Host.Content = page;
+                    Fx.PrepareEnter(page);
                 }
-                else
+                AttachStageRail(page, animate: false);
+
+                if (same)
                 {
-                    Fx.Edge(EdgeRing, true, 1);
+                    if (page is IRefreshable r0) RefreshAfterEntrance(page, r0, 0);
+                    return;
                 }
+
+                var revealed = false;
+
+                void PlayEnter(bool resized, bool refresh, bool withShell)
+                {
+                    if (gen != _swapGen) return;
+                    Fx.PrepareEnter(page);
+                    Fx.BusyFor(resized ? 900 : 700);
+                    Fx.PageIn(page, withShell: withShell);
+                    if (!resized) Fx.Edge(EdgeRing, true, 1);
+                    if (refresh && page is IRefreshable r)
+                        RefreshAfterEntrance(page, r, resized ? 820 : 600);
+                }
+
+                var resizing = ApplyPageSize(name, animate: true,
+                    onDone: () =>
+                    {
+                        if (gen != _swapGen) return;
+                        if (revealed)
+                        {
+                            // Probe after morph — OnShown mid-SizeTo was a steady hitch.
+                            if (page is IRefreshable r)
+                                RefreshAfterEntrance(page, r, 200);
+                            return;
+                        }
+                        PlayEnter(resized: true, refresh: true, withShell: false);
+                    },
+                    onReveal: () =>
+                    {
+                        if (gen != _swapGen) return;
+                        revealed = true;
+                        // Next dispatcher turn: SizeTo clock is already running.
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (gen != _swapGen) return;
+                            PlayEnter(resized: true, refresh: false, withShell: true);
+                        }), DispatcherPriority.Input);
+                    });
+                if (!resizing) PlayEnter(resized: false, refresh: true, withShell: false);
             }
 
-            // Data refresh reads the disk and process table. Run it after the motion has
-            // landed, not while it paints.
-            if (page is IRefreshable r)
-                RefreshAfterEntrance(page, r, same ? 0 : resizing ? 720 : 340);
+            if (same)
+            {
+                AttachStageRail(page, animate: false);
+                ApplyPageSize(name, animate: true);
+                if (page is IRefreshable r) RefreshAfterEntrance(page, r, 0);
+                return;
+            }
+
+            var leaving = Host.Content as UIElement;
+            if (leaving is null || !Fx.Animated)
+            {
+                Arrive();
+                return;
+            }
+
+            Fx.BusyFor(360);
+            Fx.PageOut(leaving, Arrive);
         }
         catch (Exception ex)
         {
             App.ReportPage(ex);
         }
     }
-
-    /// <summary>
-    /// One motion per page, and they are meant to look different: 启动 is a combo (hero block
-    /// travels, the controls cascade under it), 管理 is a wave ordered by screen position,
-    /// 下载 slides in from its rail, 设置 and 版本 assemble one part at a time. A switch
-    /// should feel like a different place, not the same template replayed.
-    /// </summary>
-    static PageMotion MotionFor(string name) => name switch
-    {
-        "launch" => PageMotion.Combo,
-        "manage" => PageMotion.Wave,
-        "download" => PageMotion.Slide,
-        "settings" => PageMotion.Sequential,
-        "versions" => PageMotion.Sequential,
-        "tasks" => PageMotion.Drift,
-        "instance" or "bundles" or "makepack" => PageMotion.Rows,
-        "relations" => PageMotion.Drift,
-        _ => PageMotion.Drift,
-    };
 
     void RefreshAfterEntrance(UIElement page, IRefreshable refresh, int delayMs)
     {

@@ -8,7 +8,7 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <ScrollViewer Grid.Row="0" Padding="25,20,25,10" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="0" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <StackPanel>
         <!-- 身份：名字/版本/图标/说明 -->
         <Border Style="{StaticResource Slab}" Padding="20,16,18,16">

@@ -36,13 +36,13 @@
       </StackPanel>
     </Border>
 
-    <ScrollViewer Grid.Column="1" Padding="25" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Column="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <Grid>
         <!-- ========== API Key ========== -->
         <StackPanel x:Name="PaneApi" Visibility="Collapsed">
           <Grid>
             <StackPanel x:Name="ApiListStage">
-              <DockPanel LastChildFill="True" Margin="0,0,0,14">
+              <DockPanel LastChildFill="True" Margin="0,0,0,12">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
                   <Button x:Name="ApiImportBtn" Style="{StaticResource BtnPrimary}" Content="导入 API Key"
                           Click="ApiImport_Click" />
@@ -153,7 +153,7 @@
             </StackPanel>
 
             <DockPanel x:Name="ApiDetailStage" Visibility="Collapsed">
-              <DockPanel DockPanel.Dock="Top" LastChildFill="True" Margin="0,0,0,14">
+              <DockPanel DockPanel.Dock="Top" LastChildFill="True" Margin="0,0,0,12">
                 <Button DockPanel.Dock="Left" Style="{StaticResource IcoBtn}" Margin="0,0,8,0"
                         Click="ApiDetailBack_Click" ToolTip="返回 API 列表">
                   <v:Ico Glyph="{StaticResource I.Back}" Height="12" />
@@ -190,7 +190,7 @@
                       </Border>
                     </StackPanel>
                   </Border>
-                  <Grid Margin="0,0,0,10">
+                  <Grid Margin="0,0,0,12">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="120" />
                       <ColumnDefinition Width="*" />
@@ -228,35 +228,38 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="DSH"
                               v:Ico.Of="{StaticResource I.Block}" />
-              <Grid Margin="0,10,0,8">
+              <!-- Row gaps all GapTight (8); SniffLine collapses when empty so it
+                   cannot inflate the gap under 「dsh 命令」. -->
+              <Grid Margin="{StaticResource GapTight}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="dsh 命令" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="发行号里那份 dsh 的 lib/bin.js" />
                 <TextBlock Grid.Column="1" x:Name="DshBinLine" Style="{StaticResource Mono}"
-                           TextWrapping="Wrap" />
+                           TextWrapping="Wrap" VerticalAlignment="Center" />
               </Grid>
-              <TextBlock x:Name="SniffLine" Style="{StaticResource Muted}" Margin="88,0,0,8"
-                         TextWrapping="Wrap" />
-              <Grid Margin="0,0,0,8">
+              <TextBlock x:Name="SniffLine" Style="{StaticResource Muted}" Margin="120,0,0,8"
+                         TextWrapping="Wrap" Visibility="Collapsed" />
+              <Grid Margin="{StaticResource GapTight}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="发行号" Style="{StaticResource Label}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" x:Name="DshVerLine" Style="{StaticResource Mono}" />
+                <TextBlock Grid.Column="1" x:Name="DshVerLine" Style="{StaticResource Mono}"
+                           VerticalAlignment="Center" />
               </Grid>
-              <Grid Margin="0,0,0,8">
+              <Grid Margin="{StaticResource GapTight}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="profile" Style="{StaticResource Label}" VerticalAlignment="Center" ToolTip="这个 --profile 决定叠哪些插件；形态由它体现（web → 网页端）" />
                 <TextBlock Grid.Column="1" x:Name="DshTuiLine" Style="{StaticResource Mono}"
-                           TextWrapping="Wrap" />
+                           TextWrapping="Wrap" VerticalAlignment="Center" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,10">
+              <Grid Height="28" Margin="{StaticResource GapTight}">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -268,7 +271,7 @@
                 <Button Grid.Column="2" Style="{StaticResource Btn}" Content="浏览" Margin="8,0,0,0"
                         Click="BrowseDshHome_Click" v:Ico.Of="{StaticResource I.Folder}" />
               </Grid>
-              <StackPanel Margin="0,0,0,10">
+              <StackPanel Margin="{StaticResource GapTight}">
                 <Grid Height="28">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="120" />
@@ -288,14 +291,20 @@
                            TextWrapping="Wrap" MaxHeight="34"
                            Text="{Binding Text, ElementName=DshCliBox}" />
               </StackPanel>
+              <!-- Uniform Margin on every child: a shorter first item was getting
+                   vertically centered in the taller wrap line (siblings' bottom 8). -->
               <WrapPanel>
                 <Button x:Name="PinBinBtn" Style="{StaticResource Btn}" Content="使用本机 DSH"
+                        Margin="0,0,8,8" VerticalAlignment="Top"
                         Click="PinSniffed_Click" v:Ico.Of="{StaticResource I.Terminal}" />
-                <Button Style="{StaticResource Btn}" Content="选择 DSH" Margin="8,0,8,8"
+                <Button Style="{StaticResource Btn}" Content="选择 DSH" Margin="0,0,8,8"
+                        VerticalAlignment="Top"
                         Click="PickBin_Click" v:Ico.Of="{StaticResource I.Folder}" />
                 <Button Style="{StaticResource Btn}" Content="选择 dsh-tui" Margin="0,0,8,8"
+                        VerticalAlignment="Top"
                         Click="PickTui_Click" v:Ico.Of="{StaticResource I.Mod}" />
-                <Button Style="{StaticResource Btn}" Content="添加已有文件夹" Margin="0,0,0,8"
+                <Button Style="{StaticResource Btn}" Content="添加已有文件夹" Margin="0,0,8,8"
+                        VerticalAlignment="Top"
                         Click="AdoptHome_Click" v:Ico.Of="{StaticResource I.Upload}" />
               </WrapPanel>
             </StackPanel>
@@ -308,7 +317,7 @@
                               v:Ico.Of="{StaticResource I.Terminal}" />
 
               <RadioButton x:Name="OptWt" Style="{StaticResource RadioCard}" GroupName="term"
-                           Click="Term_Click" Tag="wt" Margin="0,10,0,0"
+                           Click="Term_Click" Tag="wt"
                            ToolTip="Windows Terminal（wt.exe）· 没装时自动回退 conhost">
                 <StackPanel Orientation="Horizontal">
                   <v:Ico Glyph="{StaticResource I.Data}" Height="14" Margin="0,1,8,0" />
@@ -330,7 +339,7 @@
               </RadioButton>
 
               <RadioButton x:Name="OptCustom" Style="{StaticResource RadioCard}" GroupName="term"
-                           Click="Term_Click" Tag="custom" Margin="0,0,0,9"
+                           Click="Term_Click" Tag="custom"
                            ToolTip="自定义命令行 · 占位符 {script} {title} {cwd}">
                 <TextBlock Text="自定义" FontSize="{StaticResource FsBody}" FontWeight="SemiBold"
                            Foreground="{StaticResource TextPrimary}" />
@@ -345,7 +354,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="启动选项"
                               v:Ico.Of="{StaticResource I.Play}" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -355,7 +364,7 @@
                          HorizontalAlignment="Left" MinWidth="280" LostFocus="Launch_Save"
                          ToolTip="占位符 {instance} 与 {profile}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -371,7 +380,7 @@
               <CheckBox x:Name="ReuseWt" Style="{StaticResource Switch}" Content="Windows Terminal 复用同一窗口开标签"
                         Click="Launch_Save" Margin="0,4,0,12"
                         ToolTip="关掉后每次启动都会新开一个 WT 窗口" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -386,7 +395,7 @@
                         Click="Launch_Save" Margin="0,4,0,10" />
               <CheckBox x:Name="TelemetryOff" Style="{StaticResource Switch}" Content="launch 脚本禁用遥测"
                         Click="Launch_Save" Margin="0,0,0,12" />
-              <TextBlock Text="额外环境变量" Style="{StaticResource Muted}" Margin="0,0,0,6" />
+              <TextBlock Text="额外环境变量" Style="{StaticResource Muted}" Margin="0,0,0,8" />
               <TextBox x:Name="ExtraEnvBox" Height="88" AcceptsReturn="True" TextWrapping="Wrap"
                        VerticalScrollBarVisibility="Auto" LostFocus="Launch_Save"
                        FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
@@ -409,7 +418,7 @@
                   <ComboBoxItem Tag="custom" Content="使用指定的 Node"
                                 ToolTip="手动指定 node.exe 的绝对路径。换电脑后可能失效。" />
                 </ComboBox>
-                <Grid x:Name="NodeCustom" Grid.Row="1" Grid.Column="1" Margin="0,9,0,0" Height="28"
+                <Grid x:Name="NodeCustom" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Height="28"
                       Visibility="Collapsed" MaxWidth="360" HorizontalAlignment="Left">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -432,7 +441,7 @@
               <CheckBox x:Name="RuntimeInstallBox" Style="{StaticResource Switch}"
                         Content="发行号缺 Node 时装进 runtime/node" Click="Launch_Save"
                         Margin="0,0,0,12" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -457,7 +466,7 @@
                 <Button Grid.Column="2" Style="{StaticResource Btn}" Content="浏览" Margin="8,0,0,0"
                         Click="PickSharedWs_Click" v:Ico.Of="{StaticResource I.Folder}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -468,8 +477,8 @@
                          FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />
               </Grid>
               <CheckBox x:Name="PreWaitBox" Style="{StaticResource Switch}" Content="等待命令执行完成后再继续启动"
-                        Click="Launch_Save" Margin="0,0,0,10" />
-              <Grid Height="28" Margin="0,0,0,9">
+                        Click="Launch_Save" Margin="0,0,0,12" />
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -543,7 +552,7 @@
               <CheckBox x:Name="TrayCloseBox" Style="{StaticResource Switch}"
                         Content="关闭窗口时缩到托盘（后台继续跑，托盘菜单可退出）"
                         Click="Ui_Save" Margin="0,0,0,12" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -553,7 +562,7 @@
                          HorizontalAlignment="Left" Width="180" LostFocus="Ui_Save"
                          Tag="空 = PAD" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="Auto" />
@@ -566,7 +575,7 @@
                   <ComboBoxItem Tag="160" Content="慢" />
                 </ComboBox>
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="Auto" />
@@ -603,7 +612,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="壁纸与透明度"
                               v:Ico.Of="{StaticResource I.Image}" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -616,7 +625,7 @@
                 <Button Grid.Column="2" Style="{StaticResource Btn}" Content="选图…" Margin="8,0,0,0"
                         Click="PickWallpaper_Click" v:Ico.Of="{StaticResource I.Image}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -629,7 +638,7 @@
                 <Button Grid.Column="2" Style="{StaticResource Btn}" Content="选图…" Margin="8,0,0,0"
                         Click="PickLogo_Click" v:Ico.Of="{StaticResource I.Image}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -642,7 +651,7 @@
                 <TextBlock Grid.Column="2" x:Name="WallOpVal" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" HorizontalAlignment="Right" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -655,7 +664,7 @@
                 <TextBlock Grid.Column="2" x:Name="ContentOpVal" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" HorizontalAlignment="Right" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -702,7 +711,7 @@
                 <TextBlock Grid.Column="2" x:Name="WindowOpVal" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" HorizontalAlignment="Right" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -735,7 +744,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="窗口几何"
                               v:Ico.Of="{StaticResource I.Window}" />
-              <Grid Margin="0,0,0,9">
+              <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -750,7 +759,7 @@
                 <TextBox Grid.Column="3" x:Name="WinHBox" Height="28" LostFocus="Ui_Save"
                          FontFamily="{StaticResource FontMono}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -776,11 +785,11 @@
               <ContentControl Style="{StaticResource SlabHead}" Content="藏页"
                               v:Ico.Of="{StaticResource I.Eye}" />
               <CheckBox x:Name="HideVersionEntryBox" Style="{StaticResource Switch}"
-                        Content="藏启动页「版本选择 / 版本设置」入口" Click="Ui_Save" Margin="0,0,0,10" />
+                        Content="藏启动页「版本选择 / 版本设置」入口" Click="Ui_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="HiddenManageBox" Style="{StaticResource Switch}"
-                        Content="F12 才显示「实例管理」顶栏入口" Click="Ui_Save" Margin="0,0,0,10" />
+                        Content="F12 才显示「实例管理」顶栏入口" Click="Ui_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="HiddenDownloadBox" Style="{StaticResource Switch}"
-                        Content="藏「下载」页" Click="Ui_Save" Margin="0,0,0,10" />
+                        Content="藏「下载」页" Click="Ui_Save" Margin="0,0,0,12" />
               <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap"
                          Text="启动和设置页禁止全藏；F12 临时显示到本次进程结束。" />
             </StackPanel>
@@ -793,7 +802,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="npm registry"
                               v:Ico.Of="{StaticResource I.Globe}" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -811,7 +820,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="市场"
                               v:Ico.Of="{StaticResource I.Search}" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="Auto" />
@@ -825,7 +834,7 @@
                   <ComboBoxItem Tag="50" Content="50" />
                 </ComboBox>
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -837,7 +846,7 @@
                 <TextBlock Grid.Column="2" Text="秒" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" Margin="8,0,0,0" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -873,7 +882,7 @@
                 <TextBlock Grid.Column="2" Text="0 = 默认" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" Margin="8,0,0,0" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -893,6 +902,8 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="社区资源"
                               v:Ico.Of="{StaticResource I.Mod}" />
+              <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,8"
+                         Text="商店货架（id|标签|npm 查询|用途说明）。货架共用商店界面，只改变查询范围。" />
               <TextBox x:Name="ShelvesBox" Height="110" AcceptsReturn="True" TextWrapping="Wrap"
                        VerticalScrollBarVisibility="Auto" LostFocus="Download_Save"
                        FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />
@@ -936,7 +947,7 @@
                         VerticalAlignment="Center" Click="OpenRoot_Click"
                         v:Ico.Of="{StaticResource I.Folder}" />
               </Grid>
-              <Grid Margin="0,10,0,0">
+              <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="Auto" />
@@ -958,7 +969,7 @@
                               v:Ico.Of="{StaticResource I.More}" />
               <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,8"
                          Text="名单写在本机用户目录。换文件夹打开 PAD，空的 exe 旁根会切到上次有实例的那份。" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="Auto" />
@@ -985,7 +996,7 @@
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="关闭行为"
                               v:Ico.Of="{StaticResource I.Close}" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="Auto" />
@@ -1000,7 +1011,7 @@
               <CheckBox x:Name="StopInstancesOnExit" Style="{StaticResource Switch}"
                         Content="退出 PAD 时停止所有正在运行的实例"
                         Click="Other_Save" Checked="Other_Save" Unchecked="Other_Save"
-                        Margin="0,0,0,10" />
+                        Margin="0,0,0,12" />
               <TextBlock Style="{StaticResource Muted}"
                          Text="默认：关闭窗口只收托盘，实例继续跑。勾上后退出 PAD 会把运行时账本里的实例一起停掉。" />
             </StackPanel>
@@ -1011,15 +1022,15 @@
               <ContentControl Style="{StaticResource SlabHead}" Content="习惯"
                               v:Ico.Of="{StaticResource I.Gear}" />
               <CheckBox x:Name="ConfirmStop" Style="{StaticResource Switch}"
-                        Content="停止进程前确认" Click="Other_Save" Margin="0,0,0,10" />
+                        Content="停止进程前确认" Click="Other_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="OpenLogOnError" Style="{StaticResource Switch}"
-                        Content="出错时打开 pad-crash.log 所在目录" Click="Other_Save" Margin="0,0,0,10" />
+                        Content="出错时打开 pad-crash.log 所在目录" Click="Other_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="BackupCorrupt" Style="{StaticResource Switch}"
                         Content="pad.json 损坏时备份再恢复默认" Click="Other_Save" Margin="0,0,0,12" />
               <CheckBox x:Name="DebugBox" Style="{StaticResource Switch}"
                         Content="诊断模式（多打一行 stderr，显示 schema 与根路径）"
                         Click="Other_Save" Margin="0,0,0,12" />
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -1031,7 +1042,7 @@
                 <TextBlock Grid.Column="2" Text="秒" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" Margin="8,0,0,0" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -1040,7 +1051,7 @@
                 <TextBox Grid.Column="1" x:Name="RegistriesRelBox" Height="28" LostFocus="Other_Save"
                          FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,9">
+              <Grid Height="28" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="100" />
@@ -1097,7 +1108,7 @@
                 <TextBlock Text="DSH 发行号" Style="{StaticResource Label}" />
                 <TextBlock Grid.Column="1" x:Name="DshUpdateLine" Style="{StaticResource Mono}" />
               </Grid>
-              <Grid Margin="0,0,0,9">
+              <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
@@ -1107,7 +1118,7 @@
                          LostFocus="Other_Save"
                          ToolTip="latest.json 的 http(s) 地址或本地路径；留空 = 不检查 PAD 自身更新" />
               </Grid>
-              <Grid Height="28" Margin="0,0,0,10">
+              <Grid Height="28" Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="Auto" />
@@ -1156,13 +1167,13 @@
                         Click="ImportSettings_Click" v:Ico.Of="{StaticResource I.Download}"
                         ToolTip="导入前会备份当前 pad.json" />
               </StackPanel>
-              <Button Style="{StaticResource Btn}" Content="导出便携目录" Margin="0,10,0,0"
+              <Button Style="{StaticResource Btn}" Content="导出便携目录" Margin="0,8,0,0"
                       Click="ExportPortable_Click" v:Ico.Of="{StaticResource I.Pack}"
                       ToolTip="把当前 PAD + 空 .pack-launcher（可带当前实例 pinst）打到一个目录" />
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,22,25,25">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="关于" Margin="0,0,0,8"
                               v:Ico.Of="{StaticResource I.Data}" />

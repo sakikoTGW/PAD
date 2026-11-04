@@ -168,7 +168,7 @@ public sealed class Market
     public const int DefaultPageSize = 20;
 
     /// <summary>Shelves come from pad.json; empty/invalid falls back to the built-in four.</summary>
-    public static IReadOnlyList<(string Id, string Label, string Query)> Shelves
+    public static IReadOnlyList<(string Id, string Label, string Query, string Description)> Shelves
     {
         get
         {
@@ -176,10 +176,11 @@ public sealed class Market
             {
                 var list = AppState.Current.Settings.Download.Shelves;
                 if (list is { Count: > 0 })
-                    return list.Select(s => (s.Id, s.Label, s.Query)).ToList();
+                    return list.Select(s => (s.Id, s.Label, s.Query, s.Description)).ToList();
             }
             catch { /* boot */ }
-            return DownloadPrefs.DefaultShelves().Select(s => (s.Id, s.Label, s.Query)).ToList();
+            return DownloadPrefs.DefaultShelves()
+                .Select(s => (s.Id, s.Label, s.Query, s.Description)).ToList();
         }
     }
 

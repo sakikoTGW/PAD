@@ -42,7 +42,7 @@
       </StackPanel>
     </Border>
 
-    <ScrollViewer Grid.Column="1" Padding="25,10,25,22" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Column="1" Padding="{StaticResource PadPage}" VerticalScrollBarVisibility="Auto">
       <Grid>
         <!-- 概览：对照 PCL PageInstanceOverall。身份卡是无标题的 42 高列表项；
              其余三块卡用 CardHead，不要 SlabHead 图标砖。 -->
@@ -99,7 +99,7 @@
           </Border>
 
           <StackPanel x:Name="InstMore">
-          <Border Style="{StaticResource Slab}" Padding="25,12,25,15">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="个性化" />
               <Grid>
@@ -122,7 +122,7 @@
                   <ComboBoxItem Content="自定义..." Tag="custom" />
                 </ComboBox>
                 <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
-                            x:Name="LogoCustomRow" Visibility="Collapsed" Margin="0,0,0,9">
+                            x:Name="LogoCustomRow" Visibility="Collapsed" Margin="0,0,0,8">
                   <Grid Height="28">
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width="*" />
@@ -174,7 +174,7 @@
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,12,25,15">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="快捷方式" />
               <WrapPanel>
@@ -190,7 +190,7 @@
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,12,25,15">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="高级管理" />
               <Grid Height="35">
@@ -235,15 +235,19 @@
 
           <WrapPanel x:Name="PluginActions" Visibility="Collapsed" Margin="0,0,0,12">
             <Button Style="{StaticResource BtnWide}" Content="打开文件夹" Margin="0,0,20,8"
+                    VerticalAlignment="Top"
                     Click="PluginOpenDir_Click" v:Ico.Of="{StaticResource I.Folder}" />
             <Button Style="{StaticResource BtnWide}" Content="从文件安装" Margin="0,0,20,8"
+                    VerticalAlignment="Top"
                     Click="PluginFromFile_Click" v:Ico.Of="{StaticResource I.Plus}" />
             <Button Style="{StaticResource BtnWide}" Content="下载新插件" Margin="0,0,20,8"
+                    VerticalAlignment="Top"
                     Click="PluginDownload_Click" v:Ico.Of="{StaticResource I.Download}" />
             <Button Style="{StaticResource BtnWide}" Content="全选" Margin="0,0,20,8"
+                    VerticalAlignment="Top"
                     Click="PluginSelectAll_Click" v:Ico.Of="{StaticResource I.Check}" />
             <ContentControl x:Name="PluginSpinner" Style="{StaticResource Spinner}"
-                            Margin="0,0,0,8" VerticalAlignment="Center" Visibility="Collapsed" />
+                            Margin="0,0,20,8" VerticalAlignment="Top" Visibility="Collapsed" />
           </WrapPanel>
 
           <Grid Margin="0,0,0,12">
@@ -273,7 +277,7 @@
             </ComboBox>
           </Grid>
 
-          <StackPanel x:Name="PluginSelBar" Orientation="Horizontal" Margin="0,0,0,10"
+          <StackPanel x:Name="PluginSelBar" Orientation="Horizontal" Margin="0,0,0,12"
                       Visibility="Collapsed">
             <TextBlock x:Name="PluginSelCount" Style="{StaticResource Muted}"
                        VerticalAlignment="Center" Margin="0,0,12,0" />
@@ -410,7 +414,7 @@
           <Border x:Name="PluginEmptyBox" Style="{StaticResource EmptyWell}" Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Mod}"
-                              HorizontalAlignment="Left" Margin="0,0,0,10" />
+                              HorizontalAlignment="Left" Margin="0,0,0,12" />
               <TextBlock x:Name="PluginEmpty" Style="{StaticResource Muted}" />
               <TextBlock x:Name="TrialEmpty" Style="{StaticResource Muted}" Margin="0,6,0,0"
                          Visibility="Collapsed" />
@@ -453,7 +457,7 @@
 
         <!-- 整合包: enabled is the allow-list, not the files on disk. -->
         <StackPanel x:Name="PanePacks" Visibility="Collapsed">
-          <Grid Margin="0,0,0,10">
+          <Grid Margin="0,0,0,12">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="整合包" Margin="0"
                               v:Ico.Of="{StaticResource I.Pack}" />
@@ -564,7 +568,7 @@
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Pack}"
-                              HorizontalAlignment="Left" Margin="0,0,0,10" />
+                              HorizontalAlignment="Left" Margin="0,0,0,12" />
               <TextBlock x:Name="PackEmpty" Style="{StaticResource Muted}" MaxWidth="480"
                          HorizontalAlignment="Left" />
             </StackPanel>
@@ -580,7 +584,7 @@
 
           <ContentControl Style="{StaticResource Rule}" Content="白名单套装" Margin="0,24,0,10"
                           v:Ico.Of="{StaticResource I.Check}" />
-          <Grid Margin="0,0,0,10">
+          <Grid Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
@@ -615,7 +619,7 @@
 
         <!-- session -->
         <StackPanel x:Name="PaneSessions" Visibility="Collapsed">
-          <Grid Margin="0,0,0,10">
+          <Grid Margin="0,0,0,12">
             <StackPanel>
               <ContentControl Style="{StaticResource SlabHead}" Content="session" Margin="0"
                               v:Ico.Of="{StaticResource I.Log}" />
@@ -673,7 +677,7 @@
                   Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Log}"
-                              HorizontalAlignment="Left" Margin="0,0,0,10" />
+                              HorizontalAlignment="Left" Margin="0,0,0,12" />
               <TextBlock Text="没有 session" Style="{StaticResource Muted}" />
               <Button Style="{StaticResource BtnWide}" Content="去启动"
                       HorizontalAlignment="Stretch" Margin="0,12,0,0" Click="GoLaunch_Click"
@@ -690,7 +694,7 @@
                        Text="这些设置只对该实例生效，空则跟随全局。改完下次启动重生脚本。" />
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,12,25,15">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="启动选项" />
               <Grid>
@@ -798,7 +802,7 @@
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource Slab}" Padding="25,12,25,15">
+          <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
               <TextBlock Style="{StaticResource CardHead}" Text="高级选项" />
               <Grid>
@@ -855,7 +859,7 @@
 
         <!-- agent-preset -->
         <StackPanel x:Name="PanePresets" Visibility="Collapsed">
-          <Grid Margin="0,0,0,10">
+          <Grid Margin="0,0,0,12">
             <ContentControl Style="{StaticResource SlabHead}" Content="agent-preset" Margin="0"
                             v:Ico.Of="{StaticResource I.Data}" />
           </Grid>
@@ -900,7 +904,7 @@
           <Border x:Name="NoPresets" Style="{StaticResource EmptyWell}" Visibility="Collapsed">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Mod}"
-                              HorizontalAlignment="Left" Margin="0,0,0,10" />
+                              HorizontalAlignment="Left" Margin="0,0,0,12" />
               <TextBlock Text="没有 agent-preset" Style="{StaticResource Muted}" />
             </StackPanel>
           </Border>
@@ -935,7 +939,7 @@
                         HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,4">
             <StackPanel Margin="7,0,10,0">
               <TextBlock Text="版本描述" FontSize="{StaticResource FsBody}"
-                         Foreground="{StaticResource TextPrimary}" Margin="0,0,0,6" />
+                         Foreground="{StaticResource TextPrimary}" Margin="0,0,0,8" />
               <TextBox x:Name="InfoBox" Height="32" Tag="名字下面那一行，留空则用发行号和终端/网页" />
               <TextBlock Text="介绍" FontSize="{StaticResource FsBody}"
                          Foreground="{StaticResource TextPrimary}" Margin="0,12,0,6" />

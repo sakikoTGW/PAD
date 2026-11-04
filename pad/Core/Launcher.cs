@@ -1959,12 +1959,16 @@ public sealed class Launcher
             if (Path.GetFileName(modulesSrc).Equals("node_modules", StringComparison.OrdinalIgnoreCase)
                 && File.Exists(dshInModules))
             {
+                // Whole node_modules trees are huge — never copy on the UI thread
+                // (「使用本机 DSH」 used to freeze the window here).
                 log?.Report("copy versions/" + ver);
-                CopyTree(modulesSrc, Path.Combine(VersionDir(ver), "node_modules"));
+                var destModules = Path.Combine(VersionDir(ver), "node_modules");
+                await Task.Run(() => CopyTreeLink(modulesSrc, destModules, ct), ct)
+                    .ConfigureAwait(false);
             }
             else
             {
-                return await InstallRelease(ver, log, ct);
+                return await InstallRelease(ver, log, ct).ConfigureAwait(false);
             }
         }
 

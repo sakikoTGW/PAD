@@ -5,26 +5,28 @@ using System.Windows.Interop;
 namespace Pad.Core;
 
 /// <summary>
-/// Window frame policy. The window is a normal (non-layered) HWND so the GPU can
-/// compose it; Windows 11 then draws the rounded corners and the outer shadow that
-/// used to be faked with AllowsTransparency plus a blur across the whole visual tree.
-/// On Windows 10 nothing is set and the window stays square — an opaque window is
-/// still far cheaper than a layered one.
+/// Window frame policy. MainWindow is layered; visible corners come from OuterShell's
+/// CornerRadius. DWM round on the HWND must stay off during page-size morph — otherwise
+/// the pre-tiled transparent surplus gets a visible rounded outline of the big window.
 /// </summary>
 public static class Dwm
 {
     const int DwmwaWindowCornerPreference = 33;
+    const int DwmwcpDoNotRound = 1;
     const int DwmwcpRound = 2;
 
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
-    public static void Round(Window window)
+    public static void Round(Window window) => SetCorners(window, round: true);
+
+    /// <summary>Win11 HWND corner preference. false = square silhouette (morph-safe).</summary>
+    public static void SetCorners(Window window, bool round)
     {
         if (Environment.OSVersion.Version.Build < 22000) return;
         var hwnd = new WindowInteropHelper(window).Handle;
         if (hwnd == IntPtr.Zero) return;
-        var pref = DwmwcpRound;
+        var pref = round ? DwmwcpRound : DwmwcpDoNotRound;
         _ = DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref pref, sizeof(int));
     }
 }

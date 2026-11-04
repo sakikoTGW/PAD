@@ -158,7 +158,7 @@
                       HorizontalScrollBarVisibility="Disabled" Padding="28,0,26,8"
                       Visibility="Collapsed">
           <StackPanel>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
               <ContentControl x:Name="StatusPill" Style="{StaticResource Badge}" FontSize="{StaticResource FsSmall}"
                               Padding="10,3,11,4" Margin="0,0,8,0" />
               <ContentControl x:Name="GapPill" Style="{StaticResource Badge}" FontSize="{StaticResource FsSmall}"
