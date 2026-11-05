@@ -1679,6 +1679,7 @@ public sealed class Launcher
                 $"instance `{id}`", inst.Id, ["先在版本选择里给这个实例建 profile"]);
 
         EnsureProfileNpmrc(inst, profile);
+        PnpmPolicy.Normalize(Path.Combine(inst.Home, "profiles", profile));
         var env = new Dictionary<string, string>
         {
             ["DSH_HOME"] = inst.Home,
@@ -2470,6 +2471,7 @@ public sealed class Launcher
             foreach (var spec in specList)
             {
                 EnsureProfileNpmrc(inst, profile);
+                PnpmPolicy.Normalize(Path.Combine(inst.Home, "profiles", profile));
                 log?.Report($"dsh plugin --profile {profile} add {spec}");
                 var res = await Proc.Run("node", $"\"{bin}\" plugin --profile {profile} add {spec}",
                     inst.Workspace.Path, log, token, env);
@@ -2612,8 +2614,11 @@ public sealed class Launcher
     /// <summary>Belt-and-braces for the workspace-root check, for pnpm builds that
     /// read the setting from .npmrc but not from the environment.</summary>
     static void EnsureProfileNpmrc(Instance inst, string profile)
-    {        var dir = Path.Combine(inst.Home, "profiles", profile);
-        if (!Directory.Exists(dir)) return;
+    {
+        var dir = Path.Combine(inst.Home, "profiles", profile);
+        // A brand-new profile has no directory yet — DSH creates it on its first
+        // `plugin add`, which is exactly the call that needs this .npmrc. Make it here.
+        Directory.CreateDirectory(dir);
         var npmrc = Path.Combine(dir, ".npmrc");
         var text = File.Exists(npmrc) ? File.ReadAllText(npmrc) : "";
         var lines = new[]

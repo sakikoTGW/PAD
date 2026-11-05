@@ -208,17 +208,64 @@ public static class Cli
                     var specs = Recipe(rest[2], inst.Dsh.Version);
                     Say($"profile {rest[1]} <- {string.Join(", ", specs)}");
                     await launcher.AddBundles(inst, rest[1], specs, log, CancellationToken.None);
+                    // Provision hot reload up front: otherwise every later plugin change
+                    // is cold forever, because dsh-hmr is a plugin, not a bundle.
+                    if (await HmrProvision.EnsureAsync(launcher, inst, rest[1], log, CancellationToken.None))
+                        Say("官方热重载已开启：重启这个实例后生效");
                     Out(launcher.Profiles(inst).Select(p => new { p.Name, p.Bundles }));
                     return 0;
                 }
 
+                case "hmr" when cmd is "enable" or "status":
+                {
+                    var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 2) return Usage("pad cli hmr enable|status <instance> <profile> [--json]");
+                    var inst = Need(launcher, pos[0]);
+                    var changed = cmd == "enable"
+                        ? await HmrProvision.EnsureAsync(launcher, inst, pos[1], log, CancellationToken.None)
+                        : false;
+                    var cap = HotCapabilityProbe.Detect(launcher, inst, pos[1], refresh: true);
+                    Out(new
+                    {
+                        schema = "pad.hmr/v1",
+                        instance = inst.Id,
+                        profile = pos[1],
+                        installed = HmrProvision.IsInstalled(inst, pos[1]),
+                        mounted = HmrProvision.IsMounted(inst.Home, pos[1]),
+                        changed,
+                        restartRequired = changed,
+                        hot = cap.HotAllowed,
+                        reason = cap.Reason,
+                    });
+                    return 0;
+                }
+
+                case "agent" when cmd == "prep":
+                {
+                    var list = rest.ToList();
+                    var recipe = "web";
+                    var ri = list.IndexOf("--recipe");
+                    if (ri >= 0 && ri + 1 < list.Count) { recipe = list[ri + 1]; list.RemoveRange(ri, 2); }
+                    var wantHot = list.Remove("--hot");
+                    var pos = list.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 2)
+                        return Usage("pad cli agent prep <instance> <profile> [spec...] [--recipe web|tui|gateway] [--hot]");
+                    var prep = await AgentPrep.RunAsync(
+                        launcher, Need(launcher, pos[0]), pos[1], recipe, pos.Skip(2).ToArray(),
+                        wantHot, log, CancellationToken.None);
+                    Out(prep);
+                    return prep.Ok ? 0 : 3;
+                }
+
                 case "plugin" when cmd == "list":
                 {
-                    if (rest.Length < 1) return Usage("pad cli plugin list <instance> [profile]");
-                    var inst = Need(launcher, rest[0]);
+                    // Flags are not profile names: `plugin list x --json` used to filter by "--json".
+                    var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 1) return Usage("pad cli plugin list <instance> [profile] [--json]");
+                    var inst = Need(launcher, pos[0]);
                     IEnumerable<BundleRow> rows = launcher.ListBundles(inst);
-                    if (rest.Length > 1)
-                        rows = rows.Where(r => r.Profile == rest[1]);
+                    if (pos.Length > 1)
+                        rows = rows.Where(r => r.Profile == pos[1]);
                     Out(rows);
                     return 0;
                 }
@@ -269,6 +316,21 @@ public static class Cli
                     Checkpoints.Restore(launcher, inst, latest.Id);
                     Out($"restored {latest.Id} ({latest.Trigger})");
                     return 0;
+                }
+
+                case "plugin" when cmd == "preload":
+                {
+                    var flags = rest.Where(a => a.StartsWith("--", StringComparison.Ordinal))
+                        .ToHashSet(StringComparer.Ordinal);
+                    var pos = rest.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                    if (pos.Length < 3)
+                        return Usage("pad cli plugin preload <instance> <profile> <spec...> [--hot]");
+                    var applied = await PluginCommands.PreloadAsync(
+                        launcher, Need(launcher, pos[0]), pos[1], pos.Skip(2).ToArray(),
+                        log, CancellationToken.None, wantHot: flags.Contains("--hot"));
+                    Out(applied);
+                    // 0 = every spec landed; 3 = the batch failed and was rolled back.
+                    return applied.Ok ? 0 : 3;
                 }
 
                 case "plugin" when cmd is "add" or "remove" or "update":
@@ -1527,6 +1589,16 @@ public static class Cli
         "web" => [$"@deepseek-ai/dsh-web-app@{release}", "@sakikotgw/pad-session-jump"],
         _ => [GatewaySpecFor(release)],
     };
+
+    /// <summary>
+    /// The official hot reload, pinned to the profile's own release. Without it the
+    /// capability probe reports <c>hmr=absent</c> and every plugin change has to go
+    /// through a restart; with it, PAD's hot path has the HMR it drives.
+    /// </summary>
+    public static string HmrSpec(string release) =>
+        string.IsNullOrWhiteSpace(release)
+            ? "@deepseek-ai/dsh-hmr"
+            : $"@deepseek-ai/dsh-hmr@{release}";
 
     static Instance Need(Launcher l, string id) =>
         l.Instance(id) ?? throw new PadError("PA026", "no such instance", $"instances/{id}", id,
