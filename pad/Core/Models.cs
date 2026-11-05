@@ -227,6 +227,7 @@ public sealed class Instance
     [JsonPropertyName("home")] public string Home { get; set; } = "";
     [JsonPropertyName("workspace")] public InstanceWorkspace Workspace { get; set; } = new();
     [JsonPropertyName("status")] public string Status { get; set; } = "ready";
+    [JsonPropertyName("lastContainer")] public string? LastContainer { get; set; }
     [JsonPropertyName("lastProfile")] public string? LastProfile { get; set; }
     [JsonPropertyName("note")] public string? Note { get; set; }
     [JsonPropertyName("display")] public InstanceDisplay? Display { get; set; }
@@ -259,18 +260,18 @@ public sealed class DshProfile
 
     public bool HasTui => Bundles.Any(b => b.Contains("dsh-tui", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Web surface 由 bundle 决定，不是由 profile 名字决定（官方只保留 <c>desktop</c> 一个名字）。
+    /// <summary>Web bundle 由 bundle 决定，不是由 profile 名字决定（官方只保留 <c>desktop</c> 一个名字）。
     /// 叫 <c>web</c> 但没装 <c>dsh-web-app</c> 的树，就是一棵没有浏览器的树。</summary>
     public bool IsWeb => Bundles.Any(b => b.Contains("web-app", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// 这个 profile 装了哪些「看得见的界面」bundle。DSH 的 surface 本身就是 bundle：
-    /// <c>@deepseek-ai/dsh-web-app</c> 是浏览器界面（官方描述就叫 browser-surface bundle），
+    /// 这个 profile 装了哪些「看得见的界面」bundle。DSH 的 bundle 本身就是 bundle：
+    /// <c>@deepseek-ai/dsh-web-app</c> 是浏览器界面（官方描述就叫 browser-bundle bundle），
     /// <c>@deepseek-harness-tui/dsh-tui</c> 是终端界面。桌面端（官方 Electron / Tauri）
     /// 只是显示 web 界面的壳，不构成第三种 bundle。
     /// 两个同时装 = 一个 profile 里塞了两个 front door，启动时谁先挂上谁说话。
     /// </summary>
-    public IReadOnlyList<string> UiSurfaces
+    public IReadOnlyList<string> UiBundles
     {
         get
         {
@@ -398,6 +399,7 @@ public sealed class PadSettings
     [JsonPropertyName("schema")] public string Schema { get; set; } = "pack-agent.pad.settings/v4";
 
     [JsonPropertyName("lastInstance")] public string? LastInstance { get; set; }
+    [JsonPropertyName("lastContainer")] public string? LastContainer { get; set; }
     [JsonPropertyName("lastProfile")] public string? LastProfile { get; set; }
 
     [JsonPropertyName("terminal")] public string? TerminalLegacy { get; set; }

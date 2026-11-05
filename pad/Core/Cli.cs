@@ -218,6 +218,85 @@ public static class Cli
                     return 0;
                 }
 
+                case "profile" when cmd == "rename":
+                {
+                    if (rest.Length < 3) return Usage("pad cli profile rename <instance> <old> <new>");
+                    var inst = Need(launcher, rest[0]);
+                    var experimental = rest.Contains("--experimental", StringComparer.OrdinalIgnoreCase);
+                    Out(new
+                    {
+                        profile = launcher.RenameProfile(inst, rest[1], rest[2], experimental),
+                        experimental,
+                        note = experimental ? "实验性改名：桌面端下次启动会重建一个空的 desktop profile" : null,
+                    });
+                    return 0;
+                }
+
+                case "profile" when cmd == "reset":
+                {
+                    if (rest.Length < 2) return Usage("pad cli profile reset <instance> <profile>");
+                    var inst = Need(launcher, rest[0]);
+                    var backup = await launcher.ResetProfile(inst, rest[1], log, CancellationToken.None);
+                    Out(new { ok = true, instance = inst.Id, profile = rest[1], backup });
+                    return 0;
+                }
+
+                case "profile" when cmd == "remove":
+                {
+                    if (rest.Length < 2) return Usage("pad cli profile remove <instance> <profile>");
+                    var inst = Need(launcher, rest[0]);
+                    launcher.RemoveProfile(inst, rest[1]);
+                    Out(new { ok = true, instance = inst.Id, profile = rest[1] });
+                    return 0;
+                }
+                case "preset" when cmd == "list":
+                {
+                    if (rest.Length < 1) return Usage("pad cli preset list <instance>");
+                    var inst = Need(launcher, rest[0]);
+                    var rows = launcher.ListAgentPresets(inst.Id);
+                    try
+                    {
+                        // 新版 preset 随 dsh 打包（磁盘上没有 config/agent-presets），以 dump 为准补 id。
+                        var (probe, _) = await AgentPresets.ProbeAsync(launcher, inst.Home, inst.Dsh.Version,
+                            inst.Workspace?.Path ?? "", inst.LastProfile ?? "web", CancellationToken.None);
+                        if (probe is not null)
+                        {
+                            var have = rows.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            foreach (var p in probe.Presets)
+                                if (have.Add(p.Id))
+                                    rows.Add(new AgentPresetRow { Id = p.Id, Trust = PresetTrust.System, Path = "", Broken = "源文件没解出到磁盘" });
+                        }
+                    }
+                    catch { /* 探测失败就只给文件层 */ }
+                    Out(rows);
+                    return 0;
+                }
+
+                case "preset" when cmd == "copy":
+                {
+                    if (rest.Length < 3) return Usage("pad cli preset copy <instance> <from> <to>");
+                    var inst = Need(launcher, rest[0]);
+                    Out(launcher.CopyAgentPreset(inst.Id, rest[1], rest[2]));
+                    return 0;
+                }
+
+                case "preset" when cmd == "remove":
+                {
+                    if (rest.Length < 2) return Usage("pad cli preset remove <instance> <id>");
+                    var inst = Need(launcher, rest[0]);
+                    launcher.RemoveAgentPreset(inst.Id, rest[1]);
+                    Out(new { ok = true, instance = inst.Id, preset = rest[1] });
+                    return 0;
+                }
+
+                case "preset" when cmd == "bind":
+                {
+                    if (rest.Length < 3) return Usage("pad cli preset bind <instance> <profile> <id>");
+                    var inst = Need(launcher, rest[0]);
+                    AgentPresets.Apply(AgentPresets.PatchPath(inst.Home, rest[1]), rest[2]);
+                    Out(new { ok = true, instance = inst.Id, profile = rest[1], preset = rest[2] });
+                    return 0;
+                }
                 case "profile" when cmd == "add":
                 {
                     if (rest.Length < 3) return Usage("pad cli profile add <instance> <profile> <tui|web|gateway>");
@@ -1007,6 +1086,9 @@ public static class Cli
                     return 0;
                 }
 
+                case "refresh":                 {                     var (prunedRuns, prunedNodes) = launcher.RefreshState();                     Out(new { ok = true, prunedRuns, prunedNodes, stamp = launcher.RefreshStampPath });                     return 0;                 } 
+                case "self":                     Out(SelfWhere.Run(launcher));                     return 0; 
+                case "running":                     Out(RunningReport.Run(launcher));                     return 0; 
                 case "where":
                     Out(new
                     {
@@ -1232,18 +1314,18 @@ public static class Cli
 
                 case "plugin" when cmd == "audit":
                 {
-                    var surfaceOverride = FlagValue(rest, "--bundle") ?? FlagValue(rest, "--surface");
+                    var bundleOverride = FlagValue(rest, "--bundle") ?? FlagValue(rest, "--bundle");
                     var positional = new List<string>();
                     for (var i = 0; i < rest.Length; i++)
                     {
-                        if (rest[i] is "--surface" or "--bundle" or "--out") { i++; continue; }
+                        if (rest[i] is "--bundle" or "--bundle" or "--out") { i++; continue; }
                         if (rest[i].StartsWith("--", StringComparison.Ordinal)) continue;
                         positional.Add(rest[i]);
                     }
                     if (positional.Count < 2)
                         return Usage("pad cli plugin audit <home> <profile> [--bundle tui|web|app] [--json] [--out <path>]");
 
-                    var audit = Plugins.Run(positional[0], positional[1], surfaceOverride);
+                    var audit = Plugins.Run(positional[0], positional[1], bundleOverride);
                     if (rest.Contains("--json"))
                     {
                         var outPath = FlagValue(rest, "--out");
@@ -1256,7 +1338,7 @@ public static class Cli
                         else Out(audit);
                         return 0;
                     }
-                    Say($"surface {audit.Surface}   profile {audit.Profile}   bundles {audit.Total}   wasted {audit.Wasted}");
+                    Say($"bundle {audit.Bundle}   profile {audit.Profile}   bundles {audit.Total}   wasted {audit.Wasted}");
                     foreach (var e in audit.Entries)
                         Say($"{e.Verdict,-16} {e.Renders,-8} {e.Origin,-12} {e.Name,-42} {e.Version,-10} patch={e.PatchFiles} client={e.ClientInject,-3} dsh={e.EnginesDsh}");
                     return 0;
@@ -1271,7 +1353,7 @@ public static class Cli
                     var entries = Nodes.Ledger.Load(home)
                         .Select(e => new
                         {
-                            e.Profile, e.Surface, e.Port, e.Pid, e.StartedAt, e.Url,
+                            e.Profile, e.Bundle, e.Port, e.Pid, e.StartedAt, e.Url,
                             alive = Proc.Alive(e.Pid),
                         })
                         .ToList();
@@ -1325,14 +1407,14 @@ public static class Cli
                 {
                     // `cmd` is already the subcommand here ("open"), so only `rest` carries arguments.
                     var all = rest.Where(a => a.Length > 0).ToArray();
-                    string? home = null, bin = null, profile = null, nodeExe = null, surfaceName = null, title = null, exePath = null, userData = null;
+                    string? home = null, bin = null, profile = null, nodeExe = null, bundleName = null, title = null, exePath = null, userData = null;
                     int? port = null;
                     for (var i = 0; i < all.Length; i++)
                     {
                         if (all[i] == "--bin") { bin = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--profile") { profile = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--node") { nodeExe = i + 1 < all.Length ? all[++i] : null; continue; }
-                        if (all[i] is "--surface" or "--bundle") { surfaceName = i + 1 < all.Length ? all[++i] : null; continue; }
+                        if (all[i] is "--bundle" or "--bundle") { bundleName = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--title") { title = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--exe") { exePath = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--user-data") { userData = i + 1 < all.Length ? all[++i] : null; continue; }
@@ -1346,7 +1428,7 @@ public static class Cli
 
                     bin = ResolveBin(launcher, bin);
 
-                    var opened = await OpenSurface(home, surfaceName, profile, bin, nodeExe, exePath, userData, port, title);
+                    var opened = await OpenBundle(home, bundleName, profile, bin, nodeExe, exePath, userData, port, title);
                     return ReportOpened(home, opened, all.Contains("--json"));
                 }
 
@@ -1384,13 +1466,13 @@ public static class Cli
                 {
                     RequireExperiment(launcher, "layers", "system & layer");
                     var all = rest.Where(a => a.Length > 0).ToArray();
-                    string? systemDir = null, layer = null, bin = null, nodeExe = null, surfaceName = null, exePath = null, userData = null, title = null;
+                    string? systemDir = null, layer = null, bin = null, nodeExe = null, bundleName = null, exePath = null, userData = null, title = null;
                     int? port = null;
                     for (var i = 0; i < all.Length; i++)
                     {
                         if (all[i] == "--bin") { bin = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--node") { nodeExe = i + 1 < all.Length ? all[++i] : null; continue; }
-                        if (all[i] is "--surface" or "--bundle") { surfaceName = i + 1 < all.Length ? all[++i] : null; continue; }
+                        if (all[i] is "--bundle" or "--bundle") { bundleName = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--title") { title = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--exe") { exePath = i + 1 < all.Length ? all[++i] : null; continue; }
                         if (all[i] == "--user-data") { userData = i + 1 < all.Length ? all[++i] : null; continue; }
@@ -1410,12 +1492,12 @@ public static class Cli
                         throw new PadError("PA091", "no such layer in that system", home, null,
                             ["pad cli system new <name>", "pad cli layer list " + systemDir]);
 
-                    var surface = Bundle.For(surfaceName ?? "web")
-                        ?? throw new PadError("PA084", "unknown surface", surfaceName!, null, ["pad cli surfaces"]);
+                    var bundle = Bundle.For(bundleName ?? "web")
+                        ?? throw new PadError("PA084", "unknown bundle", bundleName!, null, ["pad cli bundles"]);
 
                     // DSH only auto-initializes its five shipped profiles. A layer profile has a
                     // custom name, so materialize it from a template without booting (D16).
-                    if (surface.Kind == "web" && bin is not null)
+                    if (bundle.Kind == "web" && bin is not null)
                     {
                         var made = await Nodes.MaterializeProfile(home, layer, "web", bin, nodeExe ?? "node",
                             TimeSpan.FromSeconds(120), CancellationToken.None);
@@ -1438,7 +1520,7 @@ public static class Cli
                         }
                     }
 
-                    var opened = await OpenSurface(home, surfaceName, layer, bin, nodeExe, exePath, userData, port, title);
+                    var opened = await OpenBundle(home, bundleName, layer, bin, nodeExe, exePath, userData, port, title);
                     return ReportOpened(home, opened, all.Contains("--json"));
                 }
 
@@ -1710,7 +1792,7 @@ public static class Cli
                     return 0;
                 }
 
-                case "surfaces" or "bundles":
+                case "bundles" or "bundles":
                 {
                     Out(Bundle.Builtins.Select(s => new
                     {
@@ -1734,12 +1816,12 @@ public static class Cli
                 case "queue":
                     return await TaskQueue.Run(launcher, cmd, rest);
 
-                // 会话跳转与 surface 注册表：规划/执行都在 Jump/SessionCli，CLI 只做分发。
+                // 会话跳转与 bundle 注册表：规划/执行都在 Jump/SessionCli，CLI 只做分发。
                 case "session":
                     return await Jump.SessionCli.Run(launcher, cmd, rest);
 
-                case "surface":
-                    return Jump.SessionCli.RunSurface(launcher, cmd, rest);
+                case "bundle":
+                    return Jump.SessionCli.RunBundle(launcher, cmd, rest);
 
                 default:
                     Console.WriteLine("""
@@ -1762,7 +1844,7 @@ public static class Cli
                         pad cli checkpoint list <instance> | prune <instance> [--keep 20] [--yes]
                         pad cli mcp serve
                         pad cli session  ref <session> [--json] | open <instance> <session> [--bundle <s>] [--no-exec] [--json]
-                        pad cli surface  list [--json] | validate [--json]
+                        pad cli bundle  list [--json] | validate [--json]
                                          | commit <instance> <profile> <spec> | drop <instance> <profile> <spec>
                         pad cli pack     list | list <instance> | project <instance> <pack>
                                          | allow <instance> <pack-id> | deny <instance> <pack-id> | scan
@@ -1784,7 +1866,7 @@ public static class Cli
                         pad cli where
                         pad cli sniff
                         pad cli inspect [home] [--json] [--out <path>]
-                        pad cli surfaces
+                        pad cli bundles
                         pad cli experimental list | enable <id> | disable <id>
                         pad cli system new <name>                 (experimental: layers)
                         pad cli layer  list|open <system> <layer> (experimental: layers)
@@ -1850,16 +1932,16 @@ public static class Cli
             ["pad cli instance list"]);
 
     /// <summary>
-    /// One dispatch for every surface. Callers resolve only the home; surface specifics
+    /// One dispatch for every bundle. Callers resolve only the home; bundle specifics
     /// stay in <see cref="Nodes"/>.
     /// </summary>
-    static async Task<Nodes.Opened> OpenSurface(string home, string? surfaceName, string? profile,
+    static async Task<Nodes.Opened> OpenBundle(string home, string? bundleName, string? profile,
         string? bin, string? nodeExe, string? exePath, string? userData, int? port, string? title)
     {
-        var surface = Bundle.For(surfaceName ?? "web")
-            ?? throw new PadError("PA084", "unknown surface", surfaceName!, null, ["pad cli surfaces"]);
+        var bundle = Bundle.For(bundleName ?? "web")
+            ?? throw new PadError("PA084", "unknown bundle", bundleName!, null, ["pad cli bundles"]);
 
-        var effectiveProfile = profile ?? surface.Kind switch { "tui" => "tui", "web" => "web", "tauri" => "tauri", _ => "app" };
+        var effectiveProfile = profile ?? bundle.Kind switch { "tui" => "tui", "web" => "web", "tauri" => "tauri", _ => "app" };
 
         // Opening a second instance on the same home+profile would replace the ledger row
         // and orphan the first process: still running, no longer tracked, un-closeable
@@ -1873,7 +1955,7 @@ public static class Cli
                 ["pad cli node close " + home + " --profile " + effectiveProfile,
                  "pad cli node list " + home]);
 
-        switch (surface.Kind)
+        switch (bundle.Kind)
         {
             case "tui":
                 if (bin is null)
@@ -1895,51 +1977,51 @@ public static class Cli
 
             case "app":
                 if (exePath is null)
-                    throw new PadError("PA095", "the app surface needs --exe", home, null,
+                    throw new PadError("PA095", "the app bundle needs --exe", home, null,
                         ["pad cli node open <home> --bundle app --exe <DSH Desktop.exe>"]);
                 return await Nodes.OpenApp(home, exePath, userData,
                     TimeSpan.FromSeconds(75), CancellationToken.None);
 
             case "tauri":
                 if (exePath is null)
-                    throw new PadError("PA146", "the tauri surface needs --exe", home, null,
+                    throw new PadError("PA146", "the tauri bundle needs --exe", home, null,
                         ["pad cli node open <home> --bundle tauri --exe <deepseek-harness-desktop.exe>"]);
                 return await Nodes.OpenTauri(home, exePath,
                     TimeSpan.FromSeconds(30), CancellationToken.None);
 
             default:
-                throw new PadError("PA085", "that surface is not implemented yet", surface.Id, null,
-                    ["pad cli surfaces"]);
+                throw new PadError("PA085", "that bundle is not implemented yet", bundle.Id, null,
+                    ["pad cli bundles"]);
         }
     }
 
-    /// <summary>Record what was opened, give it a window when the surface needs one, report facts.</summary>
+    /// <summary>Record what was opened, give it a window when the bundle needs one, report facts.</summary>
     static int ReportOpened(string home, Nodes.Opened opened, bool json)
     {
         Nodes.Ledger.Record(home, new Nodes.Running(
-            opened.Profile, opened.Surface, opened.Port, opened.Url, opened.Pid,
+            opened.Profile, opened.Bundle, opened.Port, opened.Url, opened.Pid,
             DateTimeOffset.Now.ToString("o"), opened.LogPath, opened.Verified));
 
-        var how = opened.Surface switch
+        var how = opened.Bundle switch
         {
             "tui" => "terminal window",
             "tauri" => "tauri desktop window",
             _ => "none",
         };
-        if (opened.Surface == "web") Nodes.TryOpenWindow(opened.Url, out how);
+        if (opened.Bundle == "web") Nodes.TryOpenWindow(opened.Url, out how);
 
         if (json)
         {
             Out(new
             {
-                opened.Home, opened.Profile, opened.Surface, opened.Port,
+                opened.Home, opened.Profile, opened.Bundle, opened.Port,
                 opened.Url, opened.Pid, opened.LogPath, opened.Verified,
                 window = how,
             });
         }
         else
         {
-            Say($"opened  {opened.Profile}  surface {opened.Surface}  port {opened.Port}  pid {opened.Pid}");
+            Say($"opened  {opened.Profile}  bundle {opened.Bundle}  port {opened.Port}  pid {opened.Pid}");
             Say($"url     {(opened.Url.Length == 0 ? "(none)" : opened.Url)}");
             Say($"window  {how}");
             Say($"log     {(opened.LogPath.Length == 0 ? "(none)" : opened.LogPath)}");

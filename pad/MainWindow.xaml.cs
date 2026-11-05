@@ -363,7 +363,7 @@ public partial class MainWindow : Window
         ApplySkin();
     }
 
-    /// <summary>Last sizing decision; surfaced in the --shot sidecar so a mismatch is provable.</summary>
+    /// <summary>Last sizing decision; bundled in the --shot sidecar so a mismatch is provable.</summary>
     string _lastSize = "(none)";
 
     public bool ApplyPageSize(string page, bool animate, Action? onDone = null,

@@ -4,10 +4,10 @@ using System.IO;
 namespace Pad.Core;
 
 /// <summary>
-/// 窗口侧（GUI）的 surface 入口：同一份 home / 实例，想用哪种形态看，就开哪种窗口。
+/// 窗口侧（GUI）的 bundle 入口：同一份 home / 实例，想用哪种形态看，就开哪种窗口。
 ///
-/// Profile 决定「装什么」，Bundle 决定「怎么看见」（docs/SURFACE.md）。启动实现全部
-/// 复用 <see cref="Nodes"/>，和 <c>pad cli node open --surface</c> 走同一条路 —— 账本、
+/// Profile 决定「装什么」，Bundle 决定「怎么看见」（docs/PRODUCT.md）。启动实现全部
+/// 复用 <see cref="Nodes"/>，和 <c>pad cli node open --bundle</c> 走同一条路 —— 账本、
 /// 日志、停法因此完全一致，不会变成两套真相。
 /// </summary>
 public static class BundleLaunch
@@ -19,14 +19,14 @@ public static class BundleLaunch
 
     /// <summary>按指定形态启动一个 PAD 实例的某个 profile。</summary>
     public static async Task<Nodes.Opened> OpenAsync(
-        Launcher launcher, Instance inst, string profile, Bundle surface, PadSettings settings, CancellationToken ct)
+        Launcher launcher, Instance inst, string profile, Bundle bundle, PadSettings settings, CancellationToken ct)
     {
         var bin = launcher.DshBin(inst.Dsh.Version);
         if (!File.Exists(bin))
             throw new PadError("PA001", "the pinned release is not installed", $"instance `{inst.Id}`", bin,
                 ["先装这个发行号"]);
 
-        // LaunchFloat / Runner 的启动链会先把 PAD 配的凭据铺进这个 home；surface 直连
+        // LaunchFloat / Runner 的启动链会先把 PAD 配的凭据铺进这个 home；bundle 直连
         // Nodes 的路也必须做同一件事，否则同一个实例「从容器启动」和「从启动页启动」
         // 会看到两套环境。
         CredentialsGate.CopyDistributorToHome(launcher, inst, settings);
@@ -35,26 +35,26 @@ public static class BundleLaunch
         // 「还在跑、但 PAD 再也关不掉」。换形态请先关掉原来的。
         var live = Nodes.Ledger.Load(inst.Home)
             .FirstOrDefault(e => string.Equals(e.Profile, profile, StringComparison.OrdinalIgnoreCase) && Proc.Alive(e.Pid));
-        if (live is not null && !string.Equals(live.Surface, surface.Kind, StringComparison.OrdinalIgnoreCase))
-            throw new PadError("PA099", "that profile is already running in another surface", inst.Home,
-                $"profile {live.Profile} · surface {live.Surface} · pid {live.Pid}",
+        if (live is not null && !string.Equals(live.Bundle, bundle.Kind, StringComparison.OrdinalIgnoreCase))
+            throw new PadError("PA099", "that profile is already running in another bundle", inst.Home,
+                $"profile {live.Profile} · bundle {live.Bundle} · pid {live.Pid}",
                 ["先关掉它再换形态", "pad cli node list " + inst.Home]);
 
         var node = launcher.ResolveLaunchNode(inst, settings) ?? Proc.Which("node")
             ?? throw new PadError("PA011", "`node` was not found on PATH", "PATH", "node",
                 ["装 Node.js 22.19+ 或 24+"]);
 
-        var opened = surface.Kind switch
+        var opened = bundle.Kind switch
         {
             "tui" => await Nodes.OpenTerminal(inst.Home, profile, bin, node,
                 $"{inst.Name} · {profile}", TuiTimeout, ct, DeepseekEnv(launcher, inst.Home)),
             "web" => await Nodes.OpenWeb(inst.Home, profile, bin, node, null, WebTimeout, ct),
-            _ => throw new PadError("PA085", "this surface needs an executable; use the CLI", surface.Id, inst.Home,
-                ["pad cli node open <home> --surface app|tauri --exe <exe>"]),
+            _ => throw new PadError("PA085", "this bundle needs an executable; use the CLI", bundle.Id, inst.Home,
+                ["pad cli node open <home> --bundle app|tauri --exe <exe>"]),
         };
 
         Record(inst.Home, opened);
-        if (opened.Surface == "web") Nodes.TryOpenWindow(opened.Url, out _);
+        if (opened.Bundle == "web") Nodes.TryOpenWindow(opened.Url, out _);
         return opened;
     }
 
@@ -91,22 +91,49 @@ public static class BundleLaunch
         return await OpenAsync(launcher, inst, profile, Bundle.Tui, launcher.Settings(), ct);
     }
 
-    /// <summary>本机探测到的桌面壳：直接拉它的 exe，DSH_HOME 指过去就是它自己的 home。</summary>
-    public static Nodes.Opened OpenShell(Launcher launcher, Shell shell)
+    /// <summary>本机探测到的桌面壳：拉它的 exe，DSH_HOME 指向目标 home（实例 home 优先）。</summary>
+    public static Nodes.Opened OpenShell(Launcher launcher, Shell shell, Instance? target = null, bool restart = false)
     {
         if (string.IsNullOrWhiteSpace(shell.Exe) || !File.Exists(shell.Exe))
             throw new PadError("PA087", "no desktop shell executable at that path", shell.Exe ?? "(none)", null,
                 ["重新探测一次", "或从开始菜单打开它"]);
 
+        var home = string.IsNullOrWhiteSpace(target?.Home) ? shell.Home : target!.Home;
+        var bundle = Path.GetFileNameWithoutExtension(shell.Exe)
+            .Contains("tauri", StringComparison.OrdinalIgnoreCase) ? "tauri" : "app";
+
+        // 同一个 exe 已经在跑：home 对得上就只聚焦；对不上要么拒绝，要么按调用方要求重启过去。
+        var live = ShellRunning(shell.Exe);
+        if (live.Count > 0)
+        {
+            var same = live.FirstOrDefault(x => string.IsNullOrWhiteSpace(home)
+                ? string.IsNullOrWhiteSpace(x.Home)
+                : LaunchPolicy.SamePath(x.Home ?? "", home));
+            if (same.Pid > 0)
+            {
+                WindowFocus.Activate(same.Pid);
+                return new Nodes.Opened(home ?? "", "desktop", bundle, 0, "", same.Pid, "", Verified: true);
+            }
+            if (!restart)
+                throw new PadError("PA098", "the desktop shell is already running with a different home",
+                    shell.Exe, string.Join(", ", live.Select(x => x.Home ?? "(none)")),
+                    ["先退出它", "或让 PAD 重启到目标 home"]);
+            foreach (var (pid, _) in live)
+            {
+                try { using var p = Process.GetProcessById(pid); p.Kill(entireProcessTree: true); }
+                catch { /* 已经退出 */ }
+            }
+            for (var i = 0; i < 40 && ShellRunning(shell.Exe).Count > 0; i++) System.Threading.Thread.Sleep(250);
+        }
+
         var psi = new ProcessStartInfo(shell.Exe)
         {
             UseShellExecute = false,
             CreateNoWindow = false,
-            WorkingDirectory = Path.GetDirectoryName(shell.Exe)!,
+            WorkingDirectory = string.IsNullOrWhiteSpace(Path.GetDirectoryName(shell.Exe)) ? Environment.CurrentDirectory : Path.GetDirectoryName(shell.Exe)!,
         };
-        if (!string.IsNullOrWhiteSpace(shell.Home)) psi.Environment["DSH_HOME"] = shell.Home;
-        // 桌面端也一样：PAD 里配的 key 不带过去，它开起来照样不能聊天。
-        if (ReadDeepseekKey(launcher, shell.Home) is { } key) psi.Environment["DEEPSEEK_API_KEY"] = key;
+        if (!string.IsNullOrWhiteSpace(home)) psi.Environment["DSH_HOME"] = home;
+        if (ReadDeepseekKey(launcher, home) is { } key) psi.Environment["DEEPSEEK_API_KEY"] = key;
 
         Process proc;
         try
@@ -119,11 +146,43 @@ public static class BundleLaunch
                 ["检查这个 exe 是否还在", "它可能要求管理员权限或已在运行"]);
         }
 
-        var surface = Path.GetFileNameWithoutExtension(shell.Exe)
-            .Contains("tauri", StringComparison.OrdinalIgnoreCase) ? "tauri" : "app";
-        var opened = new Nodes.Opened(shell.Home ?? "", "desktop", surface, 0, "", proc.Id, "");
-        Record(shell.Home, opened);
+        var opened = new Nodes.Opened(home ?? "", "desktop", bundle, 0, "", proc.Id, "");
+        Record(home, opened);
         return opened;
+    }
+
+    /// <summary>同名 exe 的活进程（pid + 它环境里的 DSH_HOME）。</summary>
+    internal static List<(int Pid, string? Home)> ShellRunning(string exe)
+    {
+        var list = new List<(int, string?)>();
+        try
+        {
+            foreach (var p in ProcTable.Snapshot(900))
+            {
+                if (string.IsNullOrWhiteSpace(p.Exe) || !LaunchPolicy.SamePath(p.Exe, exe)) continue;
+                if (!Proc.Alive(p.Pid)) continue;
+                list.Add((p.Pid, p.DshHome));
+            }
+        }
+        catch { /* 快照读不到就当没在跑 */ }
+        return list;
+    }
+
+    /// <summary>关掉本机探测到的桌面端（按 exe 找进程，整树杀）。返回关掉的进程数。</summary>
+    public static int CloseShell(Shell shell)
+    {
+        var killed = 0;
+        foreach (var (pid, _) in ShellRunning(shell.Exe))
+        {
+            try
+            {
+                using var p = Process.GetProcessById(pid);
+                p.Kill(entireProcessTree: true);
+                killed++;
+            }
+            catch { /* 已经退出 */ }
+        }
+        return killed;
     }
 
     /// <summary>给子进程的环境里带上 PAD 配好的 DEEPSEEK_API_KEY（没配就返回 null）。</summary>
@@ -208,7 +267,7 @@ public static class BundleLaunch
     {
         if (string.IsNullOrWhiteSpace(home)) return;
         Nodes.Ledger.Record(home, new Nodes.Running(
-            opened.Profile, opened.Surface, opened.Port, opened.Url, opened.Pid,
+            opened.Profile, opened.Bundle, opened.Port, opened.Url, opened.Pid,
             DateTimeOffset.Now.ToString("o"), opened.LogPath, opened.Verified));
     }
 

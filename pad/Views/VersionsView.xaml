@@ -255,7 +255,7 @@
                点一行只是选中（学 PCL），右侧只有设置齿轮。 -->
           <Border Style="{StaticResource Slab}" Padding="{StaticResource PadSlab}">
             <StackPanel>
-              <ContentControl Style="{StaticResource SlabHead}" Content="Bundle"
+              <ContentControl x:Name="BundleHead" Style="{StaticResource SlabHead}" Content="启动配置"
                               v:Ico.Of="{StaticResource I.Terminal}" />
               <ListBox x:Name="ContainerList" Style="{StaticResource PlainList}" Margin="0,6,0,0"
                        SelectionChanged="ContainerList_Sel">

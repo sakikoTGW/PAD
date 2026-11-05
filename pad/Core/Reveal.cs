@@ -3,7 +3,7 @@ using System.IO;
 
 namespace Pad.Core;
 
-/// <summary>Open a folder, a file, or a URL with the shell. PAD never hosts those surfaces.</summary>
+/// <summary>Open a folder, a file, or a URL with the shell. PAD never hosts those bundles.</summary>
 public static class Reveal
 {
     public static void Path(string? path)

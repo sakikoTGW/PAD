@@ -5,7 +5,7 @@ namespace Pad.Core;
 
 /// <summary>
 /// DSH credentials.yaml: a REF map. The only key PAD's launch path must
-/// surface is DEEPSEEK_API_KEY — a blank YAML editor is not a config UI.
+/// bundle is DEEPSEEK_API_KEY — a blank YAML editor is not a config UI.
 /// </summary>
 public static class CredentialsFile
 {

@@ -141,7 +141,7 @@ public static class Inspect
         var window = 0L;
         if (Row(rows, "contextPressure") is { } cp)
         {
-            contextTokens = Long(cp, "surfaceTokens");
+            contextTokens = Long(cp, "bundleTokens");
             pressure = Long(cp, "pressureTokens");
             window = Long(cp, "contextWindow");
         }

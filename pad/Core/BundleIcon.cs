@@ -122,7 +122,7 @@ public static class BundleIcon
                 Notify();
                 return dest;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch { /* next url */ }
         }
         return null;
@@ -132,14 +132,27 @@ public static class BundleIcon
     {
         string? fallback = null;
         foreach (var p in profiles)
+        {
+            // 一个 profile 同时有 web/tui 时，卡片图标要跟“这次会启动的那一种”走：
+            // web profile 优先 web-app，tui profile 优先 dsh-tui；不要再无条件偏向 tui。
+            var prefer = p.IsWeb ? "web-app" : p.HasTui ? "dsh-tui" : null;
+            if (prefer is not null)
+            {
+                foreach (var spec in p.Bundles)
+                {
+                    if (!spec.Contains(prefer, StringComparison.OrdinalIgnoreCase)) continue;
+                    var hit = Resolve(launcherRoot, LaunchPolicy.BundlePackageDir(p.Dir, spec), spec);
+                    if (hit is not null) return hit;
+                }
+            }
             foreach (var spec in p.Bundles)
             {
-                var dir = LaunchPolicy.BundlePackageDir(p.Dir, spec);
-                var icon = Resolve(launcherRoot, dir, spec);
+                var icon = Resolve(launcherRoot, LaunchPolicy.BundlePackageDir(p.Dir, spec), spec);
                 if (icon is null) continue;
                 if (spec.Contains("dsh-tui", StringComparison.OrdinalIgnoreCase)) return icon;
                 fallback ??= icon;
             }
+        }
         return fallback;
     }
 
@@ -151,12 +164,17 @@ public static class BundleIcon
         var ver = ReadVersion(Path.Combine(packageDir, "package.json"));
 
         // 本地包没带 icon：先从 npm 官方 package icon 取一次，再退回仓库 logo。
-        if (await NpmPackageIcon.EnsureAsync(launcherRoot, LaunchPolicy.BundleBareName(spec),
-                ver ?? "", ct) is not null)
+        try
         {
-            Notify();
-            return;
+            if (await NpmPackageIcon.EnsureAsync(launcherRoot, LaunchPolicy.BundleBareName(spec),
+                    ver ?? "", ct) is not null)
+            {
+                Notify();
+                return;
+            }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { /* 网络超时：图标没有就算了，不影响功能 */ }
         var cache = CacheDir(launcherRoot, spec);
         Directory.CreateDirectory(cache);
         foreach (var url in LaunchPolicy.BundleIconUrls(repo, ver))
@@ -176,7 +194,7 @@ public static class BundleIcon
                 Notify();
                 return;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch { /* next url */ }
         }
     }

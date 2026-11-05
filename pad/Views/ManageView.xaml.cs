@@ -553,7 +553,7 @@ public partial class ManageView : UserControl, IRefreshable
     }
 
     /// <summary>
-    /// Facts only: which surfaces PAD started for this home, on which port. No verdicts —
+    /// Facts only: which bundles PAD started for this home, on which port. No verdicts —
     /// PAD is a launcher (D18); it just shows the ledger it already keeps.
     /// </summary>
     void PaintNodes(Instance? inst)
@@ -744,7 +744,7 @@ public partial class ManageView : UserControl, IRefreshable
             var plan = await Pad.Core.Jump.JumpPlanner.ExecuteAsync(_state.Launcher, inst, s.SessionId, null, execute: true);
             if (!plan.Executed)
             {
-                // No usable surface right now: keep the old behavior (reveal the transcript).
+                // No usable bundle right now: keep the old behavior (reveal the transcript).
                 var row = _state.Launcher.Sessions(inst)
                     .FirstOrDefault(r => string.Equals(r.Id, s.SessionId, StringComparison.OrdinalIgnoreCase));
                 Reveal.Path(row is not null ? row.Path : System.IO.Path.Combine(inst.Home, "sessions"));

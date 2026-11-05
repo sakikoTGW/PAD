@@ -5,7 +5,7 @@ namespace Pad.Core.Jump;
 
 /// <summary>
 /// CLI face of session jump: <c>pad cli session ref|open</c> and
-/// <c>pad cli surface list|validate</c>. Shares the planner with the window.
+/// <c>pad cli bundle list|validate</c>. Shares the planner with the window.
 /// </summary>
 public static class SessionCli
 {
@@ -17,7 +17,7 @@ public static class SessionCli
         _ => Usage(),
     };
 
-    public static int RunSurface(Launcher launcher, string cmd, string[] rest)
+    public static int RunBundle(Launcher launcher, string cmd, string[] rest)
     {
         switch (cmd)
         {
@@ -38,7 +38,7 @@ public static class SessionCli
             home = inst.Home;
         }
 
-        var descriptors = SurfaceRegistry.Load(launcher, home);
+        var descriptors = BundleRegistry.Load(launcher, home);
         var json = rest.Contains("--json");
         var errors = descriptors.Where(d => d.Error is not null || d.Kind == "invalid").ToList();
         var warnings = descriptors.SelectMany(d => d.MergeNotes.Select(note => new { id = d.Id, note })).ToList();
@@ -47,12 +47,12 @@ public static class SessionCli
         {
             Cli.Print(Cli.PrettyJson(new
             {
-                schema = "pad.surface-list/v1",
+                schema = "pad.bundle-list/v1",
                 home,
                 count = descriptors.Count,
                 errors = errors.Select(d => new { id = d.Id, source = d.Source, error = d.Error }).ToList(),
                 mergeNotes = warnings,
-                surfaces = descriptors.Select(d => new
+                bundles = descriptors.Select(d => new
                 {
                     id = d.Id,
                     label = d.Label,
@@ -76,7 +76,7 @@ public static class SessionCli
                     foreach (var note in d.MergeNotes)
                         Cli.Print($"  merge: {note}");
             }
-            Cli.Print($"{descriptors.Count} surface(s), {errors.Count} error(s), {warnings.Count} merge note(s)");
+            Cli.Print($"{descriptors.Count} bundle(s), {errors.Count} error(s), {warnings.Count} merge note(s)");
             if (cmd == "validate" && errors.Count > 0)
                 foreach (var d in errors)
                     Cli.Print($"  error: {d.Id}: {d.Error ?? "invalid descriptor"}");
@@ -97,7 +97,7 @@ public static class SessionCli
 
     static async Task<int> Open(Launcher launcher, string[] rest)
     {
-        var positional = Positional(rest, ["--surface"]);
+        var positional = Positional(rest, ["--bundle"]);
         if (positional.Count < 2) return Usage();
 
         var instanceId = positional[0];
@@ -106,7 +106,7 @@ public static class SessionCli
                        ?? throw new PadError("PA102", "unknown instance", $"instances/{instanceId}", instanceId,
                            ["pad cli instance list"]);
 
-        var surface = FlagValue(rest, "--surface");
+        var bundle = FlagValue(rest, "--bundle");
         var json = rest.Contains("--json");
         var noExec = rest.Contains("--no-exec");
         var explain = rest.Contains("--explain");
@@ -114,7 +114,7 @@ public static class SessionCli
         JumpPlan plan;
         if (explain)
         {
-            var planned = JumpPlanner.Plan(launcher, instance, session, surface);
+            var planned = JumpPlanner.Plan(launcher, instance, session, bundle);
             if (json)
             {
                 // `--explain --json` is the stable machine format of the plan itself.
@@ -124,11 +124,11 @@ public static class SessionCli
             Explain(instance, planned);
             if (noExec) return planned.Chosen is null ? 1 : 0;
             Cli.Print("---- execute ----");
-            plan = await JumpPlanner.ExecuteAsync(launcher, instance, session, surface, execute: true);
+            plan = await JumpPlanner.ExecuteAsync(launcher, instance, session, bundle, execute: true);
         }
         else
         {
-            plan = await JumpPlanner.ExecuteAsync(launcher, instance, session, surface, execute: !noExec);
+            plan = await JumpPlanner.ExecuteAsync(launcher, instance, session, bundle, execute: !noExec);
         }
 
         if (json)
@@ -141,18 +141,18 @@ public static class SessionCli
         Cli.Print($"instance {instance.Id}  home {instance.Home}");
         if (plan.Chosen is null)
         {
-            Cli.Print($"error[PA130]: no usable surface (rejected {plan.Rejected.Count})");
-            foreach (var r in plan.Rejected) Cli.Print($"  - {r.Surface}/{r.Transport}: {r.Code} {r.Why}");
+            Cli.Print($"error[PA130]: no usable bundle (rejected {plan.Rejected.Count})");
+            foreach (var r in plan.Rejected) Cli.Print($"  - {r.Bundle}/{r.Transport}: {r.Code} {r.Why}");
             return 1;
         }
 
-        Cli.Print($"chosen   {plan.Chosen.Surface}/{plan.Chosen.Transport}  {plan.Chosen.Rank}  score={plan.Chosen.Score}");
+        Cli.Print($"chosen   {plan.Chosen.Bundle}/{plan.Chosen.Transport}  {plan.Chosen.Rank}  score={plan.Chosen.Score}");
         Cli.Print($"executed {plan.Executed}  degraded {plan.Degraded}{(plan.Pa is null ? "" : "  " + plan.Pa)}");
         if (plan.Detail is not null) Cli.Print($"detail   {plan.Detail}");
         foreach (var c in plan.Candidates.Where(c => !ReferenceEquals(c, plan.Chosen)))
-            Cli.Print($"  candidate {c.Surface}/{c.Transport} {c.Rank} score={c.Score} {c.State}");
+            Cli.Print($"  candidate {c.Bundle}/{c.Transport} {c.Rank} score={c.Score} {c.State}");
         foreach (var r in plan.Rejected)
-            Cli.Print($"  rejected  {r.Surface}/{r.Transport}: {r.Code} {r.Why}");
+            Cli.Print($"  rejected  {r.Bundle}/{r.Transport}: {r.Code} {r.Why}");
         return 0;
     }
 
@@ -167,7 +167,7 @@ public static class SessionCli
         }
         else
         {
-            Cli.Print($"chosen    {plan.Chosen.Surface}/{plan.Chosen.Transport}  " +
+            Cli.Print($"chosen    {plan.Chosen.Bundle}/{plan.Chosen.Transport}  " +
                       $"{plan.Chosen.Rank} score={plan.Chosen.Score} state={plan.Chosen.State}");
         }
         Cli.Print($"degraded  {plan.Degraded}{(plan.Pa is null ? "" : "  " + plan.Pa)}"
@@ -176,13 +176,13 @@ public static class SessionCli
         foreach (var c in plan.Candidates)
         {
             var mark = ReferenceEquals(c, plan.Chosen) ? "->" : "  ";
-            Cli.Print($"  {mark} {c.Surface}/{c.Transport,-16} {c.Rank} score={c.Score,-5} {c.State}");
+            Cli.Print($"  {mark} {c.Bundle}/{c.Transport,-16} {c.Rank} score={c.Score,-5} {c.State}");
         }
         if (plan.Rejected.Count > 0)
         {
             Cli.Print("rejected:");
             foreach (var r in plan.Rejected)
-                Cli.Print($"     {r.Surface}/{r.Transport,-16} {r.Code,-6} {r.Why}");
+                Cli.Print($"     {r.Bundle}/{r.Transport,-16} {r.Code,-6} {r.Why}");
         }
     }
 
@@ -191,9 +191,9 @@ public static class SessionCli
         Cli.Print("""
             usage:
               pad cli session ref <session-id>
-              pad cli session open <instance> <session-id> [--surface <id|kind>] [--explain] [--json] [--no-exec]
-              pad cli surface list   [--instance <id>] [--json]
-              pad cli surface validate [--instance <id>] [--json]
+              pad cli session open <instance> <session-id> [--bundle <id|kind>] [--explain] [--json] [--no-exec]
+              pad cli bundle list   [--instance <id>] [--json]
+              pad cli bundle validate [--instance <id>] [--json]
             """);
         return 2;
     }

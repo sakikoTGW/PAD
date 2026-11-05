@@ -177,7 +177,7 @@ public static class Dialogs
 
         var preset = Str(Val(rows, "agentPreset"));
         var model = ModelOf(Val(rows, "modelSelection")).Model;
-        var contextTokens = (int)Long(Val(rows, "contextPressure"), "surfaceTokens");
+        var contextTokens = (int)Long(Val(rows, "contextPressure"), "bundleTokens");
         var contextWindow = (int)Long(Val(rows, "contextPressure"), "contextWindow");
 
         var stats = Val(rows, "sessionStats");

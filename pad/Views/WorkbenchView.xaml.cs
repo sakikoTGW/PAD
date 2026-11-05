@@ -2422,7 +2422,7 @@ public partial class WorkbenchView : UserControl
                 Load();
             };
         }
-        // No per-card DropShadowEffect: a blurred surface per card is re-rendered on
+        // No per-card DropShadowEffect: a blurred bundle per card is re-rendered on
         // every frame of the entrance stagger and on every hover. The card style's
         // border carries the separation instead.
         return card;

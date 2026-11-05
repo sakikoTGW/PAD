@@ -89,6 +89,7 @@
                          TextTrimming="CharacterEllipsis" />
             </StackPanel>
           </Button>
+          <Button x:Name="RunCloseBtn" Style="{StaticResource BtnWide}" Content="关闭"                   Margin="0,8,0,0" HorizontalAlignment="Stretch" Visibility="Collapsed"                   Click="CloseBtn_Click" v:Ico.Of="{StaticResource I.Stop}" />
           <TextBlock x:Name="KeyWarn" Style="{StaticResource Muted}" Margin="0,10,0,0"
                      TextWrapping="Wrap" TextAlignment="Center" Visibility="Collapsed"
                      Text="还没有 API Key。到设置填写。" />

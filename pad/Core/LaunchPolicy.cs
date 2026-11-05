@@ -236,10 +236,23 @@ public static class LaunchPolicy
         }
     }
 
-    public static bool SamePath(string a, string b) =>
-        string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'),
-            Path.GetFullPath(b).TrimEnd('\\', '/'),
-            StringComparison.OrdinalIgnoreCase);
+    public static bool SamePath(string? a, string? b)
+    {
+        // 空路径不能丢给 Path.GetFullPath：会抛 "The path is empty"，
+        // 而探测到的桌面端进程经常没有 DSH_HOME（Tauri 尤其如此）。
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+            return string.IsNullOrWhiteSpace(a) && string.IsNullOrWhiteSpace(b);
+        try
+        {
+            return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'),
+                Path.GetFullPath(b).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Existence that understands a packaged app: a path inside <c>…/app.asar/…</c> is

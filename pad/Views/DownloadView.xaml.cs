@@ -1116,7 +1116,7 @@ public partial class DownloadView : UserControl, IRefreshable
         _ = Task.Run(async () =>
         {
             try { await Market.Search(query, text, next, CancellationToken.None, size); }
-            catch { /* prefetch is best-effort; the real load will surface errors */ }
+            catch { /* prefetch is best-effort; the real load will bundle errors */ }
         });
     }
 

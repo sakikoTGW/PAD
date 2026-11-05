@@ -78,11 +78,11 @@ public static class Usage
                         toolTok += Long(sums, "tool");
                     }
 
-                    // Per-call facts live in the surface list: one entry per context item,
+                    // Per-call facts live in the bundle list: one entry per context item,
                     // tool results carry `cat: "tool"` and the tool name.
-                    if (tl.TryGetProperty("surface", out var surface) && surface.ValueKind == JsonValueKind.Array)
+                    if (tl.TryGetProperty("bundle", out var bundle) && bundle.ValueKind == JsonValueKind.Array)
                     {
-                        foreach (var item in surface.EnumerateArray())
+                        foreach (var item in bundle.EnumerateArray())
                         {
                             if (!item.TryGetProperty("cat", out var cat) || cat.GetString() != "tool") continue;
                             if (!item.TryGetProperty("tool", out var t)) continue;

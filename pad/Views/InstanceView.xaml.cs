@@ -93,6 +93,7 @@ public partial class InstanceView : UserControl, IRefreshable
             : PanePacks.Visibility == Visibility.Visible ? PanePacks
             : PaneSessions.Visibility == Visibility.Visible ? PaneSessions
             : PanePresets.Visibility == Visibility.Visible ? PanePresets
+            : PaneBundle.Visibility == Visibility.Visible ? PaneBundle
             : null;
 
         if (next is null) return;
@@ -106,6 +107,8 @@ public partial class InstanceView : UserControl, IRefreshable
             PanePacks.Visibility = tag == "packs" ? Visibility.Visible : Visibility.Collapsed;
             PaneSessions.Visibility = tag == "sessions" ? Visibility.Visible : Visibility.Collapsed;
             PanePresets.Visibility = tag == "presets" ? Visibility.Visible : Visibility.Collapsed;
+            PaneBundle.Visibility = tag == "bundle" ? Visibility.Visible : Visibility.Collapsed;
+            if (tag == "bundle") LoadBundles();
             if (tag == "sessions") LoadSessions();
             if (tag == "packs") { _ = LoadPacks(); _ = LoadSetList(); }
             if (tag is "plugins" or "bundles") LoadPlugins();
@@ -122,6 +125,7 @@ public partial class InstanceView : UserControl, IRefreshable
         "packs" => PanePacks,
         "sessions" => PaneSessions,
         "presets" => PanePresets,
+        "bundle" => PaneBundle,
         _ => PaneOverview,
     };
 
@@ -334,13 +338,36 @@ public partial class InstanceView : UserControl, IRefreshable
 
     // ---- agent-preset ----------------------------------------------------
 
-    void LoadPresets()
+    async void LoadPresets()
     {
         var inst = _state.SelectedInstance;
         if (inst is null) return;
         var rows = _state.Launcher.ListAgentPresets(inst.Id);
         PresetList.ItemsSource = rows;
         NoPresets.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // 新版把 preset 打进 dsh 的包/asar 里，磁盘上没有 config/agent-presets 目录；
+        // 以 --dump-config 的 preset 行为准补全内置项（文件层只用于复制）。
+        try
+        {
+            var (probe, _) = await AgentPresets.ProbeAsync(_state.Launcher, inst.Home, inst.Dsh.Version,
+                inst.Workspace?.Path ?? "", inst.LastProfile ?? "web", CancellationToken.None);
+            if (probe is null) return;
+            var have = rows.Select(r => r.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in probe.Presets)
+                if (have.Add(p.Id))
+                    rows.Add(new AgentPresetRow
+                    {
+                        Id = p.Id,
+                        Trust = PresetTrust.System,
+                        Path = "",
+                        Broken = "源文件没解出到磁盘（随 DSH 打包），只列出 id",
+                    });
+            PresetList.ItemsSource = null;
+            PresetList.ItemsSource = rows;
+            NoPresets.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch { /* 探测失败就保留文件层结果 */ }
     }
 
     void CopyPreset_Click(object sender, RoutedEventArgs e)
@@ -348,6 +375,7 @@ public partial class InstanceView : UserControl, IRefreshable
         if (sender is not FrameworkElement { Tag: AgentPresetRow row }) return;
         var inst = _state.SelectedInstance;
         if (inst is null) return;
+        if (string.IsNullOrWhiteSpace(row.Path))         {             _win.Toast("这个 preset 随 DSH 打包，本地没有可复制的源文件");             return;         }
         var toId = _win.AskInput("复制 agent-preset", $"复制 {row.Id} 为：");
         if (toId is null or { Length: 0 }) return;
         try
@@ -1074,7 +1102,7 @@ public partial class InstanceView : UserControl, IRefreshable
     }
 
     /// <summary>One plugin change from the window: ask for the hot path, fall back to cold
-    /// when the instance cannot hot-load, and surface the outcome in the plugin log.</summary>
+    /// when the instance cannot hot-load, and bundle the outcome in the plugin log.</summary>
     async Task<bool> ApplyPluginChange(Instance inst, string profile, string action, string spec, Action<string> say)
     {
         var result = await HotReload.ApplyAsync(_state.Launcher, inst, profile, action, spec,
@@ -2480,6 +2508,210 @@ public partial class InstanceView : UserControl, IRefreshable
         Reveal.Path(_state.Launcher.ProjectionDir(inst));
     }
 
+
+    // ---------------------------------------------------------------- bundle 页
+
+    void LoadBundles()
+    {
+        if (BundleRows is null) return;
+        BundleRows.Children.Clear();
+        var inst = _state.SelectedInstance;
+        if (inst is null) { BundleProfileText.Text = "没有选中实例"; return; }
+        var profiles = _state.Launcher.Profiles(inst);
+        var wanted = _state.SelectedProfile?.Name ?? inst.LastProfile;
+        var profile = profiles.FirstOrDefault(p => string.Equals(p.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                      ?? profiles.FirstOrDefault();
+        if (profile is null) { BundleProfileText.Text = "这个实例还没有 profile"; return; }
+        BundleProfileText.Text = "profile " + profile.Name + " · 本机这个版本可用的 bundle 全在这里，勾选启用，取消禁用";
+
+        static string Base(string spec)
+        {
+            var at = spec.LastIndexOf('@');
+            var slash = spec.LastIndexOf('/');
+            return at > slash && at > 0 ? spec[..at] : spec;
+        }
+
+        var enabled = new HashSet<string>(profile.Bundles.Select(Base), StringComparer.OrdinalIgnoreCase);
+        var rows = new List<(string Spec, string Dir, bool On)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var b in _state.Launcher.StoreBundles(inst))
+        {
+            if (!seen.Add(b.Spec)) continue;
+            rows.Add((b.Spec, b.Dir, enabled.Contains(b.Spec)));
+        }
+        foreach (var spec in profile.Bundles)
+        {
+            var key = Base(spec);
+            if (!seen.Add(key)) continue;
+            var dir = "";
+            try { dir = LaunchPolicy.BundlePackageDir(profile.Dir, spec); } catch { }
+            rows.Add((key, dir, true));
+        }
+        rows.Sort((a, b) => string.CompareOrdinal(a.Spec, b.Spec));
+        foreach (var r in rows) BundleRows.Children.Add(BundleCard(inst, profile.Name, r.Spec, r.Dir, r.On));
+    }
+
+
+    UIElement BundleCard(Instance inst, string profileName, string spec, string dir, bool on)
+    {
+        var info = BundleInfoOf(spec, dir);
+        var card = new Border
+        {
+            Background = Res("BgCard"),
+            BorderBrush = Res("LineSoft"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var cb = new CheckBox { IsChecked = on, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 6, 10, 0) };
+        cb.Checked += async (_, _) => await ToggleBundleAsync(inst, profileName, spec, true);
+        cb.Unchecked += async (_, _) => await ToggleBundleAsync(inst, profileName, spec, false);
+        Grid.SetColumn(cb, 0);
+        grid.Children.Add(cb);
+
+        var icon = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Top };
+        if (info.Icon is not null)
+        {
+            icon.Background = Res("BgCard");
+            icon.Child = new Image { Source = new System.Windows.Media.Imaging.BitmapImage(new Uri(info.Icon)), Stretch = Stretch.UniformToFill };
+        }
+        else
+        {
+            icon.Background = Res("AccentSoft");
+            icon.Child = new TextBlock { Text = info.Initial, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = Res("AccentText"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        }
+        Grid.SetColumn(icon, 1);
+        grid.Children.Add(icon);
+
+        var text = new StackPanel { Margin = new Thickness(4, 0, 8, 0) };
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(new TextBlock { Text = info.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = Res("TextPrimary") });
+        head.Children.Add(new TextBlock { Text = "  " + spec, FontSize = 11, Foreground = Res("TextMuted"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 1, 0, 0) });
+        if (info.Version.Length > 0)
+            head.Children.Add(new TextBlock { Text = info.Version, FontSize = 11, Foreground = Res("TextMuted"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 1, 0, 0) });
+        text.Children.Add(head);
+        var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        chips.Children.Add(Chip(info.Type));
+        foreach (var k in info.Tags) chips.Children.Add(Chip(k));
+        text.Children.Add(chips);
+        if (info.Description.Length > 0)
+            text.Children.Add(new TextBlock { Text = info.Description, FontSize = 12, Foreground = Res("TextSecondary"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 4, 0, 0) });
+        Grid.SetColumn(text, 2);
+        grid.Children.Add(text);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+        if (dir.Length > 0)
+        {
+            var open = new Button { Content = "目录", Height = 24, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 2, 0, 0) };
+            open.Click += (_, _) => OpenFolder(dir);
+            actions.Children.Add(open);
+        }
+        Grid.SetColumn(actions, 3);
+        grid.Children.Add(actions);
+
+        card.Child = grid;
+        return card;
+    }
+
+    static Border Chip(string text) => new()
+    {
+        Background = new SolidColorBrush(Color.FromRgb(0xE9, 0xF1, 0xF2)),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(6, 1, 6, 1),
+        Margin = new Thickness(0, 0, 4, 0),
+        Child = new TextBlock { Text = text, FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(0x4A, 0x5A, 0x66)) },
+    };
+
+
+    async Task ToggleBundleAsync(Instance inst, string profileName, string spec, bool on)
+    {
+        try
+        {
+            if (on)
+            {
+                await _state.Launcher.AddBundles(inst, profileName, [spec], null, CancellationToken.None);
+            }
+            else
+            {
+                var p = _state.Launcher.Profiles(inst).FirstOrDefault(x => x.Name == profileName);
+                if (p is not null)
+                {
+                    var keep = p.Bundles
+                        .Where(b => !string.Equals(b, spec, StringComparison.OrdinalIgnoreCase)
+                                    && !b.StartsWith(spec + "@", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    _state.Launcher.SetProfileBundles(inst, profileName, keep);
+                }
+            }
+            LoadBundles();
+        }
+        catch (Exception ex)
+        {
+            _win.Toast(PadError.Describe(ex), bad: true);
+            LoadBundles();
+        }
+    }
+
+    Brush Res(string key) => TryFindResource(key) as Brush ?? Brushes.Transparent;
+
+    (string Name, string Version, string Description, string Type, IReadOnlyList<string> Tags, string? Icon, string Initial) BundleInfoOf(string spec, string dir)
+    {
+        var name = spec; var version = ""; var desc = ""; var tags = new List<string>(); string? icon = null;
+        try
+        {
+            var pkg = dir.Length > 0 ? Path.Combine(dir, "package.json") : "";
+            if (pkg.Length > 0 && File.Exists(pkg))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(pkg));
+                var r = doc.RootElement;
+                if (r.TryGetProperty("name", out var n)) name = n.GetString() ?? name;
+                if (r.TryGetProperty("version", out var v)) version = v.GetString() ?? "";
+                if (r.TryGetProperty("description", out var d)) desc = d.GetString() ?? "";
+                if (r.TryGetProperty("keywords", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var x in k.EnumerateArray())
+                        if (x.GetString() is { } s && tags.Count < 3) tags.Add(s);
+            }
+        }
+        catch { }
+        if (dir.Length > 0)
+        {
+            foreach (var rel in new[] { "assets/logo.png", "logo.png", "icon.png", "resources/icon.png" })
+            {
+                var p = Path.Combine(dir, rel.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(p)) { icon = p; break; }
+            }
+        }
+        var type = name.Contains("web-app", StringComparison.OrdinalIgnoreCase) ? "网页"
+                 : name.Contains("tui", StringComparison.OrdinalIgnoreCase) ? "终端"
+                 : name.Contains("headless", StringComparison.OrdinalIgnoreCase) ? "无界面"
+                 : name.Contains("base", StringComparison.OrdinalIgnoreCase) ? "核心" : "扩展";
+        var shortName = name.Contains('/') ? name[(name.LastIndexOf('/') + 1)..] : name;
+        var initial = shortName.Length > 0 ? shortName[..1].ToUpperInvariant() : "?";
+        return (name, version, desc, type, tags, icon, initial);
+    }
+
+    void OpenFolder(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = "\"" + path + "\"",
+                UseShellExecute = true,
+            });
+        }
+        catch { }
+    }
+
+    void BundleStore_Click(object sender, RoutedEventArgs e) => _win.ShowTab("manage");
 }
 
 /// <summary>

@@ -8,8 +8,8 @@ using System.Text.RegularExpressions;
 namespace Pad.Core.Jump;
 
 /// <summary>
-/// One session address: a DSH home plus the canonical session id. Surface is
-/// deliberately not part of identity — the planner picks a surface later.
+/// One session address: a DSH home plus the canonical session id. Bundle is
+/// deliberately not part of identity — the planner picks a bundle later.
 /// </summary>
 public sealed record SessionRef(string Home, string Id, string? Workspace = null, string? Profile = null)
 {
@@ -33,8 +33,8 @@ public sealed record SessionRef(string Home, string Id, string? Workspace = null
     public static string ClipboardText(string raw) => Normalize(raw) ?? raw;
 }
 
-/// <summary>One transport a surface advertises (see docs/session-jump.md §5).</summary>
-public sealed class SurfaceTransport
+/// <summary>One transport a bundle advertises (see docs/session-jump.md §5).</summary>
+public sealed class BundleTransport
 {
     [JsonPropertyName("type")] public string Type { get; set; } = "";
     [JsonPropertyName("sessionParam")] public string? SessionParam { get; set; }
@@ -42,66 +42,66 @@ public sealed class SurfaceTransport
     [JsonPropertyName("placement")] public string? Placement { get; set; }
 }
 
-/// <summary>A surface capability descriptor (built-in, user or instance level).</summary>
-public sealed class SurfaceDescriptor
+/// <summary>A bundle capability descriptor (built-in, user or instance level).</summary>
+public sealed class BundleDescriptor
 {
-    [JsonPropertyName("schema")] public string Schema { get; set; } = "pad.surface/v1";
+    [JsonPropertyName("schema")] public string Schema { get; set; } = "pad.bundle/v1";
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("label")] public string Label { get; set; } = "";
     [JsonPropertyName("kind")] public string Kind { get; set; } = "custom";
-    [JsonPropertyName("transports")] public List<SurfaceTransport> Transports { get; set; } = [];
+    [JsonPropertyName("transports")] public List<BundleTransport> Transports { get; set; } = [];
     [JsonIgnore] public string Source { get; set; } = "builtin";
     [JsonIgnore] public string? Error { get; set; }
     /// <summary>Layers this descriptor came from, lowest first (builtin / user / instance).</summary>
     [JsonIgnore] public List<string> Layers { get; set; } = [];
-    /// <summary>Human-readable merge decisions/conflicts for <c>surface validate</c>.</summary>
+    /// <summary>Human-readable merge decisions/conflicts for <c>bundle validate</c>.</summary>
     [JsonIgnore] public List<string> MergeNotes { get; set; } = [];
 
     public bool HasTransport(string type) =>
         Transports.Any(t => string.Equals(t.Type, type, StringComparison.OrdinalIgnoreCase));
 
-    public static SurfaceDescriptor Builtin(string id, string label, string kind, params string[] transports) => new()
+    public static BundleDescriptor Builtin(string id, string label, string kind, params string[] transports) => new()
     {
         Id = id,
         Label = label,
         Kind = kind,
         Source = "builtin",
-        Transports = transports.Select(t => new SurfaceTransport { Type = t }).ToList(),
+        Transports = transports.Select(t => new BundleTransport { Type = t }).ToList(),
     };
 }
 
 /// <summary>
-/// Loads surface descriptors as three layers (design §5): L0 built-ins, L1
-/// <c>&lt;dataRoot&gt;/library/surfaces/*.json</c> (user), L2 <c>&lt;home&gt;/.pad/surfaces/*.json</c>
+/// Loads bundle descriptors as three layers (design §5): L0 built-ins, L1
+/// <c>&lt;dataRoot&gt;/library/bundles/*.json</c> (user), L2 <c>&lt;home&gt;/.pad/bundles/*.json</c>
 /// (instance). Same id across layers merges instead of replacing: higher layer wins
 /// label/kind, transports merge by <c>type</c> (higher layer's fields win). A kind
 /// mismatch is a conflict and marks the descriptor unusable. Bad files are reported,
 /// never fatal.
 /// </summary>
-public static class SurfaceRegistry
+public static class BundleRegistry
 {
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    public static List<SurfaceDescriptor> Builtins() =>
+    public static List<BundleDescriptor> Builtins() =>
     [
-        SurfaceDescriptor.Builtin("pad-web", "Web（浏览器 / Edge app 窗）", "web", "gateway-event", "url-query", "focus-clipboard"),
-        SurfaceDescriptor.Builtin("pad-tui", "TUI（终端）", "tui", "launch-env", "launch-args", "focus-clipboard"),
-        SurfaceDescriptor.Builtin("pad-app", "官方桌面端", "app", "focus-clipboard"),
-        SurfaceDescriptor.Builtin("pad-tauri", "Tauri 桌面端（单实例壳）", "tauri", "focus-clipboard"),
+        BundleDescriptor.Builtin("pad-web", "Web（浏览器 / Edge app 窗）", "web", "gateway-event", "url-query", "focus-clipboard"),
+        BundleDescriptor.Builtin("pad-tui", "TUI（终端）", "tui", "launch-env", "launch-args", "focus-clipboard"),
+        BundleDescriptor.Builtin("pad-app", "官方桌面端", "app", "focus-clipboard"),
+        BundleDescriptor.Builtin("pad-tauri", "Tauri 桌面端（单实例壳）", "tauri", "focus-clipboard"),
     ];
 
-    /// <summary>Descriptor list with per-file parse errors kept for <c>surface validate</c>.</summary>
-    public static List<SurfaceDescriptor> Load(Launcher launcher, string? home)
+    /// <summary>Descriptor list with per-file parse errors kept for <c>bundle validate</c>.</summary>
+    public static List<BundleDescriptor> Load(Launcher launcher, string? home)
     {
-        var user = new List<SurfaceDescriptor>();
-        LoadDir(Path.Combine(launcher.Root, "library", "surfaces"), "user", user);
-        var instance = new List<SurfaceDescriptor>();
+        var user = new List<BundleDescriptor>();
+        LoadDir(Path.Combine(launcher.Root, "library", "bundles"), "user", user);
+        var instance = new List<BundleDescriptor>();
         if (!string.IsNullOrWhiteSpace(home))
-            LoadDir(Path.Combine(home, ".pad", "surfaces"), "instance", instance);
+            LoadDir(Path.Combine(home, ".pad", "bundles"), "instance", instance);
 
-        var merged = new List<SurfaceDescriptor>();
-        var byId = new Dictionary<string, SurfaceDescriptor>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (layer, items) in new (string Layer, List<SurfaceDescriptor> Items)[]
+        var merged = new List<BundleDescriptor>();
+        var byId = new Dictionary<string, BundleDescriptor>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (layer, items) in new (string Layer, List<BundleDescriptor> Items)[]
                  {
                      ("builtin", Builtins()),
                      ("user", user),
@@ -131,7 +131,7 @@ public static class SurfaceRegistry
     }
 
     /// <summary>Fold one higher-layer descriptor into the accumulated lower-layer one.</summary>
-    static void MergeInto(SurfaceDescriptor target, SurfaceDescriptor overlay, string layer)
+    static void MergeInto(BundleDescriptor target, BundleDescriptor overlay, string layer)
     {
         if (overlay.Error is not null)
         {
@@ -171,7 +171,7 @@ public static class SurfaceRegistry
         target.Layers.Add(layer);
     }
 
-    static void LoadDir(string dir, string source, List<SurfaceDescriptor> sink)
+    static void LoadDir(string dir, string source, List<BundleDescriptor> sink)
     {
         if (!Directory.Exists(dir)) return;
         foreach (var file in Directory.EnumerateFiles(dir, "*.json").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
@@ -179,10 +179,10 @@ public static class SurfaceRegistry
             try
             {
                 var text = File.ReadAllText(file);
-                var d = JsonSerializer.Deserialize<SurfaceDescriptor>(text, Json);
+                var d = JsonSerializer.Deserialize<BundleDescriptor>(text, Json);
                 if (d is null) throw new InvalidDataException("empty descriptor");
-                if (!string.Equals(d.Schema, "pad.surface/v1", StringComparison.Ordinal))
-                    throw new InvalidDataException($"schema must be pad.surface/v1, got `{d.Schema}`");
+                if (!string.Equals(d.Schema, "pad.bundle/v1", StringComparison.Ordinal))
+                    throw new InvalidDataException($"schema must be pad.bundle/v1, got `{d.Schema}`");
                 if (string.IsNullOrWhiteSpace(d.Id) || !Regex.IsMatch(d.Id, "^[a-z0-9][a-z0-9-]{1,40}$"))
                     throw new InvalidDataException("id must match ^[a-z0-9][a-z0-9-]{1,40}$");
                 d.Source = source;
@@ -191,7 +191,7 @@ public static class SurfaceRegistry
             }
             catch (Exception ex)
             {
-                sink.Add(new SurfaceDescriptor
+                sink.Add(new BundleDescriptor
                 {
                     Id = Path.GetFileNameWithoutExtension(file),
                     Label = file,

@@ -5,8 +5,8 @@ using System.Windows.Threading;
 namespace Pad.Core;
 
 /// <summary>
-/// 列表里的一行 = 某份实例的一棵配置树（profile），以及它这次用哪种 surface 看。
-/// profile 只回答「装了什么」；surface 由它里面的 UI bundle 决定，不是另一种 profile。
+/// 列表里的一行 = 某份实例的一棵配置树（profile），以及它这次用哪种 bundle 看。
+/// profile 只回答「装了什么」；bundle 由它里面的 UI bundle 决定，不是另一种 profile。
 /// </summary>
 public class ProfileVm(Instance inst, DshProfile profile) : Observable
 {
@@ -15,8 +15,8 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
 
     public string Name => Profile.Name;
 
-    /// <summary>列表里显示的标题。默认就是 profile 名；同一 profile 拆成多种 surface 时，
-    /// 标题要写「哪个 surface 的实现」，否则两行都叫 web。</summary>
+    /// <summary>列表里显示的标题。默认就是 profile 名；同一 profile 拆成多种 bundle 时，
+    /// 标题要写「哪个 bundle 的实现」，否则两行都叫 web。</summary>
     public virtual string DisplayName => Name;
     public string InstanceName => Instance.Name;
     public string TargetText => $"{InstanceName} · {Name}";
@@ -39,8 +39,8 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
             $"{Kind} · {Release}",
             $"实例 {InstanceName}",
             string.IsNullOrWhiteSpace(Instance.Home) ? "" : $"home {Instance.Home}",
-            Profile.UiSurfaces.Count > 1
-                ? "这个 profile 同时提供 " + string.Join(" / ", Profile.UiSurfaces) + " 两种 bundle：启动时选一个"
+            Profile.UiBundles.Count > 1
+                ? "这个 profile 同时提供 " + string.Join(" / ", Profile.UiBundles) + " 两种 bundle：启动时选一个"
                 : "",
             StateText);
 
@@ -70,7 +70,7 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
     public virtual string? IconPath => null;
 
     /// <summary>
-    /// 这一行代表哪个 UI bundle（surface 的实现）。有值就先用**这个包自己的图标**，
+    /// 这一行代表哪个 UI bundle（bundle 的实现）。有值就先用**这个包自己的图标**，
     /// 而不是「profile 里第一个有图标的 bundle」—— 后者会让 dsh-tui 的行显示 dsh-base 的鲸鱼。
     /// </summary>
     public virtual (string Spec, string Dir)? IconBundle => null;
@@ -99,11 +99,12 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
         if (string.IsNullOrWhiteSpace(exe)) return false;
         try
         {
-            var trimmed = exe!.Trim().Trim('"');
-            var name = Path.GetFileNameWithoutExtension(trimmed);
-            if (name.Contains("DeepSeek", StringComparison.OrdinalIgnoreCase)) return true;
-            var info = System.Diagnostics.FileVersionInfo.GetVersionInfo(trimmed);
-            return (info.ProductName ?? "").Contains("DeepSeek", StringComparison.OrdinalIgnoreCase);
+            var name = Path.GetFileNameWithoutExtension(exe!.Trim().Trim('"'));
+            // 官方只有 Electron 的 DeepSeek Harness。Tauri 的 deepseek-harness-desktop
+            // 名字里也带 DeepSeek，但它不是官方——旧规则按"含 DeepSeek"判断，把它误标成官方。
+            if (name.Contains("tauri", StringComparison.OrdinalIgnoreCase)) return false;
+            if (name.Contains("harness-desktop", StringComparison.OrdinalIgnoreCase)) return false;
+            return name.Equals("DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -159,26 +160,26 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
 /// 点一下/点收编就把它所在的 home 收编成实例。渲染复用 ProfileVm + 合成 Instance/Profile。
 /// </summary>
 /// <summary>
-/// 一个 profile 拆出来的一种 surface：profile 决定「装了什么」，surface 决定「怎么看见」。
+/// 一个 profile 拆出来的一种 bundle：profile 决定「装了什么」，bundle 决定「怎么看见」。
 /// 同一个 profile 装了 web-app + dsh-tui 时，容器列表就应该出现两行 —— 它们是两种
-/// surface（浏览器窗口 / 终端窗口），不是一个「混合」的第三种东西。
+/// bundle（浏览器窗口 / 终端窗口），不是一个「混合」的第三种东西。
 /// </summary>
-public sealed class BundleRow(Instance inst, DshProfile profile, string surfaceKind) : ProfileVm(inst, profile)
+public sealed class BundleRow(Instance inst, DshProfile profile, string bundleKind) : ProfileVm(inst, profile)
 {
-    /// <summary>"tui" 或 "web"；对应 <see cref="DshProfile.UiSurfaces"/> 里的一项。</summary>
-    public string BundleKind { get; } = surfaceKind;
+    /// <summary>"tui" 或 "web"；对应 <see cref="DshProfile.UiBundles"/> 里的一项。</summary>
+    public string BundleKind { get; } = bundleKind;
 
     public override string Kind => BundleKind == "tui" ? "终端" : "网页";
 
-    /// <summary>标题写 surface 的实现（dsh-tui / dsh-web-app），小字写 profile。</summary>
+    /// <summary>标题写 bundle 的实现（dsh-tui / dsh-web-app），小字写 profile。</summary>
     public override string DisplayName => BundleKind == "tui" ? "dsh-tui" : "dsh-web-app";
 
     /// <summary>标题已经是实现名（dsh-tui / dsh-web-app），小字只写它来自哪个 profile。</summary>
-    public override string Summary => Profile.Name;
+    public override string Summary => "profile " + Profile.Name;
 
     public override string Badge => BundleKind == "tui" ? "TUI" : "WEB";
 
-    /// <summary>surface 自己的 bundle：网页行用 dsh-web-app，终端行用 dsh-tui。</summary>
+    /// <summary>bundle 自己的 bundle：网页行用 dsh-web-app，终端行用 dsh-tui。</summary>
     public override (string Spec, string Dir)? IconBundle
     {
         get
@@ -223,7 +224,7 @@ public sealed class DetectedTuiRow(Tui tui, bool canAdopt) : ProfileVm(Synthetic
 
     public override string? DetectedHome => tui.Home;
 
-    public override string Kind => "TUI";
+    public override string Kind => "第三方";
 
     /// <summary>版本放一行；包名/内核/home 都进 tooltip 与设置卡。</summary>
     public override string Summary => tui.Version ?? "";
@@ -289,7 +290,7 @@ public sealed class DetectedShellRow(Shell shell, bool canAdopt) : ProfileVm(Syn
         }
     }
 
-    public override string Badge => "DSH";
+    public override string Badge => "桌面端";
 
     static Instance Synthetic(Shell shell) => new()
     {
@@ -638,7 +639,15 @@ public sealed class AppState : Observable
 
     public void RefreshRunning()
     {
-        var live = Launcher.Runtime().Entries;
+        // 账本里可能留着已经退出的 pid（崩溃 / 被杀 / 另一个窗口关的）：不以文件为准，以进程为准。
+        var recorded = Launcher.Runtime().Entries;
+        var live = recorded.Where(EntryAlive).ToList();
+        if (live.Count != recorded.Count)
+        {
+            var rt = Launcher.Runtime();
+            rt.Entries = live;
+            Launcher.SaveRuntime(rt);
+        }
 
         for (var i = Running.Count - 1; i >= 0; i--)
         {
@@ -659,6 +668,40 @@ public sealed class AppState : Observable
         Raise(nameof(AnyRunning));
         Raise(nameof(NoneRunning));
         _ = ProbeAgents();
+    }
+
+    /// <summary>
+    /// 判据只认“能唯一确定是那个东西”的证据：pid 还得是 dsh 本体（命令行带 bin.js / @deepseek-ai/dsh），
+    /// 且 home / profile 对得上。cmd 壳、被复用的 pid、别的 home 的进程都不算。
+    /// </summary>
+    bool EntryAlive(RunEntry e)
+    {
+        if (e.Pid <= 0) return true;
+        if (!Proc.Alive(e.Pid)) return false;
+        try
+        {
+            var info = ProcTable.Read(e.Pid);
+            if (info is null) return true;   // 读不到 PE 就当活着，别误删
+            var cmd = info.CommandLine ?? "";
+            // PAD 自己启动时走 launch-<profile>.cmd：cmd 壳里没有 bin.js，但命令行带
+            // instances\<id>\launch-<profile>.cmd，这个路径唯一确定是这次运行。
+            var inst = Instances.FirstOrDefault(x => x.Id == e.Instance);
+            if (inst is not null
+                && cmd.Contains("launch-" + e.Profile + ".cmd", StringComparison.OrdinalIgnoreCase)
+                && cmd.Contains(Path.Combine("instances", inst.Id), StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!cmd.Contains("bin.js", StringComparison.OrdinalIgnoreCase)
+                && !cmd.Contains("@deepseek-ai/dsh", StringComparison.OrdinalIgnoreCase))
+                return false;                // 其余 cmd 壳 / 无关进程
+            if (inst is not null && !string.IsNullOrWhiteSpace(info.DshHome)
+                && !LaunchPolicy.SamePath(info.DshHome, inst.Home))
+                return false;
+            if (!string.IsNullOrWhiteSpace(info.DshProfile)
+                && !string.Equals(info.DshProfile, e.Profile, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return true;
+        }
+        catch { return true; }
     }
 
     // ------------------------------------------------------------------ 项目状态（D52）
@@ -804,10 +847,20 @@ public sealed class AppState : Observable
 
     public void SaveSelection()
     {
+        Settings.LastContainer = ContainerIdOf(SelectedContainer) ?? Settings.LastContainer;
         Settings.LastInstance = SelectedInstance?.Id;
         Settings.LastProfile = SelectedProfile?.Name;
         Launcher.SaveSettings(Settings);
     }
+
+    /// <summary>启动行的稳定 id：实例/profile/bundle 或壳的 exe，重启后据此还原选择。</summary>
+    public static string? ContainerIdOf(ProfileVm? vm) => vm switch
+    {
+        BundleRow b => $"bundle:{b.Instance.Id}:{b.Profile.Name}:{b.BundleKind}",
+        DetectedShellRow s => "shell:" + s.Source.Exe,
+        DetectedTuiRow t => "tui:" + (t.Source.Package ?? "") + ":" + t.Profile.Name,
+        _ => null,
+    };
 
     /// <summary>Persist the current settings (normalize + write) without touching selection.</summary>
     public void SaveSettings() => ApplySettings(Settings);
@@ -822,6 +875,50 @@ public sealed class AppState : Observable
         Theme.Apply(s.Ui);
         Raise(nameof(Settings));
         SyncRefreshTimer();
+    }
+
+    /// <summary>启动页加载时还原上次点的那一行（bundle / 探测到的桌面端）。</summary>
+    public async Task RestoreLastContainerAsync()
+    {
+        var id = Settings.LastContainer;
+        if (string.IsNullOrWhiteSpace(id)) return;
+        try
+        {
+            if (id.StartsWith("bundle:", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = id.Split(':', 4);
+                if (parts.Length == 4)
+                {
+                    var inst = Instances.FirstOrDefault(x => x.Id == parts[1]);
+                    var prof = Launchables.FirstOrDefault(x => x.Instance.Id == parts[1] && x.Name == parts[2]);
+                    if (inst is not null && prof is not null && prof.Profile.UiBundles.Contains(parts[3]))
+                    {
+                        SelectedInstance = inst;
+                        SelectedProfile = prof;
+                        SelectedContainer = new BundleRow(inst, prof.Profile, parts[3]);
+                        return;
+                    }
+                }
+            }
+            else if (id.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
+            {
+                var exe = id["shell:".Length..];
+                var inv = await Task.Run(() => Discover.Run(Launcher, [], CancellationToken.None));
+                var shell = inv.Shells.FirstOrDefault(s =>
+                    string.Equals(s.Exe, exe, StringComparison.OrdinalIgnoreCase));
+                if (shell is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(shell.Home))
+                        SelectedInstance = Instances.FirstOrDefault(i => LaunchPolicy.SamePath(i.Home, shell.Home!))
+                            ?? SelectedInstance;
+                    SelectedContainer = new DetectedShellRow(shell, canAdopt: false)
+                    {
+                        LocalRunning = shell.Running,
+                    };
+                }
+            }
+        }
+        catch { /* 还原失败就保持默认选择 */ }
     }
 
     /// <summary>Apply UI prefs that must land before the first frame paints.</summary>

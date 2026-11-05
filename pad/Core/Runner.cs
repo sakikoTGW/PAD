@@ -231,7 +231,7 @@ public sealed class Runner(Launcher launcher)
             throw new PadError("PA121", "that DSH home belongs to a running client", inst.Home,
                 "lock held by " + holder,
                 ["用 PAD 自己的实例启动（新建一个），不要指向正在运行的客户端 home",
-                 "pad cli node open <own home> --surface web"]);
+                 "pad cli node open <own home> --bundle web"]);
 
         var meta = _l.Profiles(inst).FirstOrDefault(p => p.Name == profile);
         var web = LaunchPolicy.WaitForWebReady(meta?.IsWeb == true);

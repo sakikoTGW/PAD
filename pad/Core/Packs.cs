@@ -208,7 +208,7 @@ public sealed class Packs
         if (doc is null) return cards;
 
         var root = doc.RootElement;
-        // Broken packs do not fail the scan (ok stays true); surface them so a vanished
+        // Broken packs do not fail the scan (ok stays true); bundle them so a vanished
         // row is never silent. The UI/CLI decides whether to show the lines.
         if (root.ValueKind == JsonValueKind.Object
             && root.TryGetProperty("errors", out var errors)

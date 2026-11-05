@@ -313,7 +313,7 @@ public static class Discover
                 if (scan.SelfExe is not null && SamePath(exe, scan.SelfExe)) continue;
 
                 var exeDir = Path.GetDirectoryName(exe);
-                if (!IsElectronDsh(scan, exeDir)) continue;
+                if (!IsElectronDsh(scan, exeDir) && !IsTauriDsh(exeDir)) continue;
 
                 var full = FullPath(exe);
                 if (full is null) continue;
@@ -969,9 +969,15 @@ public static class Discover
 
                 // Home 优先级：启动脚本 → 进程环境 DSH_HOME → 命令行 \profiles\<name> 前缀
                 // → userData\harness → 本进程/注册表 DSH_HOME。进程现场比文件更硬。
-                var home = FirstScriptHome(candidate.Facts)
+                // Home 判定顺序（从「它现在真用哪个」到「它可能用哪个」）：
+                //   1. 命令行里的 \profiles\<name>：Electron 壳会显式传 profile 目录，这是真值；
+                //   2. 进程环境 DSH_HOME：可能只是被启动器继承的旧值；
+                //   3. 目录旁的启动脚本：只能说明「可能用哪个」；
+                //   4. userData\harness / 本进程 EnvHome / 深扫根：最后的兜底。
+                var home = HomeFromProfilesCmdLine(procs)
                            ?? HomeFromProcs(procs)
-                           ?? HomeFromProfilesCmdLine(procs)
+                           ?? HomeFromTree(scan, procs)
+                           ?? FirstScriptHome(candidate.Facts)
                            ?? HarnessUnder(userData)
                            ?? scan.EnvHome
                            ?? ExtraRootHome(scan, candidate.Exe);
@@ -1160,6 +1166,39 @@ public static class Discover
         return null;
     }
 
+    /// <summary>壳自己可能不带 DSH_HOME，但它的子进程（node harness）带：沿进程树找。</summary>
+    static string? HomeFromTree(Scan scan, List<ProcInfo> procs)
+    {
+        if (procs.Count == 0) return null;
+        var roots = procs.Select(p => p.Pid).ToHashSet();
+        var found = new List<string>();
+        // 只认 harness 子进程（bin.js / @deepseek-ai/dsh），并且 home 要像个 home；
+        // 否则 agent 自己起的进程（DSH_HOME 指向工作目录）会把壳归到错误的位置。
+        for (var depth = 0; depth < 3; depth++)
+        {
+            var next = new HashSet<int>();
+            foreach (var p in scan.Procs)
+            {
+                if (p.Pid <= 0 || p.ParentPid <= 0) continue;
+                if (!roots.Contains(p.ParentPid)) continue;
+                next.Add(p.Pid);
+                var cmd = p.CommandLine ?? "";
+                var isHarness = cmd.Contains("bin.js", StringComparison.OrdinalIgnoreCase)
+                                || cmd.Contains("@deepseek-ai/dsh", StringComparison.OrdinalIgnoreCase);
+                if (!isHarness) continue;
+                var home = NormalizePath(p.DshHome);
+                if (home is not null && DshSniff.LooksLikeHome(home)) found.Add(home);
+            }
+            if (next.Count == 0) break;
+            roots = next;
+        }
+        return found
+            .GroupBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .FirstOrDefault();
+    }
+
     /// <summary><c>\profiles\</c> 或 <c>/profiles/</c> 的起始下标；没有返回 -1。</summary>
     static int ProfilesSegmentIndex(string? path)
     {
@@ -1233,6 +1272,22 @@ public static class Discover
         return ok;
     }
 
+    /// <summary>Tauri 壳签名：exe 目录有 runtime 目录 + resources/manifest.jsonc，且资源里有 dsh-tauri 系列包。</summary>
+    static bool IsTauriDsh(string? exeDir)
+    {
+        if (string.IsNullOrWhiteSpace(exeDir)) return false;
+        try
+        {
+            if (!Directory.Exists(Path.Combine(exeDir, "runtime"))) return false;
+            if (!File.Exists(Path.Combine(exeDir, "resources", "manifest.jsonc"))) return false;
+            var modules = Path.Combine(exeDir, "resources", "node_modules");
+            return Directory.Exists(Path.Combine(modules, "dsh-tauri"))
+                || Directory.Exists(Path.Combine(modules, "dsh-tauri-ui"))
+                || Directory.Exists(Path.Combine(modules, "dsh-tauri-pet"));
+        }
+        catch { return false; }
+    }
+
     /// <summary>一个目录里的主 exe：排除 uninstall / elevate / crashpad / helper 之类。</summary>
     static string? FindMainExe(string? dir)
     {
@@ -1273,7 +1328,7 @@ public static class Discover
         var full = FullPath(exe);
         if (full is null || !File.Exists(full)) return;
         if (scan.SelfExe is not null && SamePath(full, scan.SelfExe)) return;
-        if (!verified && !IsElectronDsh(scan, Path.GetDirectoryName(full))) return;
+        if (!verified && !IsElectronDsh(scan, Path.GetDirectoryName(full)) && !IsTauriDsh(Path.GetDirectoryName(full))) return;
 
         if (!scan.Shells.TryGetValue(full, out var candidate))
         {

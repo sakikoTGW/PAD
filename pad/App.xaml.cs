@@ -252,6 +252,7 @@ public partial class App : Application
             Quit(1);
             return;
         }
+            try { var log = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "pack-agent-dsh", "pad-crash.log"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(log)!); System.IO.File.AppendAllText(log, DateTime.Now.ToString("s") + " " + e.Exception + Environment.NewLine); } catch { }
         MessageBox.Show(DialogFor(e.Exception), "PAD 出错了", MessageBoxButton.OK, MessageBoxImage.Error);
         OpenLogIfWanted();
     }

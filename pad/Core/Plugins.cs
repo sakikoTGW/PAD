@@ -39,12 +39,12 @@ public static class Plugins
         string Home,
         string Profile,
         string ProfileDir,
-        string Surface,
+        string Bundle,
         int Total,
         int Wasted,
         IReadOnlyList<Entry> Entries);
 
-    public static Audit Run(string home, string profile, string? surfaceOverride)
+    public static Audit Run(string home, string profile, string? bundleOverride)
     {
         var profileDir = Path.Combine(home, "profiles", profile);
         var manifestPath = Path.Combine(profileDir, "package.json");
@@ -56,23 +56,23 @@ public static class Plugins
         var root = doc.RootElement;
         var bundles = BundleNames(root);
         var outOfTree = DependencyNames(root);
-        var surface = surfaceOverride ?? InferSurface(bundles);
+        var bundle = bundleOverride ?? InferBundle(bundles);
 
         var entries = bundles
             .Select(n => Read(n,
                 Path.Combine(profileDir, "node_modules", n.Replace('/', Path.DirectorySeparatorChar)),
-                surface, outOfTree.Contains(n)))
+                bundle, outOfTree.Contains(n)))
             .ToList();
 
-        return new Audit(home, profile, profileDir, surface, entries.Count,
+        return new Audit(home, profile, profileDir, bundle, entries.Count,
             entries.Count(e => e.Renders == "wasted"), entries);
     }
 
     /// <summary>
-    /// The surface is a property of the profile, not a setting: whichever UI bundle
-    /// the bundle set contains is the surface that will actually show up.
+    /// The bundle is a property of the profile, not a setting: whichever UI bundle
+    /// the bundle set contains is the bundle that will actually show up.
     /// </summary>
-    static string InferSurface(IReadOnlyList<string> bundles)
+    static string InferBundle(IReadOnlyList<string> bundles)
     {
         if (bundles.Any(b => b.Contains("dsh-tui", StringComparison.OrdinalIgnoreCase))) return "tui";
         if (bundles.Any(b => b.Contains("dsh-web-app", StringComparison.OrdinalIgnoreCase))) return "web";
@@ -104,7 +104,7 @@ public static class Plugins
         return set;
     }
 
-    static Entry Read(string name, string dir, string surface, bool outOfTree)
+    static Entry Read(string name, string dir, string bundle, bool outOfTree)
     {
         if (!outOfTree)
             // Spec: in-box bundle names resolve from the dsh installation, never from
@@ -131,8 +131,8 @@ public static class Plugins
         var patchesExist = false;
         string? note = null;
         if (spec.ValueKind == JsonValueKind.Object &&
-            spec.TryGetProperty("bundle", out var bundle) &&
-            bundle.TryGetProperty("patch", out var patch))
+            spec.TryGetProperty("bundle", out var specBundle) &&
+            specBundle.TryGetProperty("patch", out var patch))
         {
             var paths = patch.ValueKind == JsonValueKind.Array
                 ? patch.EnumerateArray().Select(p => p.GetString()).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!).ToArray()
@@ -165,7 +165,7 @@ public static class Plugins
 
         var renders = clientInject == 0
             ? "host"
-            : surface == "tui" ? "wasted" : "client";
+            : bundle == "tui" ? "wasted" : "client";
 
         if (verdict == "plain-dependency")
             note ??= "no dsh.bundle — installs as a plain dependency, contributes no layer";

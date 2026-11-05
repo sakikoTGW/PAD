@@ -902,7 +902,7 @@ public static class Fx
         var (rail, main) = SplitRailMain(page);
         if (rail is null && main is null)
         {
-            HideSurface(page);
+            HideBundle(page);
             return;
         }
         if (rail is not null) HideRail(rail);
@@ -1134,19 +1134,19 @@ public static class Fx
     static void RevealNow(UIElement page)
     {
         var (rail, main) = SplitRailMain(page);
-        if (rail is null && main is null) { ShowSurface(page); return; }
+        if (rail is null && main is null) { ShowBundle(page); return; }
         if (rail is not null) ShowRailNow(rail);
-        if (main is not null) ShowSurface(main);
+        if (main is not null) ShowBundle(main);
     }
 
-    static void HideSurface(UIElement el)
+    static void HideBundle(UIElement el)
     {
         el.BeginAnimation(UIElement.OpacityProperty, null);
         el.Opacity = 0;
         el.RenderTransform = Transform.Identity;
     }
 
-    static void ShowSurface(UIElement el)
+    static void ShowBundle(UIElement el)
     {
         el.BeginAnimation(UIElement.OpacityProperty, null);
         el.Opacity = 1;
@@ -1155,9 +1155,9 @@ public static class Fx
 
     static void ShowRailNow(FrameworkElement rail)
     {
-        ShowSurface(rail);
+        ShowBundle(rail);
         foreach (var item in RailItems(rail))
-            ShowSurface(item);
+            ShowBundle(item);
     }
 
     static void HideMain(FrameworkElement main)
@@ -1209,7 +1209,7 @@ public static class Fx
             });
             return;
         }
-        HideSurface(main);
+        HideBundle(main);
         main.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(320))
         {
             BeginTime = begin,
@@ -1339,7 +1339,7 @@ public static class Fx
 
     /// <summary>
     /// Left column = rail, everything else in the root two-column grid = main.
-    /// Pane-only surfaces (settings layer, download shelf) have no split → main path.
+    /// Pane-only bundles (settings layer, download shelf) have no split → main path.
     /// </summary>
     static (FrameworkElement? Rail, FrameworkElement? Main) SplitRailMain(UIElement page)
     {

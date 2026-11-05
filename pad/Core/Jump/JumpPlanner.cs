@@ -8,9 +8,9 @@ using System.Text.Json.Serialization;
 
 namespace Pad.Core.Jump;
 
-/// <summary>One (surface, transport) candidate with its planner verdict.</summary>
+/// <summary>One (bundle, transport) candidate with its planner verdict.</summary>
 public sealed record JumpCandidate(
-    string Surface,
+    string Bundle,
     string Transport,
     string Rank,
     int Score,
@@ -35,14 +35,14 @@ public sealed class JumpPlan
 }
 
 /// <summary>
-/// Picks one (surface, transport) for a session: hard filters first, then the
-/// deterministic ranking from docs/session-jump.md §6. Surfaces are data.
+/// Picks one (bundle, transport) for a session: hard filters first, then the
+/// deterministic ranking from docs/session-jump.md §6. Bundles are data.
 /// </summary>
 public static class JumpPlanner
 {
     /// <summary>Build a plan without touching the UI.</summary>
     /// <exception cref="PadError">PA132 when the session id is not canonical.</exception>
-    public static JumpPlan Plan(Launcher launcher, Instance inst, string rawSession, string? surfaceFilter = null)
+    public static JumpPlan Plan(Launcher launcher, Instance inst, string rawSession, string? bundleFilter = null)
     {
         var id = SessionRef.Normalize(rawSession)
                  ?? throw new PadError("PA132", "session id is not canonical", $"sessions/{rawSession}", rawSession,
@@ -52,16 +52,16 @@ public static class JumpPlanner
         {
             Session = new { home = inst.Home, id },
         };
-        var descriptors = SurfaceRegistry.Load(launcher, inst.Home);
+        var descriptors = BundleRegistry.Load(launcher, inst.Home);
         var ledger = Nodes.Ledger.Load(inst.Home).Where(e => Proc.Alive(e.Pid)).ToList();
         var ad = GatewayAd.Read(inst.Home);
-        var runningWeb = ledger.FirstOrDefault(e => e.Surface == "web" && !string.IsNullOrWhiteSpace(e.Url));
+        var runningWeb = ledger.FirstOrDefault(e => e.Bundle == "web" && !string.IsNullOrWhiteSpace(e.Url));
 
         foreach (var descriptor in descriptors)
         {
-            if (!string.IsNullOrWhiteSpace(surfaceFilter)
-                && !string.Equals(descriptor.Id, surfaceFilter, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(descriptor.Kind, surfaceFilter, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(bundleFilter)
+                && !string.Equals(descriptor.Id, bundleFilter, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(descriptor.Kind, bundleFilter, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             if (descriptor.Error is not null || descriptor.Kind == "invalid")
@@ -86,7 +86,7 @@ public static class JumpPlanner
                     case "url-query":
                         if (runningWeb is null)
                             plan.Rejected.Add(new JumpCandidate(descriptor.Id, type, "R1", 0, "rejected", "PA133",
-                                "no running web surface for this home (PAD ledger)"));
+                                "no running web bundle for this home (PAD ledger)"));
                         else
                             plan.Candidates.Add(new JumpCandidate(descriptor.Id, type, "R1", 800, "eligible"));
                         break;
@@ -95,8 +95,8 @@ public static class JumpPlanner
                     case "launch-args":
                         if (!string.Equals(descriptor.Kind, "tui", StringComparison.OrdinalIgnoreCase))
                             plan.Rejected.Add(new JumpCandidate(descriptor.Id, type, "R2", 0, "rejected", "PA134",
-                                "launch-env/args is only valid for PAD-launched surfaces"));
-                        else if (ledger.Any(e => e.Surface == "tui"))
+                                "launch-env/args is only valid for PAD-launched bundles"));
+                        else if (ledger.Any(e => e.Bundle == "tui"))
                             plan.Rejected.Add(new JumpCandidate(descriptor.Id, type, "R2", 0, "rejected", "PA133",
                                 "tui profile already running; resume needs a relaunch"));
                         else
@@ -119,7 +119,7 @@ public static class JumpPlanner
 
         plan.Chosen = plan.Candidates
             .OrderByDescending(c => c.Score)
-            .ThenBy(c => c.Surface, StringComparer.Ordinal)
+            .ThenBy(c => c.Bundle, StringComparer.Ordinal)
             .ThenBy(c => c.Transport, StringComparer.Ordinal)
             .FirstOrDefault();
 
@@ -129,7 +129,7 @@ public static class JumpPlanner
         {
             plan.Pa = "PA139";
             plan.Degraded = true;
-            plan.Detail = "falls back to focusing the surface window + clipboard";
+            plan.Detail = "falls back to focusing the bundle window + clipboard";
         }
         else if (plan.Chosen.State == "plan-only")
         {
@@ -142,12 +142,12 @@ public static class JumpPlanner
 
     /// <summary>Plan + execute the chosen transport. Throws PA130 when nothing is usable.</summary>
     public static async Task<JumpPlan> ExecuteAsync(Launcher launcher, Instance inst, string rawSession,
-        string? surfaceFilter = null, bool execute = true, CancellationToken ct = default)
+        string? bundleFilter = null, bool execute = true, CancellationToken ct = default)
     {
-        var plan = Plan(launcher, inst, rawSession, surfaceFilter);
+        var plan = Plan(launcher, inst, rawSession, bundleFilter);
         if (plan.Chosen is null)
-            throw new PadError("PA130", "no usable surface for this session", inst.Home, null,
-                ["pad cli surface list --json", "install @sakikotgw/pad-session-jump / pad-gateway in this profile",
+            throw new PadError("PA130", "no usable bundle for this session", inst.Home, null,
+                ["pad cli bundle list --json", "install @sakikotgw/pad-session-jump / pad-gateway in this profile",
                  "start the instance first: pad cli web " + inst.Id]);
 
         if (!execute) return plan;
@@ -168,8 +168,8 @@ public static class JumpPlanner
             case "url-query":
             {
                 var running = Nodes.Ledger.Load(inst.Home)
-                    .FirstOrDefault(e => e.Surface == "web" && !string.IsNullOrWhiteSpace(e.Url));
-                if (running is null) throw new PadError("PA133", "no running web surface", inst.Home);
+                    .FirstOrDefault(e => e.Bundle == "web" && !string.IsNullOrWhiteSpace(e.Url));
+                if (running is null) throw new PadError("PA133", "no running web bundle", inst.Home);
                 var url = WithSessionParam(running.Url, id);
                 OpenUrl(url);
                 plan.Executed = true;
@@ -202,8 +202,8 @@ public static class JumpPlanner
             case "focus-clipboard":
             {
                 var running = Nodes.Ledger.Load(inst.Home).Where(e => Proc.Alive(e.Pid)).ToList();
-                var target = running.FirstOrDefault(e => e.Surface == "web")
-                             ?? running.FirstOrDefault(e => e.Surface == "app")
+                var target = running.FirstOrDefault(e => e.Bundle == "web")
+                             ?? running.FirstOrDefault(e => e.Bundle == "app")
                              ?? running.FirstOrDefault();
                 var titleHints = new[] { "DeepSeek Harness", inst.Id };
                 var (focused, ambiguous, detail) = FocusClipboard.TryFocus(target?.Pid, titleHints);
@@ -222,7 +222,7 @@ public static class JumpPlanner
             {
                 // launch-env (tui): M1 does not relaunch; report the planned env.
                 var envName = chosen.Transport == "launch-env" ? "DSH_TUI_RESUME_SESSION" : "(args)";
-                plan.Detail = $"planned {chosen.Transport} for {chosen.Surface}: {envName}={id} (M1 plan-only)";
+                plan.Detail = $"planned {chosen.Transport} for {chosen.Bundle}: {envName}={id} (M1 plan-only)";
                 plan.Degraded = true;
                 return plan;
             }

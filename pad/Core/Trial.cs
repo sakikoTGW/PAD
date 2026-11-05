@@ -253,7 +253,7 @@ public sealed class Trials(Launcher launcher)
                 ["npm_config_ignore_workspace_root_check"] = "true",
             };
             log?.Report($"dsh plugin --profile {profile} remove {name}");
-            await Proc.Run("node", $"\"{bin}\" plugin --profile {profile} remove {name}",
+            await Proc.Run("node", $"{(profile.Equals("desktop", StringComparison.OrdinalIgnoreCase) ? "\"" + System.IO.Path.Combine(_l.Root, "runtime", "dsh-desktop-shim.mjs") + "\"" : "\"" + bin + "\"")} plugin --profile {profile} remove {name}",
                 inst.Workspace.Path, log, ct, env);
         }
 

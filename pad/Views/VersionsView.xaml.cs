@@ -1308,26 +1308,66 @@ public partial class VersionsView : UserControl, IRefreshable
     void RebuildContainerRows()
     {
         if (ContainerList is null) return;
-        // 一行 = 一种 surface。profile 里装了两种 UI bundle 就拆成两行：
+        // 一行 = 一种 bundle。profile 里装了两种 UI bundle 就拆成两行：
         // 浏览器窗口和终端窗口是两种「怎么看见」，不是同一行的两种标签。
         var rows = new List<ProfileVm>();
+        // PAD 自己启动的记录带 bundle：dsh-web-app 行和 dsh-tui 行是同一个 profile 的两种
+        // 「怎么看见」，只有被启动的那一种才算在跑；另一种只是「这个 bundle 装了」。
+        var ledgerByInstance = new Dictionary<string, List<Nodes.Running>>(StringComparer.OrdinalIgnoreCase);
+        List<Nodes.Running> RunsFor(Instance inst)
+        {
+            if (ledgerByInstance.TryGetValue(inst.Id, out var hit)) return hit;
+            List<Nodes.Running> live;
+            try { live = Nodes.Ledger.Load(inst.Home).Where(e => Proc.Alive(e.Pid)).ToList(); }
+            catch { live = []; }
+            ledgerByInstance[inst.Id] = live;
+            return live;
+        }
+
         foreach (var p in _state.Launchables)
         {
-            var surfaces = p.Profile.UiSurfaces;
-            if (surfaces.Count <= 1) { rows.Add(p); continue; }
-            foreach (var surface in surfaces)
-                rows.Add(new BundleRow(p.Instance, p.Profile, surface) { Running = p.Running });
+            var bundles = p.Profile.UiBundles;
+            // `desktop` profile 是官方桌面端的配置树（DSH 自己创建、只归桌面端管理）：
+            // PAD 不能把它当网页 bundle 启动，桌面端由上面的「官方」shell 行代表。
+            if (string.Equals(p.Name, "desktop", StringComparison.OrdinalIgnoreCase)) continue;
+
+            // 一行 = 一个 bundle。"profile 名" 不是 bundle：desktop/headless 这种不再冒充行；
+            // 没有 UI bundle 的 profile（headless）只能走 CLI，不在这里出现。
+            if (bundles.Count == 0) continue;
+
+            var runs = RunsFor(p.Instance)
+                .Where(e => string.Equals(e.Profile, p.Name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var legacyBundle = p.Profile.IsWeb ? "web" : "tui";
+            foreach (var bundle in bundles)
+            {
+                var running = runs.Count > 0
+                    ? runs.Any(e => string.Equals(e.Bundle, bundle, StringComparison.OrdinalIgnoreCase))
+                    : p.Running && string.Equals(bundle, legacyBundle, StringComparison.OrdinalIgnoreCase);
+                rows.Add(new BundleRow(p.Instance, p.Profile, bundle) { Running = running });
+            }
         }
         if (_detected is not null)
         {
             var instanceHomes = new HashSet<string>(
                 _state.Instances.Select(i => NormHome(i.Home)), StringComparer.OrdinalIgnoreCase);
+
+            // 右栏是「当前实例的 bundle」。别的 home 的桌面端/TUI 属于别的实例，不能混进来，
+            // 否则看起来就像把实例当成了 bundle。
+            var selectedHome = _state.SelectedInstance?.Home;
+            bool BelongsHere(string? home)
+            {
+                if (string.IsNullOrWhiteSpace(home)) return true;       // 不知道 home：保留，允许收编
+                if (string.IsNullOrWhiteSpace(selectedHome)) return true;
+                return LaunchPolicy.SamePath(home, selectedHome);
+            }
+
             foreach (var shell in _detected.Shells)
             {
                 var home = NormHome(shell.Home);
+                if (!BelongsHere(home)) continue;
                 rows.Add(new DetectedShellRow(shell, canAdopt: home.Length > 0 && !instanceHomes.Contains(home))
                 {
-                    // OS 里这个桌面端活着 ≠ PAD 启动过它：只记 LocalRunning，不点呼吸绿灯。
                     LocalRunning = shell.Running,
                 });
             }
@@ -1335,17 +1375,29 @@ public partial class VersionsView : UserControl, IRefreshable
             {
                 if (string.IsNullOrWhiteSpace(tui.Package)) continue;
                 var home = NormHome(tui.Home);
+                if (!BelongsHere(home)) continue;
                 if (home.Length > 0 && instanceHomes.Contains(home)) continue; // 已收编：实例自己的 profile 已列出
                 rows.Add(new DetectedTuiRow(tui, canAdopt: true) { LocalRunning = tui.Running });
             }
         }
-        var keepKey = (ContainerList.SelectedItem as ProfileVm)?.InstanceName;
+        // 还原“上次点的那一行”：优先 lastContainer；其次保持当前选中；最后退回当前实例的默认行。
+        ProfileVm? wanted = null;
+        var wantId = _state.Settings.LastContainer;
+        if (!string.IsNullOrWhiteSpace(wantId))
+            wanted = rows.FirstOrDefault(r => AppState.ContainerIdOf(r) == wantId);
+        wanted ??= _state.SelectedContainer is { } cur
+            ? rows.FirstOrDefault(r => ReferenceEquals(r.Instance, cur.Instance)
+                && r.Name == cur.Name && r.GetType() == cur.GetType())
+            : null;
+        wanted ??= rows.FirstOrDefault(r => !r.IsDetected && ReferenceEquals(r.Instance, _state.SelectedInstance));
+
         _containerSync = true;
         try
         {
+            ContainerList.ItemsSource = null;
             ContainerList.ItemsSource = rows;
-            if (keepKey is not null)
-                ContainerList.SelectedItem = rows.FirstOrDefault(r => r.InstanceName == keepKey);
+            ContainerList.SelectedItem = wanted;
+            if (wanted is not null) _state.SelectedContainer = wanted;
         }
         finally { _containerSync = false; }
     }

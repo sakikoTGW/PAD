@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace Pad.Core;
 
 /// <summary>
-/// Starts one instance in one surface. The web surface announces its endpoint on
+/// Starts one instance in one bundle. The web bundle announces its endpoint on
 /// stdout as <c>dsh web: &lt;url&gt;</c> — and that url carries a per-run token, so the
 /// line is the only source of truth. A port probe can succeed before the token exists.
 ///
@@ -25,7 +25,7 @@ public static class Nodes
     public sealed record Opened(
         string Home,
         string Profile,
-        string Surface,
+        string Bundle,
         int Port,
         string Url,
         int Pid,
@@ -35,7 +35,7 @@ public static class Nodes
     /// <summary>One instance PAD started and still believes is running.</summary>
     public sealed record Running(
         string Profile,
-        string Surface,
+        string Bundle,
         int Port,
         string Url,
         int Pid,
@@ -55,7 +55,8 @@ public static class Nodes
             WriteIndented = true,
         };
 
-        public static string PathFor(string home) => System.IO.Path.Combine(home, ".pad", "nodes.json");
+        public static string PathFor(string home) =>
+            System.IO.Path.Combine(string.IsNullOrWhiteSpace(home) ? "." : home, ".pad", "nodes.json");
 
         public static IReadOnlyList<Running> Load(string home)
         {
@@ -69,7 +70,13 @@ public static class Nodes
                 var text = File.ReadAllText(path);
                 using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array)
-                    return JsonSerializer.Deserialize<List<Running>>(nodes.GetRawText(), Camel) ?? [];
+                {
+                    // 旧账本键名是 "bundle"：读时迁移到 bundle，Save 时自然写成新键。
+                    var raw = nodes.GetRawText();
+                    if (raw.Contains("\"bundle\"", StringComparison.Ordinal))
+                        raw = raw.Replace("\"bundle\"", "\"bundle\"");
+                    return JsonSerializer.Deserialize<List<Running>>(raw, Camel) ?? [];
+                }
                 return [];
             }
             catch
@@ -374,7 +381,7 @@ public static class Nodes
             throw new PadError("PA004", "that port is already taken", $"127.0.0.1:{asked}",
                 $"port {asked} is already in use on 127.0.0.1{OwnerText(ownerPid)}",
                 ["pad cli node open " + home + " --port <other port>",
-                 "pad cli node open " + home + " --surface web --profile " + profile]);
+                 "pad cli node open " + home + " --bundle web --profile " + profile]);
 
         var logDir = Path.Combine(home, ".pad", "logs");
         Directory.CreateDirectory(logDir);
@@ -465,7 +472,7 @@ public static class Nodes
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "dsh-desktop");
 
     /// <summary>
-    /// Boot the desktop shell as the <c>app</c> surface, on its own Electron userData.
+    /// Boot the desktop shell as the <c>app</c> bundle, on its own Electron userData.
     ///
     /// The shell derives its DSH home as <c>&lt;userData&gt;/harness</c>, so pointing
     /// <c>--user-data-dir</c> at a per-project directory gives that project its own home,
@@ -478,7 +485,7 @@ public static class Nodes
     {
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
             throw new PadError("PA087", "no desktop shell executable at that path", exePath ?? "(none)", null,
-                ["pad cli node open <home> --surface app --exe <DSH Desktop.exe>"]);
+                ["pad cli node open <home> --bundle app --exe <DSH Desktop.exe>"]);
 
         var dataDir = Path.GetFullPath(userDataDir ?? Path.Combine(home, ".pad", "desktop"));
         Directory.CreateDirectory(dataDir);
@@ -502,7 +509,7 @@ public static class Nodes
         catch (Exception ex)
         {
             throw new PadError("PA088", "could not start the desktop shell", exePath, ex.Message,
-                ["pad cli node open <home> --surface app --exe <DSH Desktop.exe>"]);
+                ["pad cli node open <home> --bundle app --exe <DSH Desktop.exe>"]);
         }
 
         var logPath = Path.Combine(dataDir, "logs", "harness.log");
@@ -516,7 +523,7 @@ public static class Nodes
             if (proc.HasExited)
                 throw new PadError("PA089", "the desktop shell exited immediately", exePath,
                     "exit code " + proc.ExitCode,
-                    ["pad cli node open <home> --surface app --exe <DSH Desktop.exe>"]);
+                    ["pad cli node open <home> --bundle app --exe <DSH Desktop.exe>"]);
 
             if (DesktopShellRunning(dataDir) && ShellHome(logPath) is { } seen)
             {
@@ -525,7 +532,7 @@ public static class Nodes
                 throw new PadError("PA090", "the shell ignored the user data dir", dataDir,
                     "it reported DSH_HOME=" + seen + " but PAD expected " + expected,
                     ["close that DSH Desktop window",
-                     "pad cli node open <home> --surface app --exe <DSH Desktop.exe> --user-data <dir>"]);
+                     "pad cli node open <home> --bundle app --exe <DSH Desktop.exe> --user-data <dir>"]);
             }
 
             await Task.Delay(400, ct).ConfigureAwait(false);
@@ -535,7 +542,7 @@ public static class Nodes
     }
 
     /// <summary>
-    /// Boot the Tauri-based desktop as the <c>tauri</c> surface.
+    /// Boot the Tauri-based desktop as the <c>tauri</c> bundle.
     ///
     /// The shell resolves its DSH home from the exported <c>DSH_HOME</c> (release builds),
     /// so PAD can point one project's window at its own instance home. It is a
@@ -548,7 +555,7 @@ public static class Nodes
     {
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
             throw new PadError("PA147", "no tauri desktop executable at that path", exePath ?? "(none)", null,
-                ["pad cli node open <home> --surface tauri --exe <deepseek-harness-desktop.exe>"]);
+                ["pad cli node open <home> --bundle tauri --exe <deepseek-harness-desktop.exe>"]);
 
         var logDir = Path.Combine(home, ".pad", "logs");
         Directory.CreateDirectory(logDir);
@@ -578,7 +585,7 @@ public static class Nodes
         catch (Exception ex)
         {
             throw new PadError("PA148", "could not start the tauri desktop", exePath, ex.Message,
-                ["pad cli node open <home> --surface tauri --exe <deepseek-harness-desktop.exe>"]);
+                ["pad cli node open <home> --bundle tauri --exe <deepseek-harness-desktop.exe>"]);
         }
         finally
         {
@@ -614,7 +621,7 @@ public static class Nodes
     }
 
     /// <summary>
-    /// Boot the terminal surface. There is no endpoint to wait for, so readiness is
+    /// Boot the terminal bundle. There is no endpoint to wait for, so readiness is
     /// "the console process survived the first few seconds" — DSH gives a terminal app
     /// no handshake to wait for.
     /// </summary>
@@ -662,7 +669,7 @@ public static class Nodes
         catch (Exception ex)
         {
             throw new PadError("PA079", "could not start the terminal", "cmd.exe", ex.Message,
-                ["pad cli node open <home> --surface tui --bin <bin.js>"]);
+                ["pad cli node open <home> --bundle tui --bin <bin.js>"]);
         }
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
@@ -672,7 +679,7 @@ public static class Nodes
             if (term.HasExited)
                 throw new PadError("PA083", "the terminal exited immediately", home,
                     "exit code " + term.ExitCode + "; the profile may not exist yet",
-                    ["pad cli node open <home> --surface tui --profile <p>",
+                    ["pad cli node open <home> --bundle tui --profile <p>",
                      "dsh plugin --profile <p> add <package>",
                      "pad cli node list " + home]);
             await Task.Delay(250, ct).ConfigureAwait(false);

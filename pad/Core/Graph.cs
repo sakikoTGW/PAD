@@ -19,7 +19,7 @@ public static class Graph
     {
         public bool IsChild => Depth > 0;
 
-        /// <summary>会话最后 known 的上下文占用（surfaceTokens）；0 = 缓存里没写。</summary>
+        /// <summary>会话最后 known 的上下文占用（bundleTokens）；0 = 缓存里没写。</summary>
         public long Ctx { get; init; }
 
         /// <summary>该会话声明过的上下文窗口；0 = 未知。Ctx/Win 才是"水位"。</summary>
@@ -139,12 +139,12 @@ public static class Graph
                         title = (tv.GetString() ?? "").Trim();
                     }
 
-                    // 规模：和 inspect 同源的事实（surfaceTokens / contextWindow / archived），
+                    // 规模：和 inspect 同源的事实（bundleTokens / contextWindow / archived），
                     // 这里顺手读走，图形界面就不用为每个会话再跑一次 inspect
                     if (rows.TryGetProperty("contextPressure", out var cp) &&
                         cp.TryGetProperty("val", out var cv) && cv.ValueKind == JsonValueKind.Object)
                     {
-                        ctx = LongOf(cv, "surfaceTokens");
+                        ctx = LongOf(cv, "bundleTokens");
                         win = LongOf(cv, "contextWindow");
                     }
                     if (rows.TryGetProperty("contextTimeline", out var tl) &&

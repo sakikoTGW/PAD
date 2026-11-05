@@ -1793,6 +1793,7 @@ public sealed class Launcher
             ["NPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK"] = "true",
         };
         AddPnpmEnv(env);
+        AddShimEnv(env, bin, profile);
 
         var job = StartJob($"plugin-{action}", id, null, spec);
         var token = TrackCancel(job.Id, ct);
@@ -1808,7 +1809,7 @@ public sealed class Launcher
             }, token);
             await Pnpm.EnsureAsync(log, token);
             log?.Report($"dsh plugin --profile {profile} {action} {spec}");
-            var res = await Proc.Run("node", $"\"{bin}\" plugin --profile {profile} {action} {spec}",
+            var res = await Proc.Run("node", $"{DshArgs(bin, profile)} plugin --profile {profile} {action} {spec}",
                 inst.Workspace.Path, log, token, env);
             if (token.IsCancellationRequested)
             {
@@ -1816,8 +1817,21 @@ public sealed class Launcher
                 throw new OperationCanceledException();
             }
             if (res.ExitCode != 0)
-                throw new PadError("PA014", $"plugin {action} failed: {spec}", $"instance `{id}`",
-                    res.Tail, ["看上面的 pnpm 输出", "确认包名与网络"]);
+            {
+                // desktop profile 被 DSH 锁死：直写 package.json，和别的 profile 一样对待。
+                if (res.Tail.Contains("managed exclusively", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (action == "remove")
+                        await DirectProfile.RemoveAsync(this, inst, profile, spec, log, token);
+                    else
+                        await DirectProfile.InstallAsync(this, inst, profile, spec, log, token);
+                }
+                else
+                {
+                    throw new PadError("PA014", $"plugin {action} failed: {spec}", $"instance `{id}`",
+                        res.Tail, ["看上面的 pnpm 输出", "确认包名与网络"]);
+                }
+            }
 
             // Mark restart required (cold only: the hot path is verified and cleared by the caller).
             if (!hot && inst.Status != "import-failed")
@@ -1903,8 +1917,18 @@ public sealed class Launcher
         if (instId.Length == 0) instId = "local-dsh";
         var dir = InstanceDir(instId);
         if (File.Exists(Path.Combine(dir, "instance.json")))
-            throw new PadError("PA023", "an instance with this id already exists",
-                $"instances/{instId}", instId, ["换个名字"]);
+        {
+            // 收编时 id 冲突（例如 `C:\Users\Brs\.dsh` 与已有 `dsh` 撞名）：自动加序号，
+            // 而不是让用户换个名字——否则「两个 home 各是一个实例」在 UI 上根本走不通。
+            var baseId = instId;
+            var n = 2;
+            while (n < 100 && File.Exists(Path.Combine(InstanceDir(baseId + "-" + n), "instance.json"))) n++;
+            instId = baseId + "-" + n;
+            dir = InstanceDir(instId);
+            if (File.Exists(Path.Combine(dir, "instance.json")))
+                throw new PadError("PA023", "an instance with this id already exists",
+                    $"instances/{instId}", instId, ["换个名字"]);
+        }
 
         var workspace = Path.Combine(dir, "workspace");
         Directory.CreateDirectory(workspace);
@@ -2399,6 +2423,145 @@ public sealed class Launcher
     /// <c>$DSH_HOME/profiles/&lt;name&gt;/package.json</c> exists; its bundles are that
     /// file's <c>dsh.profile.bundles</c>.
     /// </summary>
+    /// <summary>profile 是「配置树」：可以命名、改名、删除。desktop 除外（桌面端独占管理）。</summary>
+    public string ProfileDir(Instance inst, string name) => Path.Combine(inst.Home, "profiles", name);
+
+    static bool ProfileNameOk(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 64) return false;
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+        if (name.IndexOf(Path.AltDirectorySeparatorChar) >= 0) return false;
+        if (name.IndexOf(Path.DirectorySeparatorChar) >= 0) return false;
+        return !name.StartsWith(".");
+    }
+
+    void EnsureProfileName(Instance inst, string name)
+    {
+        if (string.Equals(name, "desktop", StringComparison.OrdinalIgnoreCase))
+            throw new PadError("PA141", "the desktop profile is managed by the desktop app", name,
+                "desktop", ["不要改名/删除它", "换 profile 请新建一个"]);
+        if (!ProfileNameOk(name))
+            throw new PadError("PA142", "invalid profile name", name, "name",
+                ["用字母/数字/-_./，不要以 . 开头"]);
+    }
+
+    void EnsureProfileIdle(Instance inst, string name)
+    {
+        try
+        {
+            var live = Nodes.Ledger.Load(inst.Home)
+                .FirstOrDefault(e => string.Equals(e.Profile, name, StringComparison.OrdinalIgnoreCase) && Proc.Alive(e.Pid));
+            if (live is not null)
+                throw new PadError("PA143", "profile is running", "profile " + name,
+                    "pid " + live.Pid, ["先关掉它再改名/删除"]);
+        }
+        catch (PadError) { throw; }
+        catch { /* 账本读不到就当没在跑 */ }
+    }
+
+    /// <summary>重命名 profile：目录 + lastProfile + 启动脚本。</summary>
+    /// <summary>
+    /// 恢复出厂设置：把 profile 目录挪到 <home>\.pad-backups\ 后，让 DSH 重新materialize 一个干净的同名 profile。
+    /// 和“删除”不同：名字还在、lastProfile 不变、桌面端也有家可回；失败自动还原。
+    /// </summary>
+    public async Task<string> ResetProfile(Instance inst, string profile,
+        IProgress<string>? log, CancellationToken ct)
+    {
+        var dir = ProfileDir(inst, profile);
+        if (!Directory.Exists(dir))
+            throw new PadError("PA144", "no such profile", "profile " + profile, dir, ["pad cli profile list <instance>"]);
+        EnsureProfileIdle(inst, profile);
+
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var backupRoot = Path.Combine(inst.Home, ".pad-backups");
+        Directory.CreateDirectory(backupRoot);
+        var backup = Path.Combine(backupRoot, profile + "-" + stamp);
+        Directory.Move(dir, backup);
+
+        try
+        {
+            var bin = DshBin(inst.Dsh.Version);
+            if (!File.Exists(bin))
+                throw new PadError("PA001", "the pinned release is not installed", "instance `" + inst.Id + "`",
+                    bin, ["先装这个发行号"]);
+            var env = new Dictionary<string, string> { ["DSH_HOME"] = inst.Home };
+            // 先放一个空骨架：缺失目录时 dsh 会直接报错，不 materialize。
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "package.json"),
+                "{\"name\":\"dsh-profile-" + profile + "\",\"private\":true,\"dsh\":{\"profile\":{\"bundles\":[]}}}");
+            log?.Report("让 DSH 重新生成 profile：" + profile);
+            await Proc.Run("node", "\"" + bin + "\" --profile " + profile + " --dump-config",
+                inst.Workspace.Path, log, ct, env);
+            if (!File.Exists(Path.Combine(dir, "package.json")))
+                throw new PadError("PA152", "dsh did not materialize the profile", "profile " + profile, dir,
+                    ["检查 DSH 输出"]);
+            return backup;
+        }
+        catch
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
+            try { if (Directory.Exists(backup)) Directory.Move(backup, dir); } catch { }
+            throw;
+        }
+    }
+
+    public DshProfile RenameProfile(Instance inst, string from, string to, bool experimental = false)
+    {
+        var src = ProfileDir(inst, from);
+        if (!Directory.Exists(src))
+            throw new PadError("PA144", "no such profile", "profile " + from, src, ["pad cli profile list <instance>"]);
+        if (!experimental) EnsureProfileName(inst, from);   // 实验开关：desktop 也可改名
+        EnsureProfileIdle(inst, from);
+        EnsureProfileName(inst, to);
+        var dst = ProfileDir(inst, to);
+        if (Directory.Exists(dst))
+            throw new PadError("PA145", "that profile name is taken", "profile " + to, dst, ["换个名字"]);
+
+        Directory.Move(src, dst);
+        if (string.Equals(inst.LastProfile, from, StringComparison.OrdinalIgnoreCase))
+        {
+            inst.LastProfile = to;
+            SaveInstance(inst);
+        }
+        try
+        {
+            var dir = InstanceDir(inst.Id);
+            foreach (var script in Directory.EnumerateFiles(dir, Platform.Current.IsWindows ? "launch-*.cmd" : "launch-*.sh"))
+            {
+                var name = Path.GetFileNameWithoutExtension(script)["launch-".Length..];
+                if (!string.Equals(name, from, StringComparison.OrdinalIgnoreCase)) continue;
+                try { File.Delete(script); } catch { }
+                try { new Runner(this).WriteScript(inst, to, Settings(), heal: false); } catch { }
+            }
+        }
+        catch { /* 脚本重写失败不影响 profile 本体 */ }
+        return new DshProfile { Name = to, Dir = dst, Bundles = Profiles(inst).FirstOrDefault(p => p.Name == to)?.Bundles ?? [] };
+    }
+
+    /// <summary>删除 profile（目录 + 启动脚本）。</summary>
+    public void RemoveProfile(Instance inst, string name)
+    {
+        var dir = ProfileDir(inst, name);
+        if (!Directory.Exists(dir))
+            throw new PadError("PA144", "no such profile", "profile " + name, dir, ["pad cli profile list <instance>"]);
+        EnsureProfileIdle(inst, name);
+        EnsureProfileName(inst, name);
+        Directory.Delete(dir, recursive: true);
+        if (string.Equals(inst.LastProfile, name, StringComparison.OrdinalIgnoreCase))
+        {
+            inst.LastProfile = null;
+            SaveInstance(inst);
+        }
+        try
+        {
+            var idir = InstanceDir(inst.Id);
+            foreach (var script in Directory.EnumerateFiles(idir, Platform.Current.IsWindows ? "launch-*.cmd" : "launch-*.sh"))
+                if (string.Equals(Path.GetFileNameWithoutExtension(script)["launch-".Length..], name, StringComparison.OrdinalIgnoreCase))
+                    File.Delete(script);
+        }
+        catch { /* 脚本删不掉不影响 */ }
+    }
+
     public List<DshProfile> Profiles(Instance inst)
     {
         var list = new List<DshProfile>();
@@ -2535,6 +2698,108 @@ public sealed class Launcher
     /// 10 个插件的安装拖成十几分钟（CPU 全在 PAD 自己身上、无子进程，看起来像卡死）。
     /// 批量路径只在本次安装的第一次 add 前 heal 一次；单插件路径保持默认 true（行为不变）。
     /// </summary>
+    /// <summary>直接改 profile 的 <c>dsh.profile.bundles</c>（启用/禁用，不动依赖与安装）。</summary>
+    public void SetProfileBundles(Instance inst, string profile, IReadOnlyList<string> bundles)
+    {
+        var pkg = Path.Combine(ProfileDir(inst, profile), "package.json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(pkg))
+            ?? throw new PadError("PA146", "profile package.json is empty", profile, pkg, ["修复或删除这个 profile"]);
+        var arr = new System.Text.Json.Nodes.JsonArray();
+        foreach (var b in bundles) arr.Add(b);
+        node["dsh"] ??= new System.Text.Json.Nodes.JsonObject();
+        node["dsh"]!["profile"] ??= new System.Text.Json.Nodes.JsonObject();
+        node["dsh"]!["profile"]!["bundles"] = arr;
+        File.WriteAllText(pkg, node.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    /// <summary>本机版本库里装着的、声明了 <c>dsh.bundle.patch</c> 的包（bundle 候选）。</summary>
+    public List<(string Spec, string Version, string Dir)> StoreBundles(Instance inst)
+    {
+        var found = new Dictionary<string, (string Spec, string Version, string Dir)>(StringComparer.OrdinalIgnoreCase);
+        var nm = Path.Combine(VersionDir(inst.Dsh.Version), "node_modules");
+        if (!Directory.Exists(nm)) return [];
+
+        void Consider(string dir)
+        {
+            var pkg = Path.Combine(dir, "package.json");
+            if (!File.Exists(pkg)) return;
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(pkg));
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("dsh", out var dsh) || !dsh.TryGetProperty("bundle", out _)) return;
+                var name = root.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                var ver = root.TryGetProperty("version", out var v) ? v.GetString() ?? "" : "";
+                if (name.Length == 0) return;
+                found.TryAdd(name, (name, ver, dir));
+            }
+            catch { /* 坏包跳过 */ }
+        }
+
+        void ConsiderScope(string dir)
+        {
+            var name = Path.GetFileName(dir);
+            if (name == ".pnpm" || name == ".bin") return;
+            if (name.StartsWith("@", StringComparison.Ordinal))
+            {
+                foreach (var s in Directory.EnumerateDirectories(dir)) Consider(s);
+            }
+            else Consider(dir);
+        }
+
+        // 1) 扁平/hoisted 布局：node_modules/<pkg>
+        foreach (var d in Directory.EnumerateDirectories(nm)) ConsiderScope(d);
+
+        // 2) pnpm 虚拟仓：node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>
+        var store = Path.Combine(nm, ".pnpm");
+        if (Directory.Exists(store))
+        {
+            foreach (var pkg in Directory.EnumerateDirectories(store))
+            {
+                var inner = Path.Combine(pkg, "node_modules");
+                if (!Directory.Exists(inner)) continue;
+                foreach (var d in Directory.EnumerateDirectories(inner)) ConsiderScope(d);
+            }
+        }
+
+        var list = found.Values.ToList();
+        list.Sort((a, b) => string.CompareOrdinal(a.Spec, b.Spec));
+        return list;
+    }
+
+
+    /// <summary>
+    /// desktop profile 的 CLI 被 DSH 锁死（bin.js 的 rejectElectronProfile），
+    /// 但上游给桌面端留了 API 口子：runCli({ manageDesktopProfile: true })。
+    /// PAD 用同一个口子——一个 shim 调用 runCli，argv 原样透传。
+    /// </summary>
+    string DesktopShimPath()
+    {
+        var dir = Path.Combine(Root, "runtime");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "dsh-desktop-shim.mjs");
+        if (!File.Exists(path))
+            File.WriteAllText(path,
+                "// PAD: desktop profile 的官方口子（runCli 的 manageDesktopProfile）\n" +
+                "const { pathToFileURL } = await import(\"node:url\");\n" +
+                "const mod = await import(pathToFileURL(process.env.PAD_DSH_BIN).href);\n" +
+                "await mod.runCli({ manageDesktopProfile: true });\n");
+        return path;
+    }
+
+    /// <summary>dsh 命令前缀：普通 profile 用 bin.js；desktop 用 shim。</summary>
+    string DshArgs(string bin, string profile) =>
+        string.Equals(profile, "desktop", StringComparison.OrdinalIgnoreCase)
+            ? $"\"{DesktopShimPath()}\""
+            : $"\"{bin}\"";
+
+    /// <summary>desktop 走 shim 时要告诉 shim 用哪个 bin.js。</summary>
+    void AddShimEnv(Dictionary<string, string> env, string bin, string profile)
+    {
+        if (string.Equals(profile, "desktop", StringComparison.OrdinalIgnoreCase))
+            env["PAD_DSH_BIN"] = bin;
+    }
+
     public async Task AddBundles(Instance inst, string profile, IEnumerable<string> specs,
         IProgress<string>? log, CancellationToken ct, bool heal = true)
     {
@@ -2554,6 +2819,7 @@ public sealed class Launcher
             ["NPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK"] = "true",
         };
         AddPnpmEnv(env);
+        AddShimEnv(env, bin, profile);
 
         var specList = specs.ToList();
         var job = StartJob("plugin-add", inst.Id, null, specList.FirstOrDefault());
@@ -2586,7 +2852,7 @@ public sealed class Launcher
                 EnsureProfileNpmrc(inst, profile);
                 PnpmPolicy.Normalize(Path.Combine(inst.Home, "profiles", profile));
                 log?.Report($"dsh plugin --profile {profile} add {spec}");
-                var res = await Proc.Run("node", $"\"{bin}\" plugin --profile {profile} add {spec}",
+                var res = await Proc.Run("node", $"{DshArgs(bin, profile)} plugin --profile {profile} add {spec}",
                     inst.Workspace.Path, log, token, env);
                 if (token.IsCancellationRequested)
                 {
@@ -2594,9 +2860,19 @@ public sealed class Launcher
                     throw new OperationCanceledException();
                 }
                 if (res.ExitCode != 0)
+                {
+                    // desktop profile 被 DSH 锁死（"managed exclusively"）：PAD 直写 package.json，
+                    // 对所有 profile 一视同仁，而不是把 desktop 当特殊。
+                    if (res.Tail.Contains("managed exclusively", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var changed = await DirectProfile.InstallAsync(this, inst, profile, spec, log, token);
+                        log?.Report(changed ? "直写 profile：依赖与 bundles 已更新（重启后生效）" : "直写 profile：依赖已装（重启后生效）");
+                        continue;
+                    }
                     throw new PadError("PA024", "dsh plugin add failed",
                         $"instance `{inst.Id}` / profile `{profile}`", res.Tail,
                         ["看上面的 pnpm 输出", "确认包名与网络"]);
+                }
             }
             FinishJob(job.Id, "done");
         }
@@ -2604,6 +2880,17 @@ public sealed class Launcher
         {
             FinishJob(job.Id, "failed");
             throw;
+        }
+
+        // 用户不该知道「hmr」：新 profile 第一次装插件时静默开通官方热重载，
+        // 下一次启动就自带免重启；desktop profile 归桌面端独占，跳过。
+        if (!string.Equals(profile, "desktop", StringComparison.OrdinalIgnoreCase)
+            && !specList.Any(s => s.Contains("dsh-hmr", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { await HmrProvision.EnsureAsync(this, inst, profile, null, CancellationToken.None); }
+            catch { /* 开通失败不影响本次安装 */ }
+            try { if (!HmrProvision.IsMounted(inst.Home, profile)) HmrProvision.Mount(inst.Home, profile); }
+            catch { /* 写 patch 失败不影响本次安装 */ }
         }
     }
 
@@ -2646,6 +2933,7 @@ public sealed class Launcher
             ["NPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK"] = "true",
         };
         AddPnpmEnv(env);
+        AddShimEnv(env, bin, profile);
 
         var job = StartJob("plugin-allow-version", inst.Id, null, pkg);
         var token = TrackCancel(job.Id, ct);
@@ -2683,8 +2971,8 @@ public sealed class Launcher
             FinishJob(job.Id, "failed");
             throw;
         }
-    }
 
+    }
     /// <summary>
     /// 批量精确版本豁免（安装预检的「一次授权」）：逐个走 <see cref="AllowVersion"/>，
     /// 失败的只记日志、不中断（返回成功列表，CLI 报告里的 Exempted 用它）。
@@ -2799,6 +3087,66 @@ public sealed class Launcher
     // ---- runtime ---------------------------------------------------------
 
     public string RuntimePath => Path.Combine(Root, "runtime.json");
+
+    /// <summary>外部（CLI / 另一个窗口）改过磁盘后，让运行中的 PAD 重新读一遍。</summary>
+    public string RefreshStampPath => Path.Combine(Root, ".refresh");
+
+    public DateTime RefreshStamp
+    {
+        get
+        {
+            try { return File.Exists(RefreshStampPath) ? File.GetLastWriteTimeUtc(RefreshStampPath) : DateTime.MinValue; }
+            catch { return DateTime.MinValue; }
+        }
+    }
+
+    public void RequestRefresh()
+    {
+        try
+        {
+            Directory.CreateDirectory(Root);
+            File.WriteAllText(RefreshStampPath, DateTimeOffset.UtcNow.ToString("o"),
+                new System.Text.UTF8Encoding(false));
+        }
+        catch { /* 标记写不进去也不影响下一次读取 */ }
+    }
+
+    /// <summary>清死账 + 写刷新标记。返回被清掉的运行记录数。</summary>
+    public (int PrunedRuns, int PrunedNodes) RefreshState()
+    {
+        var prunedRuns = 0;
+        try
+        {
+            var rt = Runtime();
+            var keep = rt.Entries.Where(e => e.Pid <= 0 || Proc.Alive(e.Pid)).ToList();
+            prunedRuns = rt.Entries.Count - keep.Count;
+            if (prunedRuns > 0)
+            {
+                rt.Entries = keep;
+                SaveRuntime(rt);
+            }
+        }
+        catch { /* 账本坏了不动它 */ }
+
+        var prunedNodes = 0;
+        foreach (var inst in Instances())
+        {
+            try
+            {
+                var entries = Nodes.Ledger.Load(inst.Home);
+                var live = entries.Where(e => e.Pid <= 0 || Proc.Alive(e.Pid)).ToList();
+                if (live.Count != entries.Count)
+                {
+                    prunedNodes += entries.Count - live.Count;
+                    Nodes.Ledger.Save(inst.Home, live);
+                }
+            }
+            catch { /* 单个实例失败不阻断 */ }
+        }
+
+        RequestRefresh();
+        return (prunedRuns, prunedNodes);
+    }
 
     public RuntimeFile Runtime()
     {

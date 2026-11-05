@@ -32,10 +32,10 @@ public sealed record Bundle(
         "tauri", "tauri", "Tauri 桌面端", "桌面端窗口", true, false,
         "Tauri 壳 exe");
 
-    /// <summary>内置的产品级 surface。壳类实现（第三方 Electron）由 <see cref="ForShell"/> 动态生成。</summary>
+    /// <summary>内置的产品级 bundle。壳类实现（第三方 Electron）由 <see cref="ForShell"/> 动态生成。</summary>
     public static IReadOnlyList<Bundle> Builtins { get; } = [Tui, Web, Official, Tauri];
 
-    /// <summary>按 id 或 kind 找内置 surface（CLI 的 --surface 兼容旧的 tui/web/app/tauri）。</summary>
+    /// <summary>按 id 或 kind 找内置 bundle（CLI 的 --bundle 兼容旧的 tui/web/app/tauri）。</summary>
     public static Bundle? For(string? name)
     {
         var key = (name ?? "").Trim();
@@ -45,12 +45,25 @@ public sealed record Bundle(
             || string.Equals(s.Kind, key, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>把本机探测到的一个桌面壳变成一个 surface：每个壳是它自己的一种「怎么看见」。</summary>
+    /// <summary>Tauri 壳的目录签名（exe 名不带 tauri，但布局是）。</summary>
+    static bool LooksLikeTauri(string exe)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(exe);
+            if (string.IsNullOrWhiteSpace(dir)) return false;
+            return Directory.Exists(Path.Combine(dir, "runtime"))
+                && File.Exists(Path.Combine(dir, "resources", "manifest.jsonc"));
+        }
+        catch { return false; }
+    }
+
+    /// <summary>把本机探测到的一个桌面壳变成一个 bundle：每个壳是它自己的一种「怎么看见」。</summary>
     public static Bundle ForShell(Shell shell)
     {
         var exe = shell.Exe ?? "";
         var name = string.IsNullOrWhiteSpace(exe) ? "桌面端" : Path.GetFileNameWithoutExtension(exe);
-        var isTauri = name.Contains("tauri", StringComparison.OrdinalIgnoreCase);
+        var isTauri = name.Contains("tauri", StringComparison.OrdinalIgnoreCase) || LooksLikeTauri(exe);
         return new Bundle(
             "electron:" + (string.IsNullOrWhiteSpace(exe) ? name : exe),
             isTauri ? "tauri" : "app",
@@ -63,7 +76,7 @@ public sealed record Bundle(
 }
 
 /// <summary>
-/// 某个实例能不能用某种 surface 打开：只做 Recipe 检查，不改 surface 本身。
+/// 某个实例能不能用某种 bundle 打开：只做 Recipe 检查，不改 bundle 本身。
 /// <see cref="Profile"/> 非空 = 由这个 profile 满足（tui/web）；
 /// 壳类没有 profile，满足与否看 exe 在不在。
 /// </summary>
@@ -75,11 +88,11 @@ public sealed record BundleOption(
     string Version = "",
     string? Exe = null);
 
-/// <summary>把「本机装了什么」翻译成「这个实例可以用哪些 surface 打开」。</summary>
+/// <summary>把「本机装了什么」翻译成「这个实例可以用哪些 bundle 打开」。</summary>
 public static class BundleCatalog
 {
     /// <summary>
-    /// 一个实例的全部候选 surface：先是两个 bundle 类（tui / web），再是壳类。
+    /// 一个实例的全部候选 bundle：先是两个 bundle 类（tui / web），再是壳类。
     /// <paramref name="shells"/> 为 null 时只列 bundle 类（调用方没有做本机探测）。
     /// </summary>
     public static IReadOnlyList<BundleOption> ForInstance(
@@ -88,7 +101,7 @@ public static class BundleCatalog
         var profiles = launcher.Profiles(inst);
         var list = new List<BundleOption>(6);
 
-        var tui = profiles.FirstOrDefault(p => p.UiSurfaces.Contains("tui"));
+        var tui = profiles.FirstOrDefault(p => p.UiBundles.Contains("tui"));
         list.Add(new BundleOption(
             Bundle.Tui,
             tui is not null,
@@ -96,7 +109,7 @@ public static class BundleCatalog
             tui?.Name,
             tui is null ? "" : VersionOf(tui, "dsh-tui")));
 
-        var web = profiles.FirstOrDefault(p => p.UiSurfaces.Contains("web"));
+        var web = profiles.FirstOrDefault(p => p.UiBundles.Contains("web"));
         list.Add(new BundleOption(
             Bundle.Web,
             web is not null,
@@ -104,7 +117,7 @@ public static class BundleCatalog
             web?.Name,
             web is null ? "" : VersionOf(web, "web-app")));
 
-        // 壳类：每个探测到的桌面壳是一种 surface；没有装官方壳时也留一行“缺”。
+        // 壳类：每个探测到的桌面壳是一种 bundle；没有装官方壳时也留一行“缺”。
         var official = shells?.FirstOrDefault(s => IsOfficial(s.Exe));
         list.Add(new BundleOption(
             Bundle.Official,
@@ -115,8 +128,8 @@ public static class BundleCatalog
         foreach (var shell in shells ?? [])
         {
             if (IsOfficial(shell.Exe)) continue;
-            var surface = Bundle.ForShell(shell);
-            list.Add(new BundleOption(surface, true, shell.Exe ?? "", Exe: shell.Exe));
+            var bundle = Bundle.ForShell(shell);
+            list.Add(new BundleOption(bundle, true, shell.Exe ?? "", Exe: shell.Exe));
         }
 
         return list;

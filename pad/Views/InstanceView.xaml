@@ -38,14 +38,19 @@
           <RadioButton x:Name="NavSettings" Style="{StaticResource NavItem}" Content="设置"
                        v:Ico.Of="{StaticResource I.Gear}"
                        Checked="Nav_Checked" Tag="settings" />
-          <RadioButton x:Name="NavPlugins" Style="{StaticResource NavItem}" Content="插件"
-                       v:Ico.Of="{StaticResource I.Mod}"
-                       Checked="Nav_Checked" Tag="plugins" />
           <RadioButton x:Name="NavSessions" Style="{StaticResource NavItem}" Content="session"
                        v:Ico.Of="{StaticResource I.Log}"
                        Checked="Nav_Checked" Tag="sessions" />
+          <TextBlock Text="启动配置" Margin="12,12,0,2" FontSize="{StaticResource FsSmall}"
+                     Foreground="{StaticResource TextMuted}" />
+          <RadioButton x:Name="NavPlugins" Style="{StaticResource NavItem}" Content="插件"
+                       v:Ico.Of="{StaticResource I.Mod}" Margin="12,0,0,0"
+                       Checked="Nav_Checked" Tag="plugins" />
+          <RadioButton x:Name="NavBundle" Style="{StaticResource NavItem}" Content="bundle"
+                       v:Ico.Of="{StaticResource I.Terminal}" Margin="12,0,0,0"
+                       Checked="Nav_Checked" Tag="bundle" />
           <RadioButton x:Name="NavPresets" Style="{StaticResource NavItem}" Content="agent-preset"
-                       v:Ico.Of="{StaticResource I.Data}"
+                       v:Ico.Of="{StaticResource I.Data}" Margin="12,0,0,0"
                        Checked="Nav_Checked" Tag="presets" />
         </StackPanel>
       </Grid>
@@ -941,6 +946,19 @@
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Mod}"
                               HorizontalAlignment="Left" Margin="{StaticResource GapField}" />
               <TextBlock Text="没有 agent-preset" Style="{StaticResource Muted}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+        <StackPanel x:Name="PaneBundle" Visibility="Collapsed">
+          <Border Style="{StaticResource Slab}">
+            <StackPanel>
+              <Grid>
+                <TextBlock Style="{StaticResource CardHead}" Text="bundle" />
+                <Button Content="去商店搜 bundle" HorizontalAlignment="Right"
+                        Style="{StaticResource BtnGhost}" Click="BundleStore_Click" />
+              </Grid>
+              <TextBlock x:Name="BundleProfileText" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+              <StackPanel x:Name="BundleRows" Margin="0,8,0,0" />
             </StackPanel>
           </Border>
         </StackPanel>
