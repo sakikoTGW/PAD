@@ -1000,10 +1000,100 @@ public partial class InstanceView : UserControl, IRefreshable
             r.PackOriginText = origin?.OriginText ?? "";
             r.PackOriginTip = origin?.OriginTip ?? "";
         }
+        ApplyHotFacts(inst, pick?.Name, rows);
+        UpdateHotBar(inst, pick?.Name);
         _pluginRows = rows;
         PaintPlugins();
         if (App.ShotPage == "plugin-detail") QueueDetailShot();
         _ = FetchPluginExtras(inst);
+    }
+
+    // ---- hot reload affordance (D110 / 前端规范 v1.1) --------------------
+    // 成功态不常驻（能删就删）：热装成功只留 Toast；常驻条只给「待重启」——
+    // 那是唯一需要人做决定的状态。热/冷是实现细节，不是用户要看的状态。
+
+    string? _hotProfile;
+
+    /// <summary>Mark rows the last cold apply touched. A process started after the
+    /// change already consumed it, so the state stops showing then.</summary>
+    void ApplyHotFacts(Instance inst, string? profile, List<PluginRow> rows)
+    {
+        if (profile is null) return;
+        var state = HotStates.Read(_state.Launcher, inst.Id);
+        if (state is null || state.Profile != profile) return;
+        if (state.Mode != "cold") return;
+        var run = _state.Launcher.Runtime().Entries
+            .FirstOrDefault(e => e.Instance == inst.Id && e.Profile == profile && Proc.Alive(e.Pid));
+        if (run is null) return;
+        var started = DateTimeOffset.TryParse(run.StartedAt, out var s) ? s : DateTimeOffset.MinValue;
+        var at = DateTimeOffset.TryParse(state.At, out var a) ? a : DateTimeOffset.MinValue;
+        if (at <= started) return;
+        var bare = LaunchPolicy.BundleBareName(state.Spec);
+        foreach (var row in rows)
+            if (LaunchPolicy.BundleBareName(row.Spec) == bare) row.HotPending = true;
+    }
+
+    void UpdateHotBar(Instance inst, string? profile)
+    {
+        _hotProfile = profile;
+        HotBar.Visibility = Visibility.Collapsed;
+        if (profile is null) return;
+        var state = HotStates.Read(_state.Launcher, inst.Id);
+        if (state is null || state.Profile != profile) return;
+        // 成功态不占屏：只有「已写盘、当前进程还是旧树」才让人看到。
+        if (state.Mode != "cold") return;
+        var run = _state.Launcher.Runtime().Entries
+            .FirstOrDefault(e => e.Instance == inst.Id && e.Profile == profile && Proc.Alive(e.Pid));
+        if (run is null) return;
+        var started = DateTimeOffset.TryParse(run.StartedAt, out var s) ? s : DateTimeOffset.MinValue;
+        var at = DateTimeOffset.TryParse(state.At, out var a) ? a : DateTimeOffset.MinValue;
+        if (at <= started) return;
+
+        HotBar.Visibility = Visibility.Visible;
+        HotBar.Background = (Brush)FindResource("WarningWash");
+        HotBarText.Foreground = (Brush)FindResource("WarningText");
+        HotBarText.Text = $"{state.Spec} 待重启生效";
+        HotBarBtnText.Text = "重启";
+    }
+
+    void HotBarBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var inst = _state.SelectedInstance;
+        var profile = _hotProfile;
+        if (inst is null || profile is null) return;
+        try
+        {
+            var runner = new Runner(_state.Launcher);
+            runner.Stop(inst.Id, profile);
+            runner.Launch(inst, profile, _state.Launcher.Settings());
+            _win.Toast("已重启");
+            _state.Reload();
+            LoadPlugins();
+        }
+        catch (Exception ex) { _win.Toast(PadError.Describe(ex), bad: true); }
+    }
+
+    /// <summary>One plugin change from the window: ask for the hot path, fall back to cold
+    /// when the instance cannot hot-load, and surface the outcome in the plugin log.</summary>
+    async Task<bool> ApplyPluginChange(Instance inst, string profile, string action, string spec, Action<string> say)
+    {
+        var result = await HotReload.ApplyAsync(_state.Launcher, inst, profile, action, spec,
+            wantHot: true, new Progress<string>(say), CancellationToken.None);
+        if (result.Mode == "hot" && result.Ok)
+        {
+            say($"已热装 {spec}。");
+            _win.Toast("已生效 · 无需重启");
+            return true;
+        }
+        if (result.Mode == "cold" && result.Ok)
+        {
+            say($"{spec} 已写入，重启后生效。");
+            _win.Toast("已写入 · 重启后生效");
+            return true;
+        }
+        say(result.Message);
+        _win.Toast(result.Message, bad: true);
+        return false;
     }
 
     bool _detailShotQueued;
@@ -1336,11 +1426,7 @@ public partial class InstanceView : UserControl, IRefreshable
         try
         {
             PluginSay($"add {spec} → {profile}");
-            var applied = await PluginCommands.AddAsync(
-                _state.Launcher, inst, profile, spec,
-                new Progress<string>(PluginSay), CancellationToken.None);
-            PluginSay(applied.Ok ? $"装好了。{applied.Message}" : applied.Message);
-            if (!applied.Ok) { _win.Toast(applied.Message, bad: true); return; }
+            if (!await ApplyPluginChange(inst, profile, "add", spec, PluginSay)) return;
             PluginSpecBox.Clear();
             _state.Reload();
             LoadPlugins();
@@ -1391,15 +1477,7 @@ public partial class InstanceView : UserControl, IRefreshable
             foreach (var t in targets)
             {
                 PluginSay($"remove {t.Spec} → {t.Profile}");
-                last = await PluginCommands.RemoveAsync(
-                    _state.Launcher, inst, t.Profile, t.Spec,
-                    new Progress<string>(PluginSay), CancellationToken.None);
-                if (!last.Ok)
-                {
-                    PluginSay(last.Message);
-                    _win.Toast(last.Message, bad: true);
-                    return;
-                }
+                if (!await ApplyPluginChange(inst, t.Profile, "remove", t.Spec, PluginSay)) return;
             }
             // P2：账本里登记过这个插件的包 → 标 incomplete（读时对账会把缺件算出来，包行出现「修复」）。
             var marked = MarkPacksIncomplete(inst, profile, targets.Select(t => t.Spec), removed: true);
@@ -1447,15 +1525,7 @@ public partial class InstanceView : UserControl, IRefreshable
             foreach (var t in targets)
             {
                 PluginSay($"update {t.Spec} → {t.Profile}");
-                last = await PluginCommands.UpdateAsync(
-                    _state.Launcher, inst, t.Profile, t.Spec,
-                    new Progress<string>(PluginSay), CancellationToken.None);
-                if (!last.Ok)
-                {
-                    PluginSay(last.Message);
-                    _win.Toast(last.Message, bad: true);
-                    return;
-                }
+                if (!await ApplyPluginChange(inst, t.Profile, "update", t.Spec, PluginSay)) return;
             }
             // P2：版本漂移由账本读时对账算 incomplete；这里把登记的包状态写一致。
             var marked = MarkPacksIncomplete(inst, profile, targets.Select(t => t.Spec), removed: false);
@@ -1858,15 +1928,7 @@ public partial class InstanceView : UserControl, IRefreshable
                         : LaunchPolicy.BundleBareName(conflict.Spec);
                     var target = $"{name}@{conflict.Expected}";
                     PackSay($"upgrade {target} → {profile}");
-                    var applied = await PluginCommands.AddAsync(
-                        _state.Launcher, inst, profile, target,
-                        new Progress<string>(PackSay), CancellationToken.None);
-                    if (!applied.Ok)
-                    {
-                        PackSay(applied.Message);
-                        _win.Toast($"升级 {conflict.Spec} 没成功：" + applied.Message, bad: true);
-                        return null;
-                    }
+                    if (!await ApplyPluginChange(inst, profile, "add", target, PackSay)) return null;
                     upgraded++;
                 }
                 catch (Exception ex)

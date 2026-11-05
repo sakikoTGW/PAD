@@ -101,6 +101,34 @@ public static class Nodes
     }
 
 
+    /// <summary>
+    /// 关掉 PAD 记着的节点（对应「启动」）。profile 为空 = 该 home 下全部。
+    /// 返回真正杀掉的进程数；已经退出的条目只从账本里清掉。
+    /// </summary>
+    public static int Close(string home, string? profile = null)
+    {
+        var entries = Ledger.Load(home);
+        var targets = profile is null
+            ? entries
+            : entries.Where(e => string.Equals(e.Profile, profile, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var closed = 0;
+        foreach (var entry in targets)
+        {
+            if (Proc.Alive(entry.Pid))
+            {
+                try
+                {
+                    using var proc = System.Diagnostics.Process.GetProcessById(entry.Pid);
+                    proc.Kill(entireProcessTree: true);
+                    closed++;
+                }
+                catch { /* 已经退出 / 没权限：账本照样清 */ }
+            }
+            Ledger.Forget(home, entry);
+        }
+        return closed;
+    }
     const string Announcement = "dsh web: ";
 
     static readonly string[] EdgeCandidates =

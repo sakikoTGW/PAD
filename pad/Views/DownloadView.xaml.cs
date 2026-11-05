@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Input;
@@ -15,6 +16,8 @@ public partial class DownloadView : UserControl, IRefreshable
     readonly MainWindow _win;
     readonly AppState _state = AppState.Current;
     bool _pickingTarget;
+    /// <summary>商店「装到」里用户明确选的 profile；空 = 跟当前/上次用的那个。</summary>
+    string? _pickProfile;
     MarketRow? _detail;
     MarketPage? _lastPage;
 
@@ -30,6 +33,19 @@ public partial class DownloadView : UserControl, IRefreshable
     int _storePeriod = 7;
     DispatcherTimer? _storeResizeTimer;
 
+    /// <summary>失败/取消任务的原因：任务日志最后一条非空行。</summary>
+    string? FailReason(JobRecord job)
+    {
+        if (job.Status is not ("failed" or "cancelled")) return null;
+        try
+        {
+            var path = _state.Launcher.JobLogPath(job.Id);
+            if (!File.Exists(path)) return null;
+            var last = File.ReadLines(path).Where(l => l.Trim().Length > 0).LastOrDefault()?.Trim();
+            return last is { Length: > 160 } ? last[..160] + "…" : last;
+        }
+        catch { return null; }
+    }
     void HookResize()
     {
         SizeChanged += (_, _) =>
@@ -566,7 +582,7 @@ public partial class DownloadView : UserControl, IRefreshable
         if (DlRunning is null || DlDone is null) return;
         var jobs = _state.Launcher.ListJobs();
         var run = DownloadDock.Running(jobs).Select(j => new JobCard { Job = j }).ToList();
-        var done = DownloadDock.Done(jobs, 40).Select(j => new JobCard { Job = j }).ToList();
+        var done = DownloadDock.Done(jobs, 40).Select(j => new JobCard { Job = j, Reason = FailReason(j) }).ToList();
         DlRunning.ItemsSource = run;
         DlDone.ItemsSource = done;
         if (DlEmptyRun is not null)
@@ -674,7 +690,9 @@ public partial class DownloadView : UserControl, IRefreshable
         try
         {
             TargetInstance.SelectedItem = _state.SelectedInstance ?? _state.Instances.FirstOrDefault();
-            PaintTargetRelease(TargetInstance.SelectedItem as Instance);
+            var picked = TargetInstance.SelectedItem as Instance;
+            PaintTargetRelease(picked);
+            PaintTargetProfiles(picked);
         }
         finally { _pickingTarget = false; }
     }
@@ -685,10 +703,42 @@ public partial class DownloadView : UserControl, IRefreshable
         if (TargetInstance.SelectedItem is not Instance inst)
         {
             PaintTargetRelease(null);
+            PaintTargetProfiles(null);
             return;
         }
         if (_state.SelectedInstance?.Id != inst.Id) _state.SelectedInstance = inst;
+        _pickProfile = null;                 // 换实例 → profile 重新挑
         PaintTargetRelease(inst);
+        PaintTargetProfiles(inst);
+    }
+
+    /// <summary>「装到」第二颗下拉：这个实例的配置树。默认跟随当前/上次用的 profile。</summary>
+    void PaintTargetProfiles(Instance? inst)
+    {
+        if (TargetProfile is null) return;
+        _pickingTarget = true;
+        try
+        {
+            var profiles = inst is null ? [] : _state.Launcher.Profiles(inst);
+            TargetProfile.ItemsSource = profiles;
+            var want = _pickProfile;
+            if (want is null && inst is not null && _state.SelectedInstance?.Id == inst.Id)
+                want = _state.SelectedProfile?.Name;
+            want ??= inst?.LastProfile;
+            var hit = profiles.FirstOrDefault(p => p.Name == want) ?? profiles.FirstOrDefault();
+            TargetProfile.SelectedItem = hit;
+            _pickProfile = hit?.Name;
+            TargetProfile.IsEnabled = profiles.Count > 0;
+            if (TargetHint is not null)
+                TargetHint.Text = hit is null ? "" : $"profiles/{hit.Name}/node_modules";
+        }
+        finally { _pickingTarget = false; }
+    }
+
+    void TargetProfile_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_pickingTarget) return;
+        if (TargetProfile.SelectedItem is DshProfile p) _pickProfile = p.Name;
     }
 
     void PaintTargetRelease(Instance? inst)
@@ -702,6 +752,10 @@ public partial class DownloadView : UserControl, IRefreshable
 
     string? LaunchProfile(Instance inst)
     {
+        // 用户在「装到」里明确选过 profile 就听他的（还要确认这棵树还在）。
+        if (_pickProfile is { Length: > 0 } picked
+            && _state.Launcher.Profiles(inst).Any(p => p.Name == picked))
+            return picked;
         if (_state.SelectedInstance?.Id == inst.Id && _state.SelectedProfile is { } cur)
             return cur.Name;
         return inst.LastProfile ?? _state.Launcher.Profiles(inst).FirstOrDefault()?.Name;
@@ -942,11 +996,21 @@ public partial class DownloadView : UserControl, IRefreshable
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             q = q.Where(r => have.Contains(r.Name));
         }
+
+        if (CompatibleOnly.IsChecked == true) q = q.Where(r => r.Compatible != false);
+
+        var collection = (CollectionBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "all";
+        if (collection == "featured") q = q.Where(r => MarketStats.IsFeatured(r.Name));
+        else if (collection == "official") q = q.Where(r => r.Name.StartsWith("@deepseek-ai/", StringComparison.OrdinalIgnoreCase));
+        else if (collection == "community") q = q.Where(r => !r.Name.StartsWith("@deepseek-ai/", StringComparison.OrdinalIgnoreCase));
+
         var sort = (SortBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "hot";
         q = sort switch
         {
             "date" => q.OrderByDescending(r => DateTimeOffset.TryParse(r.Date, out var t) ? t : DateTimeOffset.MinValue),
             "name" => q.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase),
+            "stars" => q.OrderByDescending(r => r.Stars),
+            "downloads" => q.OrderByDescending(r => r.WeeklyDownloads),
             _ => q.OrderByDescending(r => r.Popularity),
         };
         return q.ToList();
@@ -998,6 +1062,7 @@ public partial class DownloadView : UserControl, IRefreshable
             best = shown.Count == 0 ? 0 : shown.Max(r => Market.QueryScore(r, text));
         }
         ResultList.ItemsSource = shown;
+        _ = EnrichStoreAsync(shown);
         _ = LoadMarketIcons(page.Rows);
         GrowthHero.Visibility = Visibility.Collapsed;
         ChipRow.Visibility = Visibility.Collapsed;
@@ -1137,6 +1202,11 @@ public partial class DownloadView : UserControl, IRefreshable
         }
     }
 
+    void HeroInstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_heroRow is not null) _ = InstallFrom(_heroRow, "", null);
+    }
+
     void HeroOpen_Click(object sender, RoutedEventArgs e)
     {
         if (_heroRow is not null) OpenStoreDetail(_heroRow);
@@ -1227,6 +1297,16 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     /// <summary>货架行逐个补“插件自己的图标”：官方 DSH 包用内置品牌图标，其余按 npm 元数据里的仓库取 logo。</summary>
+    /// <summary>给卡片补星数 / 周下载 / 兼容性；慢，不挡列表。</summary>
+    async Task EnrichStoreAsync(IReadOnlyList<MarketRow> rows)
+    {
+        if (rows.Count == 0) return;
+        var kernel = (TargetInstance.SelectedItem as Instance)?.Dsh.Version
+                     ?? _state.SelectedInstance?.Dsh.Version ?? "";
+        try { await MarketStats.EnrichAsync(_state.Launcher, rows, kernel, null, CancellationToken.None); }
+        catch { /* 取不到就少个数字 */ }
+    }
+
     async Task LoadMarketIcons(IReadOnlyList<MarketRow> rows)
     {
         // Icons are one GitHub fetch each; a semaphore keeps the page responsive while
@@ -1267,7 +1347,7 @@ public partial class DownloadView : UserControl, IRefreshable
         _state.SelectedInstance = inst;
         Fx.SetShown(MarketError, false);
         if (busy is Button btn) btn.IsEnabled = false;
-        _win.Toast($"开始装 {row.Name} → {inst.Name}");
+        _win.Toast($"开始装 {row.Name} → {inst.Name} · {profile}");
         Working($"正在装 {row.Name}");
         try
         {
@@ -1280,7 +1360,7 @@ public partial class DownloadView : UserControl, IRefreshable
                 _win.Toast($"{row.Name} 没装成：{result.Apply.Message}", bad: true);
                 return;
             }
-            var where = inst.Name;
+            var where = $"{inst.Name} · {profile}";
             _state.Reload();
             PickTarget();
             var layerNote = result.IsBundle
@@ -1324,7 +1404,7 @@ public partial class DownloadView : UserControl, IRefreshable
         // 商店详情也用 App Store 式窗口；安装走现有 InstallFrom（默认装最新版本）
         var win = new PluginDetailWindow(
             plugin,
-            install: null,
+            install: () => _ = InstallFrom(row, "", null),
             versions: async () =>
             {
                 var cat = await Market.FetchPackument(row.Name, CancellationToken.None);

@@ -82,13 +82,17 @@ public sealed class JobCard
     public bool CanForget => !Job.CanCancel;
     public bool ShowMeter => Job.CanCancel;
     public string Speed => DownloadDock.SpeedText(Job, DateTimeOffset.UtcNow);
+    /// <summary>失败/取消时给一行原因（任务日志最后一条非空行）。</summary>
+    public string? Reason { get; init; }
+
     public string Line
     {
         get
         {
             if (CanCancel) return Speed;
             var when = Market.RelTime(Job.UpdatedAt);
-            var bits = new List<string> { Job.KindText, Job.StatusText };
+            var bits = new List<string> { Job.KindText };
+            if (!string.IsNullOrWhiteSpace(Reason)) bits.Add(Reason!.Trim());
             if (when.Length > 0) bits.Add(when);
             return string.Join(" · ", bits);
         }

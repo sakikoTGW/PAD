@@ -23,6 +23,13 @@ public static class PluginCommands
         IProgress<string>? log, CancellationToken ct, bool wantHot = false) =>
         ApplyAsync(launcher, inst, profile, "update", spec, log, ct, wantHot);
 
+    /// <summary>Agent preload: apply a whole batch through one checkpoint and one settle window.
+    /// All-or-nothing — a failure restores the checkpoint instead of leaving a half-loaded set.</summary>
+    public static Task<HotBatchResult> PreloadAsync(
+        Launcher launcher, Instance inst, string profile, IReadOnlyList<string> specs,
+        IProgress<string>? log, CancellationToken ct, bool wantHot = false) =>
+        HotBatch.ApplyAsync(launcher, inst, profile, "add", specs, wantHot, log, ct);
+
     public static Task<HotApplyResult> ApplyAsync(
         Launcher launcher, Instance inst, string profile, string action, string spec,
         IProgress<string>? log, CancellationToken ct, bool wantHot = false)

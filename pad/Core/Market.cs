@@ -69,6 +69,66 @@ public sealed class MarketRow : System.ComponentModel.INotifyPropertyChanged
     public bool HasRank => Rank > 0;
     public bool HasGrowth => GrowthBadge.Length > 0;
 
+    long _stars;
+    long _weeklyDownloads;
+
+    /// <summary>GitHub 星数；0 = 还没取到（或没有仓库）。</summary>
+    public long Stars
+    {
+        get => _stars;
+        set
+        {
+            if (_stars == value) return;
+            _stars = value;
+            Notify(nameof(Stars));
+            Notify(nameof(StarsText));
+            Notify(nameof(HasStats));
+        }
+    }
+
+    public long WeeklyDownloads
+    {
+        get => _weeklyDownloads;
+        set
+        {
+            if (_weeklyDownloads == value) return;
+            _weeklyDownloads = value;
+            Notify(nameof(WeeklyDownloads));
+            Notify(nameof(DownloadsText));
+            Notify(nameof(HasStats));
+        }
+    }
+
+    bool? _compatible;
+
+    /// <summary>true/false = 按 engines.dsh 判定；null = 没声明，未知。</summary>
+    public bool? Compatible
+    {
+        get => _compatible;
+        set
+        {
+            if (_compatible == value) return;
+            _compatible = value;
+            Notify(nameof(Compatible));
+            Notify(nameof(CompatText));
+            Notify(nameof(HasCompat));
+        }
+    }
+
+    public string EnginesDsh { get; set; } = "";
+
+    public string StarsText => _stars > 0 ? MarketStats.Compact(_stars) + " ★" : "";
+    public string DownloadsText => _weeklyDownloads > 0 ? MarketStats.Compact(_weeklyDownloads) + " ↓/周" : "";
+    public bool HasStats => _stars > 0 || _weeklyDownloads > 0;
+    public string CompatText => Compatible switch { true => "兼容", false => "不兼容", _ => "" };
+    public bool HasCompat => Compatible is not null;
+    public bool IsCompatible => Compatible == true;
+    public bool IsIncompatible => Compatible == false;
+
+    void Notify(string name) =>
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+
+
     public string Title => Name;
 
     public string DescriptionText => string.IsNullOrWhiteSpace(Description)

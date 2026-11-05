@@ -45,6 +45,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <PackageReference Include="Markdig" Version="0.37.0" />
   </ItemGroup>
 
   <Target Name="CopyCrashRegistries" AfterTargets="Build">

@@ -50,6 +50,42 @@ public partial class App : Application
         }
     }
 
+    /// <summary>正在跑的 PAD 是不是旧构建：exe 的写入时间晚于那个进程的启动时间。</summary>
+    static bool IsStaleInstance(int? pid, string? exe)
+    {
+        if (pid is not { } id) return false;
+        try
+        {
+            var mine = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe) || string.IsNullOrEmpty(mine)) return false;
+            if (!string.Equals(Path.GetFullPath(exe), Path.GetFullPath(mine), StringComparison.OrdinalIgnoreCase))
+                return false;
+            var running = System.Diagnostics.Process.GetProcessById(id);
+            // 防 PID 复用：这个 pid 现在必须真的是同一份 exe。
+            if (!string.Equals(running.MainModule?.FileName, mine, StringComparison.OrdinalIgnoreCase)) return false;
+            return File.GetLastWriteTime(mine) > running.StartTime.AddSeconds(2);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>老实例收到 restart：放开锁、拉起新 exe、退出。</summary>
+    static void RestartSelf()
+    {
+        try { _instance?.Dispose(); } catch { /* ignore */ }
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exe))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe)
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = AppContext.BaseDirectory,
+                });
+        }
+        catch { /* 起不来就让用户手动开 */ }
+        Quit(0);
+    }
+
     public static void Quit(int code = 0)
     {
         Exiting = true;
@@ -94,8 +130,35 @@ public partial class App : Application
             _instance = SingleInstance.TryAcquire(root);
             if (_instance is null)
             {
-                SingleInstance.SignalExisting(root);
-                Shutdown(0);
+                // 第二个实例：把老窗口叫出来。叫不出来 / 叫出来是别的 exe，都要告诉用户，
+                // 否则只会得到「双击桌面没反应」或「一直是旧版本」。
+                var (pid, exe) = SingleInstance.LockOwner(root);
+                var other = string.IsNullOrEmpty(exe) ? "（未知路径）" : exe;
+                // exe 比老进程新 = 它跑的是旧代码：让它自己重启到新构建，而不是把旧窗口叫出来。
+                var stale = IsStaleInstance(pid, exe);
+                var shown = SingleInstance.SignalExisting(root, stale ? "restart" : "show");
+                if (!shown)
+                {
+                    System.Windows.MessageBox.Show(
+                        "已经有一个 PAD 在跑，但这次没能把它叫出来（可能卡住了，或被管理员权限的进程占用）。\n\n"
+                        + "它来自：" + other + "\nPID：" + (pid?.ToString() ?? "?") + "\n\n"
+                        + "用任务管理器结束 `pack-agent-for DSH.exe` 再启动。",
+                        "PAD 已在运行", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    Shutdown(1);
+                }
+                else if (!string.IsNullOrEmpty(exe)
+                         && !string.Equals(exe, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Windows.MessageBox.Show(
+                        "已经有一个 PAD 在跑，但它是另一个位置的可执行文件：\n" + other + "\n\n"
+                        + "这次启动的是：\n" + Environment.ProcessPath + "\n\n"
+                        + "关掉旧的 PAD（托盘里也要退出）再从桌面启动，否则你看到的一直是旧版本。",
+                        "PAD 已在运行", System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                    Shutdown(0);
+                }
+                else Shutdown(0);
                 return;
             }
         }
@@ -115,7 +178,7 @@ public partial class App : Application
         window.Show();
         if (ShotPath is null)
         {
-            _instance!.Listen(() => Dispatcher.BeginInvoke(() => window.RestoreFromTray()));
+            _instance!.Listen(() => Dispatcher.BeginInvoke(() => window.RestoreFromTray()), RestartSelf);
             TrayIcon = new Tray(window,
                 () => window.RestoreFromTray(),
                 ExitFromTray,

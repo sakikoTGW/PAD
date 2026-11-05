@@ -1,6 +1,8 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using Pad.Core;
 
@@ -16,6 +18,13 @@ public partial class PluginDetailWindow : Window
     readonly Action? _install;
     readonly Action<string>? _installVersion;
     readonly Func<Task<IReadOnlyList<string>>>? _loadVersions;
+
+    string? _repo;
+    Task? _readmeLoad;
+    bool _showingReadme;
+    bool _switchingLang;
+    string _readmeLang = "zh";
+    readonly Dictionary<string, string> _readmeTexts = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<PluginRow>? UpdateRequested;
     public event Action<PluginRow>? RemoveRequested;
@@ -57,6 +66,12 @@ public partial class PluginDetailWindow : Window
         InfoProfile.Text = row.Profile.Length > 0 ? row.Profile : "—";
         var repo = LaunchPolicy.GithubRepo(row.Repository);
         DetailMeta.Text = repo ?? (row.Trial ? "试验（仅本次运行）" : "—");
+        _repo = repo;
+        if (_repo is null) ReadmeBtn.Visibility = Visibility.Collapsed;
+        ReadmeHead.Text = row.Title + " · README";
+        _ = EnsureReadmeAsync();          // 打开详情就后台取 README，点「详情」时直接渲染
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+            new Action(MarkdownWpf.Warmup));   // UI 线程空闲时预热渲染路径（首次约 300ms）
 
         if (_install is not null || _installVersion is not null)
         {
@@ -124,7 +139,9 @@ public partial class PluginDetailWindow : Window
                 ? VersionPick.Items[0] as string ?? ""
                 : "";
             Close();
-            if (version.Length > 0) installVer(version);
+            if (version.Length > 0) { installVer(version); return; }
+            // 版本列表还没拿到（或 npm 没返回版本）时别静默：退回“装最新”。
+            if (_install is { } latest) { latest(); return; }
             return;
         }
         if (_install is { } install)
@@ -150,6 +167,123 @@ public partial class PluginDetailWindow : Window
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+
+    // ── README 页（丝滑切换） ─────────────────────────────────────────────
+
+    void Readme_Click(object sender, RoutedEventArgs e) => ShowReadme(true);
+
+    void ReadmeBack_Click(object sender, RoutedEventArgs e) => ShowReadme(false);
+
+    void Lang_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_switchingLang || !IsLoaded || _repo is null) return;
+        if (sender is not FrameworkElement { Tag: string lang }) return;
+        _readmeLang = lang;
+        _ = LoadReadmeAsync(lang);
+    }
+
+    /// <summary>详情 ↔ README：横向滑动 + 淡入淡出，300ms ease-out。</summary>
+    void ShowReadme(bool show)
+    {
+        if (_showingReadme == show || _repo is null) return;
+        _showingReadme = show;
+
+        var dur = new Duration(TimeSpan.FromMilliseconds(300));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        if (show)
+        {
+            ReadmePage.Visibility = Visibility.Visible;
+            ReadmePage.IsHitTestVisible = true;
+            DetailPage.IsHitTestVisible = false;
+            ReadmeShift.X = 56;
+            ReadmePage.Opacity = 0;
+            ReadmeShift.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(56, 0, dur) { EasingFunction = ease });
+            ReadmePage.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur));
+            DetailShift.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(0, -48, dur) { EasingFunction = ease });
+            DetailPage.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, dur));
+            _ = LoadReadmeAsync(_readmeLang);
+        }
+        else
+        {
+            ReadmePage.IsHitTestVisible = false;
+            DetailPage.IsHitTestVisible = true;
+            var fade = new DoubleAnimation(1, 0, dur) { EasingFunction = ease };
+            fade.Completed += (_, _) => ReadmePage.Visibility = Visibility.Collapsed;
+            ReadmePage.BeginAnimation(OpacityProperty, fade);
+            ReadmeShift.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(0, 56, dur) { EasingFunction = ease });
+            DetailPage.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur));
+            DetailShift.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(-48, 0, dur) { EasingFunction = ease });
+        }
+    }
+
+    Task EnsureReadmeAsync()
+    {
+        if (_readmeLoad is null) _readmeLoad = FetchReadmeAsync();
+        return _readmeLoad;
+    }
+
+    async Task FetchReadmeAsync()
+    {
+        if (_repo is null) return;
+        try
+        {
+            var zhTask = ReadmeFetch.TryAsync(_repo, "zh");
+            var enTask = ReadmeFetch.TryAsync(_repo, "en");
+            await Task.WhenAll(zhTask, enTask);
+            var zh = zhTask.Result;
+            var en = enTask.Result;
+            if (zh is not null) _readmeTexts["zh"] = zh;
+            if (en is not null) _readmeTexts["en"] = en;
+        }
+        catch { /* 拿不到就当没有 README */ }
+    }
+
+    void ReadmeRetry_Click(object sender, RoutedEventArgs e)
+    {
+        if (_repo is null) return;
+        ReadmeFetch.Forget(_repo, "zh");
+        ReadmeFetch.Forget(_repo, "en");
+        _readmeLoad = null;
+        _readmeTexts.Clear();
+        _ = LoadReadmeAsync(_readmeLang);
+    }
+
+    async Task LoadReadmeAsync(string lang)
+    {
+        if (_repo is null) return;
+
+        ReadmeFail.Visibility = Visibility.Visible;
+        ReadmeStatus.Text = "正在读仓库 README…";
+        ReadmeRetry.Visibility = Visibility.Collapsed;
+        await EnsureReadmeAsync();
+
+        LangZh.IsEnabled = _readmeTexts.ContainsKey("zh");
+        LangEn.IsEnabled = _readmeTexts.ContainsKey("en");
+        if (_readmeTexts.Count == 0)
+        {
+            ReadmeStatus.Text = "拿不到 README（网络不通，或这个仓库没有）。";
+            ReadmeRetry.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (!_readmeTexts.ContainsKey(lang))
+        {
+            lang = _readmeTexts.ContainsKey("zh") ? "zh" : "en";
+            _switchingLang = true;
+            if (lang == "zh") LangZh.IsChecked = true; else LangEn.IsChecked = true;
+            _switchingLang = false;
+        }
+
+        _readmeLang = lang;
+        ReadmeFail.Visibility = Visibility.Collapsed;
+        await MarkdownWpf.RenderAsync(_readmeTexts[lang], ReadmeHost, _repo);
+    }
 
     /// <summary>离屏把本窗口渲染成 PNG（--shot-page plugin-detail 用；不经屏幕捕获）。</summary>
     public void RenderTo(string path)

@@ -33,6 +33,21 @@
           <v:InstMark IconPath="{Binding IconPath}" />
           <local:RunLamp Running="{Binding ShowRunningLamp}" Width="10" Height="10"
                          HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2" />
+          <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource Success}"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
+                  Visibility="{Binding IsDone, Converter={StaticResource B2V}}">
+            <v:Ico Glyph="{StaticResource I.Check}" Height="9" Foreground="White" />
+          </Border>
+          <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource Danger}"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
+                  Visibility="{Binding IsFailed, Converter={StaticResource B2V}}">
+            <v:Ico Glyph="{StaticResource I.Close}" Height="8" Foreground="White" />
+          </Border>
+          <Border Width="16" Height="16" CornerRadius="8" Background="{StaticResource TextMuted}"
+                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2"
+                  Visibility="{Binding IsCancelled, Converter={StaticResource B2V}}">
+            <v:Ico Glyph="{StaticResource I.Close}" Height="8" Foreground="White" />
+          </Border>
         </Grid>
         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
           <TextBlock FontSize="{StaticResource FsTitle}" FontWeight="SemiBold"
@@ -328,6 +343,35 @@
                       Click="StoreMore_Click" Padding="14,0" />
             </Grid>
 
+            <!-- 装到哪：常驻一行，不再藏在「筛选」里；右边顺手写出落地目录。 -->
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+              <TextBlock Text="装到" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+              <ComboBox x:Name="TargetInstance" Width="200" Height="28" Margin="10,0,0,0"
+                        ItemsSource="{Binding Instances}"
+                        SelectionChanged="TargetInstance_Changed">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Text="·" Style="{StaticResource Muted}" Margin="7,0"
+                         VerticalAlignment="Center" />
+              <ComboBox x:Name="TargetProfile" Width="150" Height="28"
+                        ToolTip="装进这个 profile 的 node_modules，并写进它的 package.json"
+                        SelectionChanged="TargetProfile_Changed">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock x:Name="TargetHint" Style="{StaticResource Muted}"
+                         FontSize="{StaticResource FsSmall}" Margin="12,0,0,0"
+                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                         MaxWidth="380" />
+            </StackPanel>
+
             <Border Margin="0,16,0,0" Height="35" CornerRadius="{StaticResource RadCard}"
                     Background="{StaticResource BgCard}" BorderThickness="1"
                     BorderBrush="{StaticResource LineBorder}" ClipToBounds="True">
@@ -402,18 +446,7 @@
                   <ComboBox x:Name="TargetRelease" Width="160" Height="28" IsEditable="False"
                             ToolTip="这份实例钉的 DSH 发行号" />
                 </StackPanel>
-                <StackPanel>
-                  <TextBlock Text="装到" Style="{StaticResource Label}" Margin="{StaticResource GapTight}" />
-                  <ComboBox x:Name="TargetInstance" Width="240" Height="28"
-                            ItemsSource="{Binding Instances}"
-                            SelectionChanged="TargetInstance_Changed">
-                    <ComboBox.ItemTemplate>
-                      <DataTemplate>
-                        <TextBlock Text="{Binding Name}" />
-                      </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                  </ComboBox>
-                </StackPanel>
+
               </StackPanel>
               <Grid Margin="0,12,0,0">
                 <StackPanel Orientation="Horizontal">
@@ -433,6 +466,8 @@
                   <ComboBoxItem Tag="hot" Content="热度" IsSelected="True" />
                   <ComboBoxItem Tag="date" Content="最近更新" />
                   <ComboBoxItem Tag="name" Content="名称" />
+                  <ComboBoxItem Tag="stars" Content="Star 数" />
+                  <ComboBoxItem Tag="downloads" Content="下载量" />
                 </ComboBox>
                 <TextBlock Text="分类" Style="{StaticResource Label}" VerticalAlignment="Center"
                            Margin="18,0,8,0" />
@@ -440,6 +475,19 @@
                 <CheckBox x:Name="InstalledOnly" Content="只看已安装" Margin="18,0,0,0"
                           VerticalAlignment="Center" Checked="StoreFilter_Changed"
                           Unchecked="StoreFilter_Changed" />
+
+                <CheckBox x:Name="CompatibleOnly" Content="只看兼容" Margin="18,0,0,0"
+                          VerticalAlignment="Center" Checked="StoreFilter_Changed"
+                          Unchecked="StoreFilter_Changed"
+                          ToolTip="按插件 package.json 的 engines.dsh 判断" />
+                <TextBlock Text="合集" Style="{StaticResource Label}" VerticalAlignment="Center"
+                           Margin="18,0,8,0" />
+                <ComboBox x:Name="CollectionBox" Width="104" Height="28" SelectionChanged="Sort_Changed">
+                  <ComboBoxItem Tag="all" Content="全部" IsSelected="True" />
+                  <ComboBoxItem Tag="featured" Content="精选" />
+                  <ComboBoxItem Tag="official" Content="官方" />
+                  <ComboBoxItem Tag="community" Content="社区" />
+                </ComboBox>
               </StackPanel>
             </StackPanel>
 
@@ -470,7 +518,7 @@
                     <Button Style="{StaticResource BtnPrimary}" Content="查看" Height="35"
                             Padding="20,0" Click="HeroOpen_Click" />
                     <Button Style="{StaticResource Btn}" Content="安装" Height="35"
-                            Padding="18,0" Margin="10,0,0,0" Click="HeroOpen_Click" />
+                            Padding="18,0" Margin="10,0,0,0" Click="HeroInstall_Click" />
                   </StackPanel>
                 </StackPanel>
                 <Border Grid.Column="1" Width="86" Height="86" CornerRadius="{StaticResource RadCard}"
@@ -539,7 +587,7 @@
                 <DataTemplate>
                   <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
                   <Grid Width="232" Margin="0,0,14,14" local:Fx.Enter="card">
-                  <Border MinHeight="178" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
+                  <Border MinHeight="188" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
                           Cursor="Hand" Background="{StaticResource BgCard}"
                           BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                           Tag="{Binding}" MouseLeftButtonUp="Row_OpenDetail">
@@ -549,6 +597,7 @@
                     </Border.Effect>
                     <Grid Margin="16,15,16,13">
                       <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -582,7 +631,22 @@
                                  Foreground="{StaticResource TextSecondary}" Margin="0,11,0,0"
                                  TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"
                                  ToolTip="{Binding DescriptionText}" />
-                      <Grid Grid.Row="2" Margin="0,11,0,0">
+                      <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
+                                  Visibility="{Binding HasStats, Converter={StaticResource B2V}}">
+                        <TextBlock Text="{Binding StarsText}" FontSize="10.5" Margin="0,0,12,0"
+                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DownloadsText}" FontSize="10.5" Margin="0,0,12,0"
+                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+                        <Border CornerRadius="6" Padding="5,1" Background="{StaticResource SuccessWash}"
+                                Visibility="{Binding IsCompatible, Converter={StaticResource B2V}}">
+                          <TextBlock Text="兼容" FontSize="10" Foreground="{StaticResource SuccessText}" />
+                        </Border>
+                        <Border CornerRadius="6" Padding="5,1" Background="{StaticResource DangerWash}"
+                                Visibility="{Binding IsIncompatible, Converter={StaticResource B2V}}">
+                          <TextBlock Text="不兼容" FontSize="10" Foreground="{StaticResource DangerText}" />
+                        </Border>
+                      </StackPanel>
+                      <Grid Grid.Row="3" Margin="0,11,0,0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                           <Border BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
                                   CornerRadius="6" Padding="6,1" Margin="0,0,8,0">

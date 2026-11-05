@@ -17,7 +17,8 @@ public partial class LaunchView : UserControl, IRefreshable
         {
             if (e.PropertyName is nameof(AppState.CanLaunch) or nameof(AppState.NeedsSetup)
                 or nameof(AppState.HasInstanceNoProfile) or nameof(AppState.StepTarget)
-                or nameof(AppState.SelectedProfile) or nameof(AppState.SelectedInstance))
+                or nameof(AppState.SelectedProfile) or nameof(AppState.SelectedInstance)
+                or nameof(AppState.AnyRunning))
             {
                 PaintRunBtn();
                 PaintKey();
@@ -47,9 +48,34 @@ public partial class LaunchView : UserControl, IRefreshable
     void PaintRunBtn()
     {
         if (RunLabel is null) return;
+
+        // 和「启动」是同一个按钮：这个 profile 在跑，它就变成「关闭」。
+        var running = RunningProfiles();
+        if (running.Count > 0)
+        {
+            RunLabel.Text = "关闭";
+            if (RunIcon is not null) RunIcon.Glyph = (System.Windows.Media.Geometry)FindResource("I.Stop");
+            return;
+        }
+
+        if (RunIcon is not null) RunIcon.Glyph = (System.Windows.Media.Geometry)FindResource("I.Play");
         if (_state.CanLaunch) RunLabel.Text = "启动";
         else if (_state.StepTarget == "download") RunLabel.Text = "下载 DSH";
         else RunLabel.Text = "版本选择";
+    }
+
+    /// <summary>当前选中的 profile/容器 在 PAD 账本里还活着的节点。</summary>
+    List<string> RunningProfiles()
+    {
+        var inst = _state.SelectedInstance;
+        if (inst is null) return [];
+        if (_state.SelectedContainer is DetectedTuiRow or DetectedShellRow) return [];
+        var name = (_state.SelectedContainer as BundleRow)?.Profile.Name ?? _state.SelectedProfile?.Name;
+        if (name is null) return [];
+        return Nodes.Ledger.Load(inst.Home)
+            .Where(e => string.Equals(e.Profile, name, StringComparison.OrdinalIgnoreCase) && Proc.Alive(e.Pid))
+            .Select(e => e.Profile)
+            .ToList();
     }
 
     public void RevealVersionEntry()
@@ -67,23 +93,85 @@ public partial class LaunchView : UserControl, IRefreshable
         else _win.ShowInner("versions", "版本选择");
     }
 
-    void Run_Click(object sender, RoutedEventArgs e)
+    async void Run_Click(object sender, RoutedEventArgs e)
     {
-        var profile = _state.SelectedProfile;
-        if (profile is null)
+        try
         {
-            GoToStep();
-            return;
+            // 同一个按钮兼作关闭：这个 profile 在跑就先关，不再起第二个。
+            if (RunningProfiles() is { Count: > 0 } runningProfiles && _state.SelectedInstance is { } runningInst)
+            {
+                var closed = Nodes.Close(runningInst.Home, runningProfiles[0]);
+                _state.RefreshRunning();
+                PaintRunBtn();
+                _win.Toast(closed > 0 ? $"已关闭 {runningProfiles[0]}" : "进程已经退出，账本已清理");
+                return;
+            }
+
+            // 容器列表里点的是探测到的 TUI / 桌面端：按它自己的入口启动（PAD 只是拉起它）。
+            switch (_state.SelectedContainer)
+            {
+                case DetectedTuiRow tui when !tui.LocalRunning:
+                {
+                    var opened = await BundleLaunch.OpenTuiAsync(_state.Launcher, tui.Source, CancellationToken.None);
+                    _win.Toast($"已启动 {tui.Name}（终端窗口，pid {opened.Pid}）");
+                    _state.RefreshRunning();
+                    return;
+                }
+                case DetectedTuiRow tui:
+                    _win.Toast($"{tui.Name} 已经在跑（不是 PAD 启动的）；从任务栏切到它的终端窗口。");
+                    return;
+                case DetectedShellRow shell when !shell.LocalRunning:
+                {
+                    var opened = BundleLaunch.OpenShell(_state.Launcher, shell.Source);
+                    _win.Toast($"已启动 {shell.Name}（桌面端窗口，pid {opened.Pid}）");
+                    _state.RefreshRunning();
+                    return;
+                }
+                case DetectedShellRow shell:
+                    if (WindowFocus.Activate(shell.Source.Pid ?? 0))
+                        _win.Toast($"已切到 {shell.Name} 的窗口");
+                    else
+                        _win.Toast($"{shell.Name} 已经在跑（pid {shell.Source.Pid}），没找到可切过去的窗口");
+                    return;
+            }
+
+            // profile 拆出来的 surface 行：这次要用哪种「怎么看见」是行自己带的。
+            if (_state.SelectedContainer is BundleRow surfaceRow)
+            {
+                var surface = Bundle.For(surfaceRow.BundleKind);
+                if (surface is null) return;
+                var opened = await BundleLaunch.OpenAsync(_state.Launcher, surfaceRow.Instance,
+                    surfaceRow.Profile.Name, surface, _state.Settings, CancellationToken.None);
+                _win.Toast($"已启动 {surfaceRow.InstanceName} · {surfaceRow.Profile.Name}（{surface.Shows}，pid {opened.Pid}）");
+                _state.RefreshRunning();
+                return;
+            }
+
+            var profile = _state.SelectedProfile ?? _state.SelectedContainer;
+            if (profile is null)
+            {
+                GoToStep();
+                return;
+            }
+            var key = CredentialsGate.Inspect(_state.Launcher, profile.Instance, _state.Settings);
+            if (!key.Configured)
+            {
+                _win.OpenSettingsApi();
+                _win.LaunchFailed(CredentialsFile.MissingError(key.Location).Render(), profile.Instance);
+                return;
+            }
+            // 一个 profile 同时提供两种 surface 是合法的（profile 决定装什么）；
+            // 只是启动时要挑一个。这里先说明这次按哪个开，选择器是下一步。
+            if (profile.Profile.UiSurfaces.Count > 1)
+                _win.Toast($"{profile.Name} 提供 " + string.Join(" / ", profile.Profile.UiSurfaces) +
+                           $" 两种 surface，这次按 {(profile.Profile.IsWeb ? "web" : "tui")} 启动");
+            _win.ShowTab("manage");
+            LaunchFloat.Open(_win, profile);
         }
-        var key = CredentialsGate.Inspect(_state.Launcher, profile.Instance, _state.Settings);
-        if (!key.Configured)
+        catch (Exception ex)
         {
-            _win.OpenSettingsApi();
-            _win.LaunchFailed(CredentialsFile.MissingError(key.Location).Render(), profile.Instance);
-            return;
+            _win.Toast(PadError.Describe(ex), bad: true);
         }
-        _win.ShowTab("manage");
-        LaunchFloat.Open(_win, profile);
     }
 
     void Manage_Click(object sender, RoutedEventArgs e) => _win.ShowTab("manage");

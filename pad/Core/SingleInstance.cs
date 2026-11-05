@@ -57,7 +57,7 @@ public sealed class SingleInstance : IDisposable
     }
 
     /// <summary>起一个后台管道监听：第二个实例发 "show" 时回调（在调用方线程上）。</summary>
-    public void Listen(Action show)
+    public void Listen(Action show, Action? restart = null)
     {
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
@@ -88,8 +88,22 @@ public sealed class SingleInstance : IDisposable
         }, ct);
     }
 
+    /// <summary>锁文件里记的持有者（pid, exe）；读不到返回 (null, null)。</summary>
+    public static (int? Pid, string? Exe) LockOwner(string root)
+    {
+        try
+        {
+            var path = Path.Combine(root, "pad.lock");
+            if (!File.Exists(path)) return (null, null);
+            var lines = File.ReadAllLines(path);
+            int? pid = lines.Length > 0 && int.TryParse(lines[0], out var value) && value > 0 ? value : null;
+            var exe = lines.Length > 1 && lines[1].Length > 0 ? lines[1] : null;
+            return (pid, exe);
+        }
+        catch { return (null, null); }
+    }
     /// <summary>第二个实例调用：让已运行的 PAD 显形。失败返回 false（对方刚退出等）。</summary>
-    public static bool SignalExisting(string root)
+    public static bool SignalExisting(string root, string command = "show")
     {
         var key = KeyFor(root);
         var pipeName = $@"PAD-launcher-{key}";
@@ -100,7 +114,7 @@ public sealed class SingleInstance : IDisposable
                 using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out);
                 client.Connect(120);
                 using var writer = new StreamWriter(client, Encoding.UTF8) { AutoFlush = true };
-                writer.WriteLine("show");
+                writer.WriteLine(command);
                 return true;
             }
             catch
