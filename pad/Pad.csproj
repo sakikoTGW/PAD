@@ -9,7 +9,7 @@
     <UseWindowsForms>false</UseWindowsForms>
     <AssemblyName>pack-agent-for DSH</AssemblyName>
     <RootNamespace>Pad</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.5.0</Version>
     <Product>PAD</Product>
     <AssemblyTitle>PAD — pack-agent for DSH</AssemblyTitle>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
