@@ -557,6 +557,10 @@ public sealed class UiPrefs
     [JsonPropertyName("showLogo")] public bool ShowLogo { get; set; } = true;
     /// <summary>顶栏名称。空则显示 PAD。</summary>
     [JsonPropertyName("brandText")] public string BrandText { get; set; } = "PAD";
+    /// <summary>正文字号。12 小 / 13 标准 / 15 大 / 17 特大。</summary>
+    [JsonPropertyName("fontSize")] public int FontSize { get; set; } = 13;
+    /// <summary>normal | medium | semibold | bold。默认粗。</summary>
+    [JsonPropertyName("fontWeight")] public string FontWeight { get; set; } = "bold";
     /// <summary>动效时长倍率，百分数。100 = 默认，越大越慢。</summary>
     [JsonPropertyName("animSpeed")] public int AnimSpeed { get; set; } = 100;
     /// <summary>空 = 内建 logo；否则相对启动器根或绝对路径。</summary>
@@ -602,6 +606,9 @@ public sealed class UiPrefs
         ToastMs = Math.Clamp(ToastMs, 800, 20000);
         ToastMax = Math.Clamp(ToastMax, 1, 8);
         AnimSpeed = Math.Clamp(AnimSpeed, 50, 200);
+        FontSize = FontSize switch { 12 or 15 or 17 => FontSize, _ => 13 };
+        if (FontWeight is "medium") FontWeight = "bold";
+        if (FontWeight is not ("normal" or "semibold" or "bold")) FontWeight = "bold";
         BrandText = (BrandText ?? "").Trim();
         if (BrandText.Length > 24) BrandText = BrandText[..24];
         WallpaperOpacity = Math.Clamp(WallpaperOpacity, 0, 100);
@@ -767,8 +774,19 @@ public sealed class OtherPrefs
     [JsonPropertyName("shotMarketDelayMs")] public int ShotMarketDelayMs { get; set; } = 5200;
     /// <summary>User already said no to adopting ~/.dsh this machine.</summary>
     [JsonPropertyName("adoptDismissed")] public bool AdoptDismissed { get; set; }
+    /// <summary>Discovered homes the person skipped in the startup list; not offered again.</summary>
+    [JsonPropertyName("adoptSkippedHomes")] public List<string> AdoptSkippedHomes { get; set; } = [];
     /// <summary>诊断多打一行 stderr；设置页显示 schema 与根路径。</summary>
     [JsonPropertyName("debug")] public bool Debug { get; set; }
+
+    /// <summary>全局快捷键：唤出「最近会话」面板。空 = 不注册。</summary>
+    [JsonPropertyName("recentHotkey")] public string RecentHotkey { get; set; } = "Ctrl+Alt+P";
+
+    /// <summary>本机 Ollama 服务地址（「本地模型」用）。</summary>
+    [JsonPropertyName("ollamaUrl")] public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
+
+    /// <summary>上次填过的模型名；下次打开「本地模型」默认带上。</summary>
+    [JsonPropertyName("ollamaModel")] public string OllamaModel { get; set; } = "qwen2.5:7b";
     /// <summary>PAD 自身更新：release | off（用户可以选择关掉检查）。</summary>
     [JsonPropertyName("updateChannel")] public string UpdateChannel { get; set; } = "release";
     /// <summary>latest.json 的地址（http/https 或本地路径）；空 = 不检查。</summary>
@@ -804,6 +822,11 @@ public sealed class OtherPrefs
             .Where(e => !string.IsNullOrWhiteSpace(e))
             .Select(e => e.Trim().ToLowerInvariant())
             .Distinct()
+            .ToList();
+        AdoptSkippedHomes = (AdoptSkippedHomes ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

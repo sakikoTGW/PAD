@@ -32,6 +32,13 @@ Allow-list is one per project directory. Projected packs stay under `.agent-pack
 
 Managing a running instance is a separate profile layer: `@sakikotgw/pad-gateway` wraps the official `@deepseek-ai/dsh-host-apiproxy` and writes `$DSH_HOME/pad-gateway.json`. PAD reads that advert and calls apiproxy rpc (`workspace.list`, `session.list`, `session.cancel`). It is not a chat protocol.
 
+## Bundled skills
+
+Installing this plugin also puts two skills inside the instance (the plugin mounts `./skills` as a skill root):
+
+- `pack-agent-dsh` — project / allow / search modpacks.
+- `pad` — drive the PAD CLI: list and launch instances, install packs, run a dev session, read `PAxxx` errors, find the PAD root when `pad` is not on `PATH`. Start at `skills/pad/SKILL.md`.
+
 ## Run from source
 
 ```sh

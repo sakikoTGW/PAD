@@ -135,6 +135,8 @@ public partial class SettingsView : UserControl, IRefreshable
         BrandBox.IsChecked = s.Ui.ShowBrand;
         LogoBox.IsChecked = s.Ui.ShowLogo;
         BrandTextBox.Text = s.Ui.BrandText;
+        PickCombo(FontSizeBox, s.Ui.FontSize.ToString());
+        PickCombo(FontWeightBox, s.Ui.FontWeight);
         PickCombo(AnimSpeedBox, s.Ui.AnimSpeed.ToString());
         PickCombo(ToastBox, s.Ui.ToastMs.ToString());
         PickCombo(ToastMaxBox, s.Ui.ToastMax.ToString());
@@ -182,6 +184,9 @@ public partial class SettingsView : UserControl, IRefreshable
         RegistriesRelBox.Text = s.Other.RegistriesRel;
         ShotDelayBox.Text = s.Other.ShotDelayMs.ToString();
         ShotMarketDelayBox.Text = s.Other.ShotMarketDelayMs.ToString();
+        HotkeyBox.Text = s.Other.RecentHotkey;
+        OllamaUrlBox.Text = s.Other.OllamaUrl;
+        OllamaSpec.Text = "OpenAI 兼容 · " + Pad.Core.Ollama.Normalize(s.Other.OllamaUrl);
         DebugBox.IsChecked = s.Other.Debug;
         PickCombo(UpdateChannelBox, s.Other.UpdateChannel);
         UpdateFeedBox.Text = s.Other.UpdateFeed;
@@ -249,7 +254,10 @@ public partial class SettingsView : UserControl, IRefreshable
         Inventory inv;
         try
         {
-            inv = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None));
+            var win = Window.GetWindow(this) as MainWindow;
+            var progress = new Progress<Discover.DiscoverStep>(s => win?.Progress(s.Text, s.Fraction, "扫描"));
+            inv = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None, progress));
+            win?.ProgressDone(600);
         }
         catch (Exception ex)
         {
@@ -550,6 +558,7 @@ public partial class SettingsView : UserControl, IRefreshable
         if (Window.GetWindow(this) is MainWindow win)
         {
             win.ApplyBrand();
+            win.ApplyType();
             win.ApplyWindowPrefs();
         }
     }
@@ -941,6 +950,8 @@ public partial class SettingsView : UserControl, IRefreshable
         s.Ui.ShowBrand = BrandBox.IsChecked == true;
         s.Ui.ShowLogo = LogoBox.IsChecked == true;
         s.Ui.BrandText = BrandTextBox.Text.Trim();
+        if (int.TryParse(ComboTag(FontSizeBox), out var fontPx)) s.Ui.FontSize = fontPx;
+        s.Ui.FontWeight = ComboTag(FontWeightBox) ?? "normal";
         if (int.TryParse(ComboTag(AnimSpeedBox), out var spd)) s.Ui.AnimSpeed = spd;
         if (int.TryParse(ComboTag(ToastBox), out var ms)) s.Ui.ToastMs = ms;
         if (int.TryParse(ComboTag(ToastMaxBox), out var max)) s.Ui.ToastMax = max;
@@ -1155,13 +1166,20 @@ public partial class SettingsView : UserControl, IRefreshable
         if (int.TryParse(ShotDelayBox.Text.Trim(), out var sd)) s.Other.ShotDelayMs = sd;
         if (int.TryParse(ShotMarketDelayBox.Text.Trim(), out var sm)) s.Other.ShotMarketDelayMs = sm;
         s.Other.Debug = DebugBox.IsChecked == true;
+        s.Other.RecentHotkey = (HotkeyBox.Text ?? "").Trim();
+        s.Other.OllamaUrl = (OllamaUrlBox.Text ?? "").Trim();
         s.Other.UpdateChannel = ComboTag(UpdateChannelBox) ?? "release";
         s.Other.UpdateFeed = (UpdateFeedBox.Text ?? "").Trim();
         s.Other.UpdateAutoDownload = UpdateAutoBox.IsChecked == true;
         Commit(s);
         try { App.TrayIcon?.SyncCloseToTray(s.Ui.CloseToTray); } catch { /* ignore */ }
+        // 快捷键改了要立刻重新注册，否则要等下次启动才生效。
+        try { (Window.GetWindow(this) as MainWindow)?.ReloadHotKey(); } catch { /* 设置页单独打开时没有主窗口 */ }
         Paint();
     }
+
+    void OpenLocalModels_Click(object sender, RoutedEventArgs e) =>
+        (Window.GetWindow(this) as MainWindow)?.ShowLocalModels();
 
     void Other_Sel(object sender, SelectionChangedEventArgs e) => Other_Save(sender, e);
 
@@ -1180,6 +1198,7 @@ public partial class SettingsView : UserControl, IRefreshable
         {
             _state.SwitchRoot(root);
             win.ApplyBrand();
+            win.ApplyType();
             win.ApplyWindowPrefs();
             Paint();
             win.Toast("已切到 " + root);
@@ -1205,6 +1224,7 @@ public partial class SettingsView : UserControl, IRefreshable
         {
             _state.NewRoot(path);
             win.ApplyBrand();
+            win.ApplyType();
             win.ApplyWindowPrefs();
             Paint();
             win.Toast("已新建并切到 " + path);

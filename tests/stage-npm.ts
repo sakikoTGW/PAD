@@ -1,18 +1,20 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from 'node:fs'
+/** 校验 npm 摊平产物：文件齐、manifest 对、engines 没丢、能真的被 node 加载。 */
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { packAgentRoot } from '../../src/package-root.js'
 import { loadRegistry } from '../modpack/registry.js'
 import { stageDshNpm } from '../scripts/stage-npm.js'
-import { packTestTmp } from '../../test/tmp-root.js'
+import { findRepoRoot } from '../scripts/layout.js'
 
 function fail(msg: string): never {
   console.error(`✗ ${msg}`)
   process.exit(1)
 }
 
+const REPO = findRepoRoot()
 const dest = stageDshNpm()
 for (const rel of [
   'package.json',
@@ -34,13 +36,22 @@ const pkg = JSON.parse(readFileSync(join(dest, 'package.json'), 'utf8')) as {
   name?: string
   files?: string[]
   dsh?: { bundle?: { patch?: string } }
+  engines?: { node?: string; dsh?: string }
 }
 if (pkg.name !== '@sakikotgw/pack-agent-dsh') fail(`staged name ${pkg.name}`)
 if (!pkg.dsh?.bundle?.patch) fail('staged package is not a dsh.bundle')
 if (pkg.files?.includes('src')) fail('DSH tarball must not ship TypeScript src')
 
-const found = packAgentRoot(join(dest, 'lib'))
-if (found !== dest) fail(`packAgentRoot(staged/lib) ${found} != ${dest}`)
+// engines 必须原样带上：engines.dsh 是 DSH 的版本门槛，stage 丢了就等于发布一个没有门槛的包。
+const sourcePkg = JSON.parse(readFileSync(join(import.meta.dirname, '../plugin/package.json'), 'utf8')) as {
+  engines?: { node?: string; dsh?: string }
+}
+if (pkg.engines?.dsh !== sourcePkg.engines?.dsh) {
+  fail(`staged engines.dsh ${pkg.engines?.dsh} != source ${sourcePkg.engines?.dsh}`)
+}
+if (pkg.engines?.node !== sourcePkg.engines?.node) {
+  fail(`staged engines.node ${pkg.engines?.node} != source ${sourcePkg.engines?.node}`)
+}
 
 const lib = readFileSync(join(dest, 'lib', 'index.js'), 'utf8')
 if (!lib.includes('@sakikotgw/pack-agent-dsh')) {
@@ -81,22 +92,29 @@ if (skill.includes('dsh plugin --profile web add "<compiled-dir>"')) {
   fail('SKILL.md must not tell the model to plugin-add a compiled pack')
 }
 
-const href = pathToFileURL(join(dest, 'lib', 'index.js')).href
-const fixture = join(import.meta.dirname, '../../test/fixtures', 'demo.pack.json')
-const out = packTestTmp(`stage-dsh-smoke-${Date.now()}`)
-const smoke = join(import.meta.dirname, 'node-smoke.mjs')
-const r = spawnSync('node', [smoke, href, fixture, out], {
-  encoding: 'utf8',
-  cwd: dest,
-  env: {
-    ...process.env,
-    AGENT_PACK_TMP: process.env.AGENT_PACK_TMP || 'E:\\tmp\\pack-agent',
-  },
-})
-if (r.status !== 0) {
-  fail(`node import of staged lib failed (exit ${r.status}):\n${r.stderr || ''}\n${r.stdout || ''}`)
+// node 冒烟：真把 staged lib 加载一遍，走一次 pack 投影。
+// fixture 在 monorepo 是 test/fixtures，在 PAD 独立仓是 tests/fixtures；两处都没有就跳过。
+const fixture = [
+  join(REPO, 'test', 'fixtures', 'demo.pack.json'),
+  join(REPO, 'tests', 'fixtures', 'demo.pack.json'),
+].find(p => existsSync(p))
+
+if (fixture) {
+  const href = pathToFileURL(join(dest, 'lib', 'index.js')).href
+  const out = mkdtempSync(join(tmpdir(), 'stage-dsh-smoke-'))
+  const smoke = join(import.meta.dirname, 'node-smoke.mjs')
+  const r = spawnSync('node', [smoke, href, fixture, out], {
+    encoding: 'utf8',
+    cwd: dest,
+    env: { ...process.env },
+  })
+  if (r.status !== 0) {
+    fail(`node import of staged lib failed (exit ${r.status}):\n${r.stderr || ''}\n${r.stdout || ''}`)
+  }
+  if (!r.stdout?.includes('ok')) fail(`unexpected staged node stdout: ${r.stdout}`)
+} else {
+  console.log('! no test fixture (test/fixtures or tests/fixtures), skipped node smoke')
 }
-if (!r.stdout?.includes('ok')) fail(`unexpected staged node stdout: ${r.stdout}`)
 
 console.log(`✓ staged ${dest}`)
 console.log('[OK] stage-dsh-npm')

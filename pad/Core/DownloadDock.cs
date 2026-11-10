@@ -98,7 +98,7 @@ public sealed class JobCard
         }
     }
     /// <summary>任务自己的图标图像（整合包/实例图标），不是状态图标。</summary>
-    public string? IconPath => Job.Icon;
+    public string? IconPath { get; init; }
     public bool IsPaused => Job.Paused;
     public bool IsDone => Job.Status == "done";
     public bool IsFailed => Job.Status == "failed";

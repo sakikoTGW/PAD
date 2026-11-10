@@ -231,6 +231,44 @@
               </ScrollViewer>
             </DockPanel>
           </Grid>
+
+          <Border Style="{StaticResource Slab}">
+            <StackPanel>
+              <TextBlock Text="本地模型" Style="{StaticResource CardTitle}" />
+              <Button Style="{StaticResource PickRow}" Click="OpenLocalModels_Click"
+                      Margin="{StaticResource GapTight}">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="34" Height="34" CornerRadius="{StaticResource RadTile}"
+                          Background="{StaticResource BgSubtle}">
+                    <ContentControl Style="{StaticResource Pict}"
+                                    v:Ico.Of="{StaticResource I.Download}" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,10,0" VerticalAlignment="Center">
+                    <TextBlock Text="Ollama" FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}"
+                               FontSize="{StaticResource FsTitle}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="OllamaSpec" Style="{StaticResource Muted}" Margin="0,2,0,0"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="2" Text="打开 ›" VerticalAlignment="Center"
+                             FontSize="{StaticResource FsSmall}" Foreground="{StaticResource AccentText}" />
+                </Grid>
+              </Button>
+              <Grid Height="28" Margin="{StaticResource GapTight}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="地址" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" x:Name="OllamaUrlBox" Height="28" LostFocus="Other_Save"
+                         FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}" />
+              </Grid>
+            </StackPanel>
+          </Border>
         </StackPanel>
 
         <!-- ========== 启动 ========== -->
@@ -572,6 +610,33 @@
                 <TextBox Grid.Column="1" x:Name="BrandTextBox" Height="28" MaxWidth="240"
                          HorizontalAlignment="Left" Width="180" LostFocus="Ui_Save"
                          Tag="空 = PAD" />
+              </Grid>
+              <Grid Height="28" Margin="{StaticResource GapTight}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="字号" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1" x:Name="FontSizeBox" Width="160" Height="28"
+                          SelectionChanged="Ui_Sel">
+                  <ComboBoxItem Tag="12" Content="小" />
+                  <ComboBoxItem Tag="13" Content="标准" />
+                  <ComboBoxItem Tag="15" Content="大" />
+                  <ComboBoxItem Tag="17" Content="特大" />
+                </ComboBox>
+              </Grid>
+              <Grid Height="28" Margin="{StaticResource GapTight}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="粗细" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <ComboBox Grid.Column="1" x:Name="FontWeightBox" Width="160" Height="28"
+                          SelectionChanged="Ui_Sel">
+                  <ComboBoxItem Tag="bold" Content="粗" />
+                  <ComboBoxItem Tag="semibold" Content="半粗" />
+                  <ComboBoxItem Tag="normal" Content="常规" />
+                </ComboBox>
               </Grid>
               <Grid Height="28" Margin="{StaticResource GapTight}">
                 <Grid.ColumnDefinitions>
@@ -1085,6 +1150,26 @@
                          FontFamily="{StaticResource FontMono}" />
                 <TextBlock Grid.Column="2" Text="ms" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" Margin="8,0,0,0" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource Slab}">
+            <StackPanel>
+              <ContentControl Style="{StaticResource SlabHead}" Content="快捷键"
+                              v:Ico.Of="{StaticResource I.Plug}" />
+              <Grid Height="28" Margin="{StaticResource GapTight}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="180" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="最近会话快捷键" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" x:Name="HotkeyBox" Height="28" LostFocus="Other_Save"
+                         FontFamily="{StaticResource FontMono}" ToolTip="例如 Ctrl+Alt+P；留空 = 不注册" />
+                <TextBlock Grid.Column="2" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                           Margin="8,0,0,0" FontSize="{StaticResource FsMicro}"
+                           Text="全局生效；被别的程序占了会提示" />
               </Grid>
             </StackPanel>
           </Border>

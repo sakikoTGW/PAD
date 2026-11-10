@@ -57,44 +57,54 @@ public static class RunningReport
             });
         }
 
-        var detected = new List<object>();
-        try
-        {
-            var inv = Discover.Run(launcher, [], CancellationToken.None);
-            foreach (var s in inv.Shells.Where(x => x.Running))
-            {
-                var inst = Match(s.Home);
-                detected.Add(new
-                {
-                    source = "detected",
-                    kind = BundleKindOf(s.Exe),
-                    instance = inst?.Id,
-                    name = inst?.Name,
-                    home = s.Home,
-                    version = s.Version,
-                    pid = s.Pid,
-                    exe = s.Exe,
-                });
-            }
-            foreach (var t in inv.Tuis.Where(x => x.Running))
-            {
-                var inst = Match(t.Home);
-                detected.Add(new
-                {
-                    source = "detected",
-                    kind = "tui",
-                    instance = inst?.Id,
-                    name = inst?.Name,
-                    home = t.Home,
-                    profile = t.Profile,
-                    pid = t.Pid,
-                    package = t.Package,
-                });
-            }
-        }
-        catch { /* 探测失败只少一段 */ }
+        Inventory inv;
+        try { inv = Discover.Run(launcher, [], CancellationToken.None); }
+        catch { inv = Inventory.Empty; }
 
-        return new { padRuns, detected };
+        var detected = new List<object>();
+        foreach (var s in inv.Shells.Where(x => x.Running))
+        {
+            var inst = Match(s.Home);
+            detected.Add(new
+            {
+                source = "detected",
+                kind = BundleKindOf(s.Exe),
+                instance = inst?.Id,
+                name = inst?.Name,
+                home = s.Home,
+                version = s.Version,
+                pid = s.Pid,
+                exe = s.Exe,
+            });
+        }
+        foreach (var t in inv.Tuis.Where(x => x.Running))
+        {
+            var inst = Match(t.Home);
+            detected.Add(new
+            {
+                source = "detected",
+                kind = "tui",
+                instance = inst?.Id,
+                name = inst?.Name,
+                home = t.Home,
+                profile = t.Profile,
+                pid = t.Pid,
+                package = t.Package,
+            });
+        }
+
+        var rows = Schedule.List(launcher, inv).Select(r => new
+        {
+            r.Id,
+            r.Kind,
+            r.Name,
+            r.Home,
+            r.Running,
+            r.Pid,
+            gate = Schedule.Gate(r),
+        });
+
+        return new { padRuns, detected, rows };
     }
 
     static string BundleKindOf(string? exe)

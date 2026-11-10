@@ -2,13 +2,30 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v="clr-namespace:Pad.Views">
-  <!-- 插件市场式小图标：有真图标用真图标；没有就按插件类型给一枚彩色字形方块——
-       保证列表里每个插件都有图标，不会出现空白/通用胶囊。 -->
+  <!-- 插件市场式小图标：有真图标用真图标；还在取就是骨架 + 扫光；取不到才按类型给彩色字形。
+       顺序很重要——先骨架，后字形，避免「先给假图标再突然换掉」。 -->
   <Grid x:Name="Root">
     <Border x:Name="Tile" CornerRadius="8">
       <v:Ico x:Name="GlyphIcon" Width="15" Height="15"
              HorizontalAlignment="Center" VerticalAlignment="Center" />
     </Border>
+
+    <Border x:Name="Skeleton" CornerRadius="8" Visibility="Collapsed" ClipToBounds="True"
+            Background="{StaticResource BgSubtle}">
+      <Border x:Name="Shine" Width="24" HorizontalAlignment="Left">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+            <GradientStop Color="#00FFFFFF" Offset="0" />
+            <GradientStop Color="#8CFFFFFF" Offset="0.5" />
+            <GradientStop Color="#00FFFFFF" Offset="1" />
+          </LinearGradientBrush>
+        </Border.Background>
+        <Border.RenderTransform>
+          <TranslateTransform x:Name="ShineShift" />
+        </Border.RenderTransform>
+      </Border>
+    </Border>
+
     <Image x:Name="Pic" Stretch="Uniform" Visibility="Collapsed" />
   </Grid>
 </UserControl>

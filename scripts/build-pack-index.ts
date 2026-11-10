@@ -1,16 +1,21 @@
 #!/usr/bin/env bun
 /**
- * 编译 agent-pack-dsh/pack-index（Windows 走 VS Build Tools vcvars64）。
- * 产物写到 E:\tmp\pack-agent\pack-index-target，禁止落到 C:\Users\...\Temp。
+ * 编译 pack-index（Windows 走 VS Build Tools vcvars64）。
+ * 产物写到临时根（AGENT_PACK_TMP，缺省 <仓库盘>:\tmp\pack-agent）下的 pack-index-target，
+ * 不落 C:\Users\...\Temp —— 2026-08-13 曾被撑满过。
+ *
+ * 布局自己探测（见 layout.ts），monorepo 和 PAD 独立仓同一份文件。
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { packAgentFile } from '../../src/package-root.js'
-import { packTmpRoot } from '../../src/tmp-root.js'
+import { findPackBase, findRepoRoot, scratchRoot } from './layout.js'
+
+const REPO = findRepoRoot()
+const BASE = findPackBase(REPO)
 
 export function packIndexTargetDir(): string {
-  return process.env.CARGO_TARGET_DIR?.trim() || join(packTmpRoot(), 'pack-index-target')
+  return process.env.CARGO_TARGET_DIR?.trim() || join(scratchRoot(REPO), 'pack-index-target')
 }
 
 export function packIndexBinPath(): string {
@@ -20,7 +25,8 @@ export function packIndexBinPath(): string {
 }
 
 function findVcvars64(): string | undefined {
-  const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+  const pf86 = process.env['ProgramFiles(x86)']
+  if (!pf86) return undefined
   const vswhere = join(pf86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
   if (!existsSync(vswhere)) return undefined
   const r = spawnSync(
@@ -46,10 +52,12 @@ export function buildPackIndex(): string {
   const bin = packIndexBinPath()
   if (existsSync(bin) && !process.env.PACK_INDEX_REBUILD) return bin
 
-  const manifest = packAgentFile('agent-pack-dsh', 'pack-index', 'Cargo.toml')
+  const manifest = join(BASE, 'pack-index', 'Cargo.toml')
+  if (!existsSync(manifest)) throw new Error(`missing ${manifest}`)
   const target = packIndexTargetDir()
   mkdirSync(target, { recursive: true })
-  const tmp = packTmpRoot()
+  const tmp = scratchRoot(REPO)
+  mkdirSync(tmp, { recursive: true })
   const env = {
     ...process.env,
     CARGO_TARGET_DIR: target,

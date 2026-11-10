@@ -310,17 +310,14 @@
         </StackPanel>
       </ScrollViewer>
 
-      <!-- 社区资源：一层 npm search 的视图。翻页条钉在底边，20 行结果只滚中间。 -->
+      <!-- 社区资源：列表铺满；页码栏浮在内容上方（与推荐页同层，不另占底行）。 -->
       <Grid x:Name="PaneMarket" Visibility="Collapsed">
         <Grid x:Name="PaneMarketList">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="*" />
-          <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <Grid Grid.Row="0">
         <ScrollViewer x:Name="MarketScroll" Padding="{StaticResource PadPage}"
-                      VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="0,0,0,28">
+                      Style="{StaticResource OverlayScroll}"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,0,72">
           <StackPanel>
             <StackPanel Visibility="Collapsed">
               <TextBlock x:Name="ShelfTitle" />
@@ -389,9 +386,60 @@
                              Margin="42,0,10,0" VerticalContentAlignment="Center"
                              Tag="搜索插件、作者、关键词…" KeyDown="Search_Key" />
                   </Grid>
-                  <Button Grid.Column="1" x:Name="SearchBtn" Style="{StaticResource BtnPrimary}"
-                          Content="搜索" Padding="20,0" Margin="0,0,5,0"
-                          Click="Search_Click" />
+                  <Button Grid.Column="1" x:Name="SearchBtn" Content="搜索" Padding="22,0"
+                          Click="Search_Click" FontWeight="SemiBold"
+                          Foreground="{StaticResource TextOnAccent}" Cursor="Hand">
+                    <Button.Template>
+                      <ControlTemplate TargetType="Button">
+                        <Grid x:Name="root">
+                          <Border Background="{StaticResource AccentDeep}" CornerRadius="0,8,8,0" />
+                          <Border x:Name="hot" Background="{StaticResource AccentPress}"
+                                  CornerRadius="0,8,8,0" Opacity="0" />
+                          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Margin="{TemplateBinding Padding}" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Trigger.EnterActions>
+                              <BeginStoryboard>
+                                <Storyboard>
+                                  <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                                   To="1" Duration="0:0:0.16" />
+                                </Storyboard>
+                              </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                              <BeginStoryboard>
+                                <Storyboard>
+                                  <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                                   To="0" Duration="0:0:0.16" />
+                                </Storyboard>
+                              </BeginStoryboard>
+                            </Trigger.ExitActions>
+                          </Trigger>
+                          <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Cursor" Value="Arrow" />
+                            <Trigger.EnterActions>
+                              <BeginStoryboard>
+                                <Storyboard>
+                                  <DoubleAnimation Storyboard.TargetName="root" Storyboard.TargetProperty="Opacity"
+                                                   To="0.38" Duration="0:0:0.2" />
+                                </Storyboard>
+                              </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                              <BeginStoryboard>
+                                <Storyboard>
+                                  <DoubleAnimation Storyboard.TargetName="root" Storyboard.TargetProperty="Opacity"
+                                                   To="1" Duration="0:0:0.2" />
+                                </Storyboard>
+                              </BeginStoryboard>
+                            </Trigger.ExitActions>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Button.Template>
+                  </Button>
                 </Grid>
               </Grid>
             </Border>
@@ -400,17 +448,25 @@
             <ScrollViewer x:Name="ShelfChipScroll" Margin="0,14,0,0"
                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                           Focusable="False">
-              <Grid x:Name="ShelfChipHost" local:Fx.SlideSelect="pill">
-                <Border Style="{StaticResource SlideThumbPill}">
+              <Grid x:Name="ShelfChipHost">
+                <Border x:Name="ShelfPill" Style="{StaticResource SlideThumbPill}" Opacity="0"
+                        RenderTransformOrigin="0,0.5">
                   <Border.RenderTransform>
-                    <TranslateTransform />
+                    <TransformGroup>
+                      <ScaleTransform x:Name="ShelfPillScale" />
+                      <TranslateTransform x:Name="ShelfPillShift" />
+                    </TransformGroup>
                   </Border.RenderTransform>
                 </Border>
                 <StackPanel x:Name="ShelfChipRow" Orientation="Horizontal" />
               </Grid>
             </ScrollViewer>
 
-            <StackPanel x:Name="ChipRow" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
+            <Border x:Name="ChipRowHost" ClipToBounds="True" Visibility="Collapsed">
+            <StackPanel x:Name="ChipRow" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Top">
+              <StackPanel.RenderTransform>
+                <TranslateTransform x:Name="ChipRowShift" />
+              </StackPanel.RenderTransform>
               <RadioButton x:Name="ModeAll" Style="{StaticResource FilterTab}" Content="全部插件"
                            GroupName="storeMode" Visibility="Collapsed" Checked="StoreMode_Changed" />
               <RadioButton x:Name="ModeStars" Style="{StaticResource FilterTab}" Content="Star 增长"
@@ -418,15 +474,19 @@
               <RadioButton x:Name="ModeDownloads" Style="{StaticResource FilterTab}" Content="下载增长"
                            GroupName="storeMode" Margin="8,0,0,0" IsChecked="True" Visibility="Collapsed"
                            Checked="StoreMode_Changed" />
-              <Grid local:Fx.SlideSelect="pill">
-                <Border Style="{StaticResource SlideThumbPill}">
+              <Grid x:Name="PeriodHost" Margin="8,0,0,0">
+                <Border x:Name="PeriodPill" Style="{StaticResource SlideThumbPill}" Opacity="0"
+                        RenderTransformOrigin="0,0.5">
                   <Border.RenderTransform>
-                    <TranslateTransform />
+                    <TransformGroup>
+                      <ScaleTransform x:Name="PeriodPillScale" />
+                      <TranslateTransform x:Name="PeriodPillShift" />
+                    </TransformGroup>
                   </Border.RenderTransform>
                 </Border>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel x:Name="PeriodRow" Orientation="Horizontal">
                   <RadioButton x:Name="PeriodDay" Style="{StaticResource FilterTab}" Content="日"
-                               GroupName="storePeriod" Checked="StorePeriod_Changed" />
+                               GroupName="storePeriod" Margin="0" Checked="StorePeriod_Changed" />
                   <RadioButton x:Name="PeriodWeek" Style="{StaticResource FilterTab}" Content="周"
                                GroupName="storePeriod" IsChecked="True" Margin="6,0,0,0"
                                Checked="StorePeriod_Changed" />
@@ -438,6 +498,7 @@
                          FontSize="{StaticResource FsSmall}" Margin="14,0,0,0"
                          VerticalAlignment="Center" />
             </StackPanel>
+            </Border>
 
             <StackPanel x:Name="StoreMore" Visibility="Collapsed" Margin="0,10,0,0">
               <StackPanel Orientation="Horizontal">
@@ -528,9 +589,9 @@
               </Grid>
             </Border>
 
-            <Grid Margin="2,20,2,12">
+            <Grid x:Name="StoreSectionHead" Margin="2,20,2,12">
               <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock x:Name="StoreSectionTitle" Text="全部插件" FontSize="17"
+                <TextBlock x:Name="StoreSectionTitle" Text="推荐" FontSize="17"
                            FontWeight="Bold" Foreground="{StaticResource TextPrimary}" />
                 <TextBlock x:Name="StoreSectionSub" Style="{StaticResource Muted}"
                            Margin="10,0,0,0" VerticalAlignment="Center"
@@ -539,6 +600,10 @@
               </StackPanel>
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                           VerticalAlignment="Center">
+                <Button x:Name="StoreLayoutBtn" Style="{StaticResource IcoBtn}"
+                        ToolTip="显示" Margin="0,0,6,0" Click="StoreLayout_Click">
+                  <v:Ico Glyph="{StaticResource I.Gear}" Height="13" />
+                </Button>
                 <TextBlock x:Name="StoreSectionRight" Style="{StaticResource Muted}"
                            VerticalAlignment="Center" FontSize="{StaticResource FsSmall}"
                            Margin="0,0,14,0" />
@@ -576,17 +641,18 @@
             </Grid>
           </Border>
 
+          <Grid>
           <Border x:Name="ResultCard" Padding="0" Background="Transparent" Visibility="Collapsed">
             <ItemsControl x:Name="ResultList">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                  <WrapPanel HorizontalAlignment="Left" />
+                  <UniformGrid Columns="3" />
                 </ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
                   <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
-                  <Grid Width="232" Margin="0,0,14,14" local:Fx.Enter="card">
+                  <Grid Margin="7">
                   <Border MinHeight="188" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
                           Cursor="Hand" Background="{StaticResource BgCard}"
                           BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
@@ -609,8 +675,8 @@
                           <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <v:PluginMark Grid.Column="0" Width="52" Height="52" Size="52"
-                                      IconPath="{Binding IconPath}" Spec="{Binding Name}"
-                                      VerticalAlignment="Top" Margin="0,0,12,0" />
+                                      IconPath="{Binding IconPath}" Pending="{Binding IconPending}"
+                                      Spec="{Binding Name}" VerticalAlignment="Top" Margin="0,0,12,0" />
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,6,0">
                           <TextBlock Text="{Binding Title}" FontSize="14.5" FontWeight="Bold"
                                      Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"
@@ -681,6 +747,17 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </Border>
+          </Grid>
+
+          <Border x:Name="StoreBusy" Visibility="Collapsed" MinHeight="180"
+                  HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,28,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+              <ContentControl Style="{StaticResource Spinner}" VerticalAlignment="Center" />
+              <TextBlock x:Name="StoreBusyText" Text="正在加载" Style="{StaticResource Muted}"
+                         Margin="12,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+          </Border>
 
           <Border x:Name="LoadCard" Style="{StaticResource Slab}" Padding="40,30"
                   HorizontalAlignment="Center" Margin="0,40,0,0" Visibility="Collapsed">
@@ -711,21 +788,22 @@
 
         </StackPanel>
         </ScrollViewer>
-        <!-- Soft dissolve into the page wash — hard ClipToBounds was cutting cards mid-face. -->
-        <Border IsHitTestVisible="False" VerticalAlignment="Bottom" Height="64"
-                Margin="0,0,9,0">
-          <Border.Background>
+        <Border x:Name="StoreEdgeFade" VerticalAlignment="Bottom" Height="120"
+                IsHitTestVisible="False" Background="{StaticResource BgPage}">
+          <Border.OpacityMask>
             <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-              <GradientStop Color="#00EAEFF3" Offset="0" />
-              <GradientStop Color="#35EAEFF3" Offset="0.35" />
-              <GradientStop Color="#A8EAEFF3" Offset="0.72" />
-              <GradientStop Color="#FFEAEFF3" Offset="1" />
+              <GradientStop Color="#00000000" Offset="0" />
+              <GradientStop Color="#00000000" Offset="0.1" />
+              <GradientStop Color="#40000000" Offset="0.35" />
+              <GradientStop Color="#99000000" Offset="0.6" />
+              <GradientStop Color="#E6000000" Offset="0.82" />
+              <GradientStop Color="#FF000000" Offset="1" />
             </LinearGradientBrush>
-          </Border.Background>
+          </Border.OpacityMask>
         </Border>
-        </Grid>
-        <Border Grid.Row="1" x:Name="PagerCard" Style="{StaticResource Slab}" Padding="10,7"
-                HorizontalAlignment="Center" Margin="{StaticResource GapModule}" Visibility="Collapsed">
+        <Border x:Name="PagerCard" Style="{StaticResource Slab}" Padding="10,7"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,9,18" Visibility="Collapsed">
           <StackPanel Orientation="Horizontal" Height="23">
             <Button x:Name="FirstBtn" Style="{StaticResource IcoBtn}" Height="23" Width="26"
                     Click="First_Click" ToolTip="第一页">
@@ -877,5 +955,44 @@
         </StackPanel>
       </ScrollViewer>
     </Grid>
+    <Popup x:Name="StoreLayoutPop" Placement="Bottom"
+           PlacementTarget="{Binding ElementName=StoreLayoutBtn}"
+           StaysOpen="False" AllowsTransparency="True"
+           Opened="StoreLayoutPop_Opened" Closed="StoreLayoutPop_Closed">
+      <Border Background="{StaticResource BgPage}" CornerRadius="{StaticResource RadCard}"
+              Padding="12,10" Margin="0,6,0,0" BorderBrush="{StaticResource LineBorder}"
+              BorderThickness="1">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="18" ShadowDepth="4" Direction="270" Opacity="0.12"
+                            Color="#20303F" />
+        </Border.Effect>
+        <StackPanel>
+          <TextBlock Text="每行" Style="{StaticResource Muted}" FontSize="{StaticResource FsSmall}"
+                     Margin="2,0,0,8" />
+          <Grid x:Name="ColHost">
+            <Border x:Name="ColPill" Style="{StaticResource SlideThumbPill}" Opacity="0"
+                    RenderTransformOrigin="0,0.5">
+              <Border.RenderTransform>
+                <TransformGroup>
+                  <ScaleTransform x:Name="ColPillScale" />
+                  <TranslateTransform x:Name="ColPillShift" />
+                </TransformGroup>
+              </Border.RenderTransform>
+            </Border>
+            <StackPanel x:Name="ColRow" Orientation="Horizontal">
+              <RadioButton x:Name="Col2" Style="{StaticResource FilterTab}" Content="2" Tag="2"
+                           MinWidth="36" Padding="10,0" Margin="0" Checked="StoreColumns_Changed" />
+              <RadioButton x:Name="Col3" Style="{StaticResource FilterTab}" Content="3" Tag="3"
+                           MinWidth="36" Padding="10,0" Margin="0" IsChecked="True"
+                           Checked="StoreColumns_Changed" />
+              <RadioButton x:Name="Col4" Style="{StaticResource FilterTab}" Content="4" Tag="4"
+                           MinWidth="36" Padding="10,0" Margin="0" Checked="StoreColumns_Changed" />
+              <RadioButton x:Name="Col5" Style="{StaticResource FilterTab}" Content="5" Tag="5"
+                           MinWidth="36" Padding="10,0" Margin="0" Checked="StoreColumns_Changed" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+    </Popup>
   </Grid>
 </UserControl>

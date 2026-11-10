@@ -48,7 +48,24 @@ public sealed class MarketRow : System.ComponentModel.INotifyPropertyChanged
         {
             if (_iconPath == value) return;
             _iconPath = value;
+            if (!string.IsNullOrWhiteSpace(value)) IconPending = false;
             PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconPath)));
+        }
+    }
+
+    bool _iconPending = true;
+    /// <summary>
+    /// 图标还在路上。列表先用骨架占位，取到（IconPath 有值）或确认取不到（false）
+    /// 再落定——不会先给一张假的字形图再突然换掉。
+    /// </summary>
+    public bool IconPending
+    {
+        get => _iconPending;
+        set
+        {
+            if (_iconPending == value) return;
+            _iconPending = value;
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IconPending)));
         }
     }
 
@@ -175,7 +192,11 @@ public sealed class Market
 {
     static readonly HttpClient Http = new();
 
-    const int SearchCacheTtlSec = 300;
+    const int SearchCacheTtlSec = 300;            // 内存里 5 分钟
+    const int DiskCacheTtlSec = 6 * 3600;         // 磁盘上 6 小时（先出旧数据，再后台刷新）
+    static readonly object StatsGate = new();
+    static readonly Queue<long> Latencies = new();
+    static int _prefetched;
     static readonly ConcurrentDictionary<string, (MarketPage Page, DateTimeOffset At)> SearchCache = new();
     static readonly ConcurrentDictionary<string, Task<MarketPage>> InFlight = new();
 
@@ -196,14 +217,15 @@ public sealed class Market
         return Path.Combine(DiskCacheDir, hash + ".json");
     }
 
-    static bool TryReadDiskCache(string key, out MarketPage page)
+    static bool TryReadDiskCache(string key, out MarketPage page, out bool fresh)
     {
         page = null!;
+        fresh = false;
         try
         {
             var file = DiskCacheFile(key);
             if (!File.Exists(file)) return false;
-            if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalSeconds >= SearchCacheTtlSec) return false;
+            fresh = (DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalSeconds < DiskCacheTtlSec;
             var parsed = JsonSerializer.Deserialize<MarketPage>(File.ReadAllText(file));
             if (parsed is null) return false;
             page = parsed;
@@ -244,18 +266,30 @@ public sealed class Market
         }
     }
 
-    public static string RegistryBase
+    /// <summary>按顺序尝试的 registry：国内默认 npmmirror，失败回退 npmjs。</summary>
+    public static IReadOnlyList<string> RegistryBases
     {
         get
         {
             try
             {
                 var r = AppState.Current.Settings.Download.NpmRegistry;
-                return string.IsNullOrWhiteSpace(r) ? "https://registry.npmjs.org" : r.TrimEnd('/');
+                if (!string.IsNullOrWhiteSpace(r))
+                {
+                    var custom = r.TrimEnd('/');
+                    return custom.Contains("npmmirror", StringComparison.OrdinalIgnoreCase)
+                        ? [custom, "https://registry.npmjs.org"]
+                        : custom.Contains("npmjs", StringComparison.OrdinalIgnoreCase)
+                            ? [custom, "https://registry.npmmirror.com"]
+                            : [custom];
+                }
             }
-            catch { return "https://registry.npmjs.org"; }
+            catch { /* boot */ }
+            return ["https://registry.npmmirror.com", "https://registry.npmjs.org"];
         }
     }
+
+    public static string RegistryBase => RegistryBases[0];
 
     public static int PageSize
     {
@@ -331,10 +365,8 @@ public sealed class Market
     {
         var size = pageSize > 0 ? Math.Clamp(pageSize, 5, 250) : PageSize;
         var q = string.IsNullOrWhiteSpace(text) ? shelfQuery : $"{shelfQuery} {text.Trim()}";
-        var host = RegistryBase;
-        var url = $"{host}/-/v1/search"
-                  + $"?text={Uri.EscapeDataString(q)}&size={size}&from={Math.Max(0, from)}";
-        var key = $"{host}|{q}|{from}|{size}";
+        var bases = RegistryBases;
+        var key = $"{string.Join(",", bases)}|{q}|{from}|{size}";
 
         if (SearchCache.TryGetValue(key, out var hit)
             && (DateTimeOffset.UtcNow - hit.At).TotalSeconds < SearchCacheTtlSec)
@@ -342,17 +374,18 @@ public sealed class Market
             LastSearchMs = 0;
             return hit.Page;
         }
-        if (TryReadDiskCache(key, out var diskPage))
+        if (TryReadDiskCache(key, out var diskPage, out var fresh))
         {
             SearchCache[key] = (diskPage, DateTimeOffset.UtcNow);
             LastSearchMs = 0;
+            if (!fresh) _ = RefreshAsync(key, bases, q, from, size);   // 旧数据先出，后台再刷
             return diskPage;
         }
         if (InFlight.TryGetValue(key, out var running))
             return await running;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var task = SearchCore(host, url, from, size, ct);
+        var task = SearchCoreAny(bases, q, from, size, ct);
         InFlight[key] = task;
         try
         {
@@ -367,6 +400,94 @@ public sealed class Market
             sw.Stop();
             LastSearchMs = sw.ElapsedMilliseconds;
         }
+    }
+
+    static async Task<MarketPage> SearchCoreAny(IReadOnlyList<string> bases, string q, int from,
+        int size, CancellationToken ct)
+    {
+        PadError? last = null;
+        foreach (var host in bases)
+        {
+            var url = $"{host}/-/v1/search?text={Uri.EscapeDataString(q)}&size={size}&from={Math.Max(0, from)}";
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var page = await SearchCore(host, url, from, size, ct);
+                sw.Stop(); RecordLatency(sw.ElapsedMilliseconds);
+                return page;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (PadError e)
+            {
+                sw.Stop(); RecordLatency(sw.ElapsedMilliseconds);
+                last = e;
+            }
+        }
+        throw last ?? new PadError("PA033", "npm 搜索没连上", string.Join(" → ", bases),
+            "所有 registry 都没响应。", ["检查网络或代理", "到设置 → 下载改 registry / 超时", "点重试再试一次"]);
+    }
+
+    static async Task RefreshAsync(string key, IReadOnlyList<string> bases, string q, int from, int size)
+    {
+        try
+        {
+            var page = await SearchCoreAny(bases, q, from, size, CancellationToken.None);
+            SearchCache[key] = (page, DateTimeOffset.UtcNow);
+            WriteDiskCache(key, page);
+        }
+        catch { /* 后台刷新失败就继续用旧数据 */ }
+    }
+
+    static void RecordLatency(long ms)
+    {
+        lock (StatsGate)
+        {
+            Latencies.Enqueue(ms);
+            while (Latencies.Count > 200) Latencies.Dequeue();
+        }
+        try
+        {
+            Directory.CreateDirectory(DiskCacheDir);
+            File.AppendAllText(Path.Combine(DiskCacheDir, "latency.log"),
+                $"{DateTimeOffset.UtcNow:O}\t{ms}{Environment.NewLine}");
+        }
+        catch { /* 统计是尽力而为 */ }
+    }
+
+    /// <summary>最近 200 次搜索的 p95（毫秒）；0 表示还没有样本。</summary>
+    public static long P95Ms
+    {
+        get
+        {
+            long[] arr;
+            lock (StatsGate) arr = Latencies.ToArray();
+            if (arr.Length == 0) return 0;
+            Array.Sort(arr);
+            var idx = Math.Clamp((int)Math.Ceiling(arr.Length * 0.95) - 1, 0, arr.Length - 1);
+            return arr[idx];
+        }
+    }
+
+    public static int Samples
+    {
+        get { lock (StatsGate) return Latencies.Count; }
+    }
+
+    /// <summary>启动后预热首页；只跑一次，失败静默。</summary>
+    public static void Prefetch()
+    {
+        if (Interlocked.Exchange(ref _prefetched, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1500);
+                var shelf = Shelves.FirstOrDefault();
+                if (shelf.Query.Length == 0) return;
+                _ = await Search(shelf.Query, "", 0, CancellationToken.None);
+            }
+            catch { /* 预热失败不影响正常使用 */ }
+        });
     }
 
     static async Task<MarketPage> SearchCore(string host, string url, int from, int size, CancellationToken ct)

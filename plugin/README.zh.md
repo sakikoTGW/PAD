@@ -32,6 +32,13 @@ DSH 里对应工具：`packagent_project`、`packagent_map`、`packagent_search`
 
 管理正在跑的实例是另一层 profile：`@sakikotgw/pad-gateway` 包住官方 `@deepseek-ai/dsh-host-apiproxy`，广告写在 `$DSH_HOME/pad-gateway.json`。PAD 读广告后调 apiproxy 的 rpc（`workspace.list`、`session.list`、`session.cancel`）。不是聊天协议。
 
+## 自带 skill
+
+装了这个插件，实例里会多两个 skill（插件把 `./skills` 挂成 skill 根）：
+
+- `pack-agent-dsh` —— 投影 / 白名单 / 搜索整合包。
+- `pad` —— 用 PAD CLI 管实例：启停、装包、dev 会话、读 `PAxxx` 报错；`pad` 不在 `PATH` 上时怎么找到 PAD 根。入口 `skills/pad/SKILL.md`。
+
 ## 从源码运行
 
 ```sh

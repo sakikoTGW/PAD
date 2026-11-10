@@ -91,6 +91,19 @@ public static class AgentPresets
         Launcher launcher, string home, string? version, string workspace, string profile,
         CancellationToken ct)
     {
+        var (text, error) = await DumpAsync(launcher, home, version, workspace, profile, ct);
+        if (text is null) return (null, error);
+        var probe = Parse(text);
+        return probe is null
+            ? (null, "dump-config did not contain preset rows (unsupported release shape)")
+            : (probe, null);
+    }
+
+    /// <summary>The profile's fully merged configuration as the pinned release prints it.</summary>
+    public static async Task<(string? Text, string? Error)> DumpAsync(
+        Launcher launcher, string home, string? version, string workspace, string profile,
+        CancellationToken ct)
+    {
         var bin = launcher.DshBin(version ?? "");
         if (!File.Exists(bin)) return (null, $"that release is not installed: {version}");
         var node = launcher.ResolveLaunchNode(
@@ -137,10 +150,7 @@ public static class AgentPresets
             var err = await stderr;
             if (proc.ExitCode != 0)
                 return (null, $"dump-config exited {proc.ExitCode}: {Tail(err, 400)}");
-            var probe = Parse(text);
-            return probe is null
-                ? (null, "dump-config did not contain preset rows (unsupported release shape)")
-                : (probe, null);
+            return (text, null);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {

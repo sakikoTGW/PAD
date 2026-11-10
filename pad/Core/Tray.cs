@@ -24,12 +24,14 @@ public sealed class Tray : IDisposable
     const int WM_LBUTTONUP = 0x0202, WM_LBUTTONDBLCLK = 0x0203, WM_RBUTTONUP = 0x0205;
     const uint WM_NULL = 0;
 
-    const int CmdOpen = 1, CmdToggle = 2, CmdExit = 3;
+    const int CmdOpen = 1, CmdToggle = 2, CmdExit = 3, CmdRecent = 4, CmdModels = 5;
 
     readonly IntPtr _hwnd;
     readonly HwndSource _source;
     readonly Action _show;
     readonly Action _exit;
+    readonly Action _showRecent;
+    readonly Action _showModels;
     readonly Func<bool> _getCloseToTray;
     readonly Action<bool> _setCloseToTray;
     readonly IntPtr _icon;
@@ -39,12 +41,15 @@ public sealed class Tray : IDisposable
     bool _balloonShown;
     bool _disposed;
 
-    public Tray(Window window, Action show, Action exit, Func<bool> getCloseToTray, Action<bool> setCloseToTray)
+    public Tray(Window window, Action show, Action exit, Func<bool> getCloseToTray, Action<bool> setCloseToTray,
+        Action? showRecent = null, Action? showModels = null, string hotkey = "")
     {
         _show = show;
         _exit = exit;
         _getCloseToTray = getCloseToTray;
         _setCloseToTray = setCloseToTray;
+        _showRecent = showRecent ?? (() => { });
+        _showModels = showModels ?? (() => { });
         _hwnd = new WindowInteropHelper(window).Handle;
         _source = HwndSource.FromHwnd(_hwnd)
                   ?? throw new InvalidOperationException("tray needs a window handle");
@@ -53,6 +58,9 @@ public sealed class Tray : IDisposable
         _icon = ExtractIcon(Environment.ProcessPath);
         _menu = CreatePopupMenu();
         AppendMenuW(_menu, MF_STRING, CmdOpen, "打开 PAD");
+        AppendMenuW(_menu, MF_STRING, CmdRecent,
+            hotkey.Length > 0 ? $"最近会话…    {hotkey}" : "最近会话…");
+        AppendMenuW(_menu, MF_STRING, CmdModels, "本地模型…");
         AppendMenuW(_menu, MF_SEPARATOR, 0, "");
         AppendMenuW(_menu, MF_STRING, CmdToggle, "关闭窗口时最小化到托盘");
         AppendMenuW(_menu, MF_SEPARATOR, 0, "");
@@ -135,6 +143,12 @@ public sealed class Tray : IDisposable
         {
             case CmdOpen:
                 Run(_show);
+                break;
+            case CmdRecent:
+                Run(_showRecent);
+                break;
+            case CmdModels:
+                Run(_showModels);
                 break;
             case CmdToggle:
             {

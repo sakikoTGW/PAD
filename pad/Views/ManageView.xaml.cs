@@ -693,7 +693,7 @@ public partial class ManageView : UserControl, IRefreshable
                     new TextBlock
                     {
                         Text = text,
-                        FontFamily = new FontFamily("Consolas"),
+                        FontFamily = (FontFamily)FindResource("FontUI"),
                         FontSize = 12,
                         TextWrapping = TextWrapping.Wrap,
                         MaxWidth = 460,

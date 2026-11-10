@@ -2,13 +2,15 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 
 namespace Pad.Views;
 
 /// <summary>
 /// 一个插件的小图标（插件市场式）：优先用包里/缓存的真实图标；
-/// 没有就按插件类型给一枚彩色字形方块，列表里不会出现空图标。
+/// 还在取图时给骨架 + 扫光（别先摆一枚假字形再突然换掉）；
+/// 确认取不到才按插件类型给一枚彩色字形方块。
 /// </summary>
 public partial class PluginMark : UserControl
 {
@@ -28,10 +30,19 @@ public partial class PluginMark : UserControl
         DependencyProperty.Register(nameof(Kind), typeof(string), typeof(PluginMark),
             new PropertyMetadata("", (d, _) => ((PluginMark)d).Update()));
 
+    /// <summary>图标还在路上：显示骨架 + 扫光，而不是先画一枚字形。</summary>
+    public static readonly DependencyProperty PendingProperty =
+        DependencyProperty.Register(nameof(Pending), typeof(bool), typeof(PluginMark),
+            new PropertyMetadata(false, (d, _) => ((PluginMark)d).Update()));
+
     public string IconPath { get => (string)GetValue(IconPathProperty); set => SetValue(IconPathProperty, value); }
     public string Spec { get => (string)GetValue(SpecProperty); set => SetValue(SpecProperty, value); }
     public string Kind { get => (string)GetValue(KindProperty); set => SetValue(KindProperty, value); }
     public double Size { get => (double)GetValue(SizeProperty); set => SetValue(SizeProperty, value); }
+    public bool Pending { get => (bool)GetValue(PendingProperty); set => SetValue(PendingProperty, value); }
+
+    bool _shining;
+    string _shownIcon = "";
 
     public PluginMark()
     {
@@ -41,12 +52,14 @@ public partial class PluginMark : UserControl
 
     void Update()
     {
-        if (Pic is null || Tile is null || GlyphIcon is null) return;
+        if (Pic is null || Tile is null || GlyphIcon is null || Skeleton is null) return;
 
         var size = Size <= 0 ? 28 : Size;
         Root.Width = size;
         Root.Height = size;
-        Tile.CornerRadius = new CornerRadius(size * 0.28);
+        var radius = new CornerRadius(size * 0.28);
+        Tile.CornerRadius = radius;
+        Skeleton.CornerRadius = radius;
         GlyphIcon.Width = size * 0.54;
         GlyphIcon.Height = size * 0.54;
 
@@ -59,20 +72,69 @@ public partial class PluginMark : UserControl
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.UriSource = new Uri(IconPath, UriKind.Absolute);
                 bmp.EndInit();
+
+                var firstPaint = !string.Equals(_shownIcon, IconPath, StringComparison.OrdinalIgnoreCase);
+                _shownIcon = IconPath;
                 Pic.Source = bmp;
                 Pic.Visibility = Visibility.Visible;
                 Tile.Visibility = Visibility.Collapsed;
+                StopShine();
+                if (firstPaint)
+                {
+                    // 图到得比卡片晚：淡入一下，别让方块里"啪"地出现一张图。
+                    Pic.BeginAnimation(OpacityProperty, null);
+                    Pic.Opacity = 0;
+                    Pic.BeginAnimation(OpacityProperty,
+                        new DoubleAnimation(1, TimeSpan.FromMilliseconds(180)));
+                }
                 return;
             }
             catch { /* 坏图就退回字形 */ }
         }
 
+        if (Pending)
+        {
+            ShowSkeleton(size);
+            return;
+        }
+
+        _shownIcon = "";
+        StopShine();
         Pic.Visibility = Visibility.Collapsed;
         Tile.Visibility = Visibility.Visible;
         var (key, bg, fg) = Look(Spec, Kind);
         Tile.Background = new SolidColorBrush(bg);
         GlyphIcon.Foreground = new SolidColorBrush(fg);
         if (Application.Current.TryFindResource(key) is Geometry g) GlyphIcon.Glyph = g;
+    }
+
+    /// <summary>占位方块 + 一道从左扫到右的高光，循环到图标落定为止。</summary>
+    void ShowSkeleton(double size)
+    {
+        Pic.Visibility = Visibility.Collapsed;
+        Tile.Visibility = Visibility.Collapsed;
+        Skeleton.Visibility = Visibility.Visible;
+        if (_shining) return;
+        _shining = true;
+        Shine.Width = Math.Max(10, size * 0.5);
+        ShineShift.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(-Shine.Width, size, TimeSpan.FromMilliseconds(1150))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+            });
+    }
+
+    void StopShine()
+    {
+        if (!_shining)
+        {
+            if (Skeleton is not null) Skeleton.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _shining = false;
+        ShineShift.BeginAnimation(TranslateTransform.XProperty, null);
+        Skeleton.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>按插件种类/名字选字形和颜色：管理口、TUI、网页端、基础、通用。</summary>

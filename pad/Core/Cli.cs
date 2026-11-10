@@ -58,6 +58,7 @@ public static class Cli
     /// <summary>Shared emitters for command faces implemented in their own files (Cli is one
     /// binary; the log and the console must stay the same channel).</summary>
     internal static void Print(string line) => Say(line);
+    internal static void Payload(object value) => Out(value);
     internal static string PrettyJson(object value) => JsonSerializer.Serialize(value, Pretty);
 
     public static async Task<int> Run(string[] args)
@@ -249,6 +250,46 @@ public static class Cli
                     Out(new { ok = true, instance = inst.Id, profile = rest[1] });
                     return 0;
                 }
+                case "preset" when cmd == "lib":
+                {
+                    var act = rest.Length > 0 ? rest[0] : "list";
+                    switch (act)
+                    {
+                        case "list":
+                            Out(PresetLibrary.List(launcher));
+                            return 0;
+                        case "add":
+                        {
+                            if (rest.Length < 2) return Usage("pad cli preset lib add <dir> [id]");
+                            Out(new { path = PresetLibrary.Add(launcher, rest[1], rest.Length > 2 ? rest[2] : null) });
+                            return 0;
+                        }
+                        case "from-instance":
+                        {
+                            if (rest.Length < 3) return Usage("pad cli preset lib from-instance <instance> <preset> [as]");
+                            var srcInst = Need(launcher, rest[1]);
+                            Out(new { path = PresetLibrary.AddFromInstance(launcher, srcInst, rest[2], rest.Length > 3 ? rest[3] : null) });
+                            return 0;
+                        }
+                        case "remove":
+                        {
+                            if (rest.Length < 2) return Usage("pad cli preset lib remove <id>");
+                            PresetLibrary.Remove(launcher, rest[1]);
+                            Out(new { ok = true, id = rest[1] });
+                            return 0;
+                        }
+                        case "install":
+                        {
+                            if (rest.Length < 3) return Usage("pad cli preset lib install <id> <instance>");
+                            var dstInst = Need(launcher, rest[2]);
+                            Out(new { path = PresetLibrary.Install(launcher, dstInst, rest[1]) });
+                            return 0;
+                        }
+                        default:
+                            return Usage("pad cli preset lib list|add|from-instance|remove|install");
+                    }
+                }
+
                 case "preset" when cmd == "list":
                 {
                     if (rest.Length < 1) return Usage("pad cli preset list <instance>");
@@ -293,6 +334,7 @@ public static class Cli
                 {
                     if (rest.Length < 3) return Usage("pad cli preset bind <instance> <profile> <id>");
                     var inst = Need(launcher, rest[0]);
+                    if (!PresetLibrary.Installed(inst, rest[2]) && Directory.Exists(PresetLibrary.Dir(launcher, rest[2])))                         PresetLibrary.Install(launcher, inst, rest[2]);
                     AgentPresets.Apply(AgentPresets.PatchPath(inst.Home, rest[1]), rest[2]);
                     Out(new { ok = true, instance = inst.Id, profile = rest[1], preset = rest[2] });
                     return 0;
@@ -448,20 +490,29 @@ public static class Cli
                 // first argument lands in `cmd`, not in `rest`.
                 case "run":
                 {
-                    if (cmd.Length == 0) return Usage("pad cli run <instance> [profile] [--dev]");
-                    var inst = Need(launcher, cmd);
-                    var positional = Positionals(rest);
-                    var profile = positional.Count > 0 ? positional[0]
-                        : inst.LastProfile ?? launcher.Profiles(inst).FirstOrDefault()?.Name;
-                    if (profile is null) return Usage("this instance has no profile yet");
-                    // 开发模式：先开开发会话，本次启动带 trial 覆盖层；普通启动完全不参与。
-                    var dev = rest.Contains("--dev");
-                    var devSession = dev ? DevSessions.Open(launcher, inst, profile) : null;
-                    var runner = new Runner(launcher);
-                    await launcher.EnsureRuntimeNode(log, CancellationToken.None, inst.Dsh.Version);
-                    Out(runner.Launch(inst, profile, launcher.Settings()));
-                    if (devSession is not null)
-                        Say($"开发模式：会话 {devSession.Id} · 改动只影响本次运行");
+                    if (cmd.Length == 0) return Usage("pad cli run <instance|id> [profile] [--dev]");
+                    var inst = launcher.Instance(cmd);
+                    if (inst is not null)
+                    {
+                        var positional = Positionals(rest);
+                        var profile = positional.Count > 0 ? positional[0]
+                            : inst.LastProfile ?? launcher.Profiles(inst).FirstOrDefault()?.Name;
+                        if (profile is null) return Usage("this instance has no profile yet");
+                        var dev = rest.Contains("--dev");
+                        var devSession = dev ? DevSessions.Open(launcher, inst, profile) : null;
+                        await launcher.EnsureRuntimeNode(log, CancellationToken.None, inst.Dsh.Version);
+                        var opened = await Schedule.OpenAsync(launcher, Schedule.FromInstance(inst, profile),
+                            launcher.Settings(), CancellationToken.None, profile: profile);
+                        Out(opened);
+                        if (devSession is not null)
+                            Say($"开发模式：会话 {devSession.Id} · 改动只影响本次运行");
+                        return 0;
+                    }
+                    var row = Schedule.Find(Schedule.List(launcher), cmd)
+                        ?? throw new PadError("PA026", "no such instance", cmd, cmd,
+                            ["pad cli status", "pad cli instance list"]);
+                    Out(await Schedule.OpenAsync(launcher, row, launcher.Settings(), CancellationToken.None,
+                        restart: rest.Contains("--restart")));
                     return 0;
                 }
 
@@ -477,10 +528,22 @@ public static class Cli
 
                 case "stop":
                 {
-                    if (cmd.Length == 0) return Usage("pad cli stop <instance> <profile>");
-                    if (rest.Length < 1) return Usage("pad cli stop <instance> <profile>");
-                    new Runner(launcher).Stop(cmd, rest[0]);
-                    Out($"stopped {cmd} · {rest[0]}");
+                    if (cmd.Length == 0) return Usage("pad cli stop <instance|id> [profile]");
+                    var inst = launcher.Instance(cmd);
+                    if (inst is not null)
+                    {
+                        var profile = rest.Length > 0 ? rest[0]
+                            : inst.LastProfile ?? launcher.Profiles(inst).FirstOrDefault()?.Name;
+                        if (profile is null) return Usage("pad cli stop <instance> <profile>");
+                        var n = Schedule.Close(launcher, Schedule.FromInstance(inst, profile), profile);
+                        Out($"stopped {cmd} · {profile} ({n})");
+                        return 0;
+                    }
+                    var row = Schedule.Find(Schedule.List(launcher), cmd)
+                        ?? throw new PadError("PA026", "no such instance", cmd, cmd,
+                            ["pad cli status", "pad cli instance list"]);
+                    var closed = Schedule.Close(launcher, row, rest.Length > 0 ? rest[0] : null);
+                    Out($"stopped {cmd} ({closed})");
                     return 0;
                 }
 
@@ -531,7 +594,7 @@ public static class Cli
                         return Usage($"pad cli market <{string.Join('|', Market.Shelves.Select(s => s.Id))}> [text]");
                     var page = await Market.Search(shelf.Query, string.Join(' ', rest), 0,
                         CancellationToken.None);
-                    Say($"{shelf.Label}: 共 {page.Total} 个，第 1/{page.PageCount} 页（搜索 {Market.LastSearchMs} ms{(Market.LastSearchMs == 0 ? "，缓存" : "")}）");
+                    Say($"{shelf.Label}: 共 {page.Total} 个，第 1/{page.PageCount} 页（搜索 {Market.LastSearchMs} ms，p95 {Market.P95Ms} ms{(Market.LastSearchMs == 0 ? "，缓存" : "")}）");
                     Out(page.Rows);
                     return 0;
                 }
@@ -1088,7 +1151,9 @@ public static class Cli
 
                 case "refresh":                 {                     var (prunedRuns, prunedNodes) = launcher.RefreshState();                     Out(new { ok = true, prunedRuns, prunedNodes, stamp = launcher.RefreshStampPath });                     return 0;                 } 
                 case "self":                     Out(SelfWhere.Run(launcher));                     return 0; 
-                case "running":                     Out(RunningReport.Run(launcher));                     return 0; 
+                case "running":
+                    Out(RunningReport.Run(launcher));
+                    return 0; 
                 case "where":
                     Out(new
                     {
@@ -1162,8 +1227,19 @@ public static class Cli
                         var run = map.TryGetValue(i.Id, out var known)
                             ? known
                             : new ProjectRun(i.Id, RunPhase.Stopped, "");
-                        return new { i.Id, i.Name, Phase = run.Phase.ToString(), run.Detail };
+                        return new { i.Id, i.Name, Phase = run.Phase.ToString(), run.Detail, Kind = "instance" };
                     }).ToList();
+                    foreach (var r in Schedule.List(launcher).Where(x => x.Kind != "instance"))
+                    {
+                        rows.Add(new
+                        {
+                            r.Id,
+                            r.Name,
+                            Phase = r.Running ? "Running" : "Stopped",
+                            Detail = r.Kind,
+                            Kind = r.Kind,
+                        });
+                    }
 
                     var flags = new[] { cmd }.Concat(rest).Where(a => a.Length > 0).ToArray();
                     if (flags.Contains("--json"))
@@ -1810,6 +1886,9 @@ public static class Cli
                 case "project":
                     return await ProjectCli.Run(launcher, cmd, rest);
 
+                case "sisyphus":
+                    return await SisyphusCli.Run(launcher, cmd, rest, log);
+
                 case "task":
                     return await HeadlessTask.Run(launcher, cmd, rest);
 
@@ -1826,7 +1905,7 @@ public static class Cli
                 default:
                     Console.WriteLine("""
                         pad cli import <pack.zip>
-                        pad cli run <instance> [profile]
+                        pad cli run <instance|id> [profile] [--dev]
                         pad cli script <instance> [profile]
                         pad cli rewrite-scripts
                         pad cli release  list | install <ver> | pin <bin.js> | remove <ver>
@@ -1837,10 +1916,12 @@ public static class Cli
                         pad cli plugin   list <instance> [profile] | add|remove|update <instance> <profile> <spec>
                         pad cli market   plugin|tui|skill|host [text]
                         pad cli trial    list <instance> | add <instance> <profile> <spec>
+                        pad cli agent    prep <instance> <profile> [spec...] [--recipe web|tui|gateway] [--hot]
                         pad cli dev      start <instance> [--profile p] | status|list <instance>
                                          | apply <instance> --spec <pkg> [--action add|remove]
                                          | verify <instance> | commit <instance> [--dry-run] [--force]
                                          | discard <instance>   (以上都可加 --json)
+                        pad cli hmr      enable|status <instance> <profile> [--json]
                         pad cli checkpoint list <instance> | prune <instance> [--keep 20] [--yes]
                         pad cli mcp serve
                         pad cli session  ref <session> [--json] | open <instance> <session> [--bundle <s>] [--no-exec] [--json]
@@ -1855,7 +1936,8 @@ public static class Cli
                         pad cli queue submit-mesh --url <peer> --input <file> --out <receipt.json>
                         pad cli queue list --out <file> | status|cancel|retry <id> --out <file> | worker [--once]
                         pad cli portable-export <dest> [instanceId]
-                        pad cli stop <instance> <profile>
+                        pad cli stop <instance|id> [profile]
+                        pad cli status   [--json] [--out <path>]
                         pad cli ps
                         pad cli gateway <instance> [rpc-method]
                         pad cli adopt [home] [version]
@@ -1870,6 +1952,9 @@ public static class Cli
                         pad cli experimental list | enable <id> | disable <id>
                         pad cli system new <name>                 (experimental: layers)
                         pad cli layer  list|open <system> <layer> (experimental: layers)
+                        pad cli sisyphus status <instance> [--profile web] [--json]       (experimental: sisyphus)
+                                         | setup <instance> [--profile web] [--sisyphus <src>] [--preset <src>] [--sandbox <name>]
+                                         | sources
                         """);
                     return group == "help" ? 0 : 1;
             }
@@ -2036,9 +2121,10 @@ public static class Cli
     static readonly (string Id, string Description)[] KnownExperiments =
     [
         ("layers", "系统 → 层 → 模块：同一项目里按职能分工具面（D8/D19/D20）"),
+        (Sisyphus.Experiment, "西西弗斯整合包：装 dsh-sisyphus + 预设组合包，装后按最终配置校验，不通过就回滚"),
     ];
 
-    static void RequireExperiment(Launcher launcher, string id, string what)
+    internal static void RequireExperiment(Launcher launcher, string id, string what)
     {
         if (launcher.Settings().Other.Has(id)) return;
         throw new PadError("PA096", "experimental feature is off: " + what, "pad.json#other.experiments", null,

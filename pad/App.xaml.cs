@@ -16,11 +16,16 @@ public partial class App : Application
     /// only honest picture of the UI is the one the window draws itself.
     /// </summary>
     public static string? ShotPath { get; private set; }
-
     public static bool ShotExit { get; private set; }
 
     /// <summary>Which page to render for <c>--shot</c>; defaults to the launch page.</summary>
     public static string ShotPage { get; private set; } = "launch";
+
+    /// <summary>
+    /// <c>--open recent|local-models</c>：启动后直接打开某个浮动窗口。
+    /// 给自动化截图/QA 用（托盘菜单和热键没法在无人值守时点出来）。
+    /// </summary>
+    public static string? OpenWindow { get; private set; }
 
     /// <summary>true = 正在真正退出（关闭窗口不进托盘）。</summary>
     public static bool Exiting { get; private set; }
@@ -113,6 +118,7 @@ public partial class App : Application
             if (e.Args[i] == "--shot" && i + 1 < e.Args.Length) ShotPath = e.Args[++i];
             else if (e.Args[i] == "--shot-page" && i + 1 < e.Args.Length) ShotPage = e.Args[++i];
             else if (e.Args[i] == "--shot-exit") ShotExit = true;
+            else if (e.Args[i] == "--open" && i + 1 < e.Args.Length) OpenWindow = e.Args[++i];
         }
         DispatcherUnhandledException += OnDispatcherError;
         TaskScheduler.UnobservedTaskException += OnUnobservedTask;
@@ -183,7 +189,10 @@ public partial class App : Application
                 () => window.RestoreFromTray(),
                 ExitFromTray,
                 () => CloseToTray,
-                on => CloseToTray = on);
+                on => CloseToTray = on,
+                window.ShowRecent,
+                window.ShowLocalModels,
+                Core.AppState.Current.Settings.Other.RecentHotkey);
             window.SyncTrayState();
         }
         if (ShotPath is null) window.ProbePadUpdate();

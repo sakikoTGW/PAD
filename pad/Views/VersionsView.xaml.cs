@@ -48,6 +48,21 @@ public partial class VersionsView : UserControl, IRefreshable
             (ShowHidden || inst.Display?.Category is not ("隐藏" or "hidden"));
     }
 
+    /// <summary>实例行的悬停提示：这个 home 里有哪些项目、最近几条会话。</summary>
+    void Instance_Tip(object sender, ToolTipEventArgs e)
+    {
+        if (sender is not FrameworkElement el || el.DataContext is not Instance inst) return;
+        if (el.ToolTip is not ToolTip tip || tip.Content is not TextBlock block) return;
+        var home = inst.Home;
+        block.Text = "…";
+        _ = Task.Run(() => HomeHover.Text(home)).ContinueWith(t =>
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (el.DataContext is Instance still && still.Home == home)
+                    block.Text = t.Status == TaskStatus.RanToCompletion ? t.Result : "还没有会话";
+            }));
+    }
+
     public void OnShown()
     {
         _state.Reload();
@@ -56,7 +71,6 @@ public partial class VersionsView : UserControl, IRefreshable
         RebuildContainerRows();
         SyncPinCombo();
         _ = ScanDetectedAsync(force: _detected is null);
-        _ = RefreshPacksAsync();
     }
 
     void InstanceList_Sel(object sender, SelectionChangedEventArgs e)
@@ -134,7 +148,7 @@ public partial class VersionsView : UserControl, IRefreshable
             var inst = _state.Launcher.CreateInstance(name, version);
             _state.Reload();
             _state.SelectedInstance = _state.Instances.FirstOrDefault(i => i.Id == inst.Id);
-            _win.ShowInner("instance", "版本设置");
+            _win.ShowInner("instance", "版本设置", "versions");
         }
         catch (Exception ex)
         {
@@ -161,16 +175,22 @@ public partial class VersionsView : UserControl, IRefreshable
         };
         if (dlg.ShowDialog(_win) != true) return;
 
-        // v3 包：走新窗口（PackInstall），其余格式继续走旧 import 链路。
+        // 带启动器的包：解到空文件夹，不装进任何实例。
+        if (LauncherPack.Contains(dlg.FileName))
+        {
+            await _win.OpenLauncherPackAsync(dlg.FileName);
+            return;
+        }
+
+        // v3 包：新建实例。其余格式继续走旧 import 链路（也是新建实例）。
         var v3 = PackSpec.Load(dlg.FileName);
         if (v3.Valid && v3.Schema == PackSpec.SchemaV3)
         {
-            var win = new PackImportWindow(_state.Launcher, dlg.FileName, v3, _state.SelectedInstance) { Owner = _win };
+            var win = new PackImportWindow(_state.Launcher, dlg.FileName, v3, createNew: true) { Owner = _win };
             if (win.ShowDialog() == true && win.Installed is not null)
             {
                 _state.Reload();
                 _win.Toast($"已导入 {v3.Name} {v3.Version}：{win.Summary}");
-                await RefreshPacksAsync();
             }
             return;
         }
@@ -187,9 +207,8 @@ public partial class VersionsView : UserControl, IRefreshable
                 _state.Reload();
                 var newestDspack = _state.Instances.OrderByDescending(i => i.Created).FirstOrDefault();
                 if (newestDspack is not null) _state.SelectedInstance = newestDspack;
-                _win.ShowInner("instance", "版本设置");
+                _win.ShowInner("instance", "版本设置", "versions");
                 _win.Toast($"装好了：{result.Name}（DSH {result.Release}）");
-                _ = RefreshPacksAsync();
             }
             catch (Exception ex)
             {
@@ -208,8 +227,7 @@ public partial class VersionsView : UserControl, IRefreshable
             _state.Reload();
             var newest = _state.Instances.OrderByDescending(i => i.Created).FirstOrDefault();
             if (newest is not null) _state.SelectedInstance = newest;
-            _win.ShowInner("instance", "版本设置");
-            _ = RefreshPacksAsync();
+            _win.ShowInner("instance", "版本设置", "versions");
         }
         catch (Exception ex)
         {
@@ -220,27 +238,6 @@ public partial class VersionsView : UserControl, IRefreshable
     // ---- 整合包（插件部分 + 内核）--------------------------------------------
 
     bool _creatingFromPack;
-
-    /// <summary>worker 上重新收集本机整合包，填 PackCatalog；UI 只显示结果（不摆技术说明）。</summary>
-    async Task RefreshPacksAsync()
-    {
-        Fx.SetShown(PackEmpty, false);
-        await _state.ReloadPackCatalog();
-        var n = _state.PackCatalog.Count;
-        var error = _state.PackCatalogError;
-        Fx.SetShown(PackEmpty, n == 0);
-        if (n == 0)
-        {
-            PackEmptyText.Text = error.Length > 0 ? "整合包读不出来" : "本机没有整合包。";
-            PackEmptyText.ToolTip = error.Length > 0 ? error : null;
-        }
-        // D105 UX（用户 2026-11-04）：行左列换整合包自己的 icon；不再显示「装到哪个实例」。
-        PackList.ItemsSource = _state.PackCatalog
-            .Select(card => new PackItem(card, PackIcon.Resolve(_state.Launcher.Root, card.Path)))
-            .ToList();
-    }
-
-    void RefreshPackCatalog_Click(object sender, RoutedEventArgs e) => _ = RefreshPacksAsync();
 
     /// <summary>已建好的包：右键 → 导出成一份文件（拷到用户选的位置，不重新组包）。</summary>
     void ExportPack_Click(object sender, RoutedEventArgs e)
@@ -577,45 +574,6 @@ public partial class VersionsView : UserControl, IRefreshable
         await RunPackActionAsync(item, () => InstallPackAsync(card, name.Trim()));
     }
 
-    /// <summary>
-    /// D107 安装概念：行右侧「安装 ▾」→ 三项菜单。
-    /// ① 装到当前实例（主推荐）→ Preflight → 授权 → InstallPackToInstance（写账本，装完实例页发光）；
-    /// ② 新建实例… = 现有完整 import 链（D104，保留）；
-    /// ③ 先检查能不能装… = 只预检（DryRun，不装）。
-    /// </summary>
-    void InstallMenu_Click(object sender, RoutedEventArgs e)
-    {
-        if (_creatingFromPack || sender is not Button { Tag: PackItem item } btn) return;
-        var card = item.Card;
-        var target = _state.SelectedInstance;
-
-        var menu = new ContextMenu { PlacementTarget = btn, Placement = PlacementMode.Bottom };
-        var current = new MenuItem
-        {
-            Header = target is null ? "装到当前实例（先在左栏选一个实例）" : $"装到当前实例（{target.Name}）",
-            IsEnabled = target is not null,
-            ToolTip = "投影 + 管理器 + 按 diff 装插件，写账本；装完在实例页发光",
-        };
-        current.Click += async (_, _) => await InstallToCurrentInstanceAsync(item);
-        var create = new MenuItem
-        {
-            Header = "新建实例…",
-            ToolTip = "用这个包派生一个新实例（PCL 式，现有行为）",
-        };
-        create.Click += (_, _) => CreateFromPack_Click(new Button { Tag = item }, new RoutedEventArgs());
-        var check = new MenuItem
-        {
-            Header = "先检查能不能装…",
-            ToolTip = "内核 / 插件下架 / 兼容豁免 / 版本冲突，装之前一次列清",
-        };
-        check.Click += async (_, _) => await CheckOnlyAsync(item);
-        menu.Items.Add(current);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(create);
-        menu.Items.Add(check);
-        menu.IsOpen = true;
-    }
-
     string FirstProfileName(Instance inst) =>
         _state.Launcher.Profiles(inst).FirstOrDefault()?.Name ?? "web";
 
@@ -649,12 +607,11 @@ public partial class VersionsView : UserControl, IRefreshable
                 afterApplied: () =>
                 {
                     _state.Reload();
-                    _ = RefreshPacksAsync();
                 },
                 openInstance: () =>
                 {
                     _state.SelectedInstance = inst;
-                    _win.ShowInner("instance", "版本设置");
+                    _win.ShowInner("instance", "版本设置", "versions");
                 },
                 reExport: () => ReExportPackAsync(card),
                 toast: (text, bad) => _win.Toast(text, bad));
@@ -819,9 +776,8 @@ public partial class VersionsView : UserControl, IRefreshable
             _state.Launcher.MarkInstanceStatus(target.Id, "ready");
             _state.Reload();
             _state.SelectedInstance = _state.Instances.FirstOrDefault(i => i.Id == target.Id);
-            _win.ShowInner("instance", "版本设置");
+            _win.ShowInner("instance", "版本设置", "versions");
             _win.Toast($"装好了：{target.Name}（DSH {target.Dsh.Version}）");
-            _ = RefreshPacksAsync();
             return;
         }
         var detail = result.Failures.Select(f => f.Text)
@@ -901,9 +857,8 @@ public partial class VersionsView : UserControl, IRefreshable
             var inst = await packs.ImportPack(card, name, new Progress<string>(Log), CancellationToken.None);
             _state.Reload();
             _state.SelectedInstance = _state.Instances.FirstOrDefault(i => i.Id == inst.Id) ?? inst;
-            _win.ShowInner("instance", "版本设置");
+            _win.ShowInner("instance", "版本设置", "versions");
             _win.Toast($"装好了：{inst.Name}（DSH {inst.Dsh.Version}）");
-            _ = RefreshPacksAsync();
         }
         catch (Exception ex)
         {
@@ -933,9 +888,8 @@ public partial class VersionsView : UserControl, IRefreshable
             try { packs.CollectToLibrary(card.Path); } catch { /* 库拷贝失败不挡导入 */ }
             await packs.Import(card.Path, new Progress<string>(Log), CancellationToken.None);
             _state.Reload();
-            _win.ShowInner("instance", "版本设置");
+            _win.ShowInner("instance", "版本设置", "versions");
             _win.Toast($"装好了：{card.Title}");
-            _ = RefreshPacksAsync();
         }
         catch (Exception ex)
         {
@@ -1011,7 +965,7 @@ public partial class VersionsView : UserControl, IRefreshable
         _state.SelectedInstance = vm.Instance;
         _state.SelectedProfile = _state.Launchables.FirstOrDefault(p => p.Name == vm.Name) ?? vm;
         _state.SaveSelection();
-        _win.ShowInner("instance", "版本设置");
+        _win.ShowInner("instance", "版本设置", "versions");
     }
 
     void Gear_Click(object sender, RoutedEventArgs e)
@@ -1218,7 +1172,8 @@ public partial class VersionsView : UserControl, IRefreshable
         Inventory inv;
         try
         {
-            inv = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None));
+            var progress = new Progress<Discover.DiscoverStep>(s => _win.Progress(s.Text, s.Fraction, "扫描"));
+            inv = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None, progress));
         }
         catch
         {
@@ -1227,6 +1182,7 @@ public partial class VersionsView : UserControl, IRefreshable
         if (gen != _detectGen) return;
         _detected = inv;
         ApplyDetected();
+        _win.OfferAdoptIfNeeded(inv);
     }
 
     void ApplyDetected()

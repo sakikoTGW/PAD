@@ -40,7 +40,7 @@ public static class Md
     {
         var doc = new FlowDocument
         {
-            FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI, sans-serif"),
+            FontFamily = new FontFamily("HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans"),
             FontSize = 15,
             LineHeight = 24,
             PagePadding = new Thickness(2),
@@ -134,7 +134,7 @@ public static class Md
     {
         var p = new Paragraph
         {
-            FontFamily = new FontFamily("Cascadia Mono, Consolas, Courier New"),
+            FontFamily = new FontFamily("HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans"),
             FontSize = 12,
             LineHeight = 18,
             Background = new SolidColorBrush(Color.FromRgb(0xEA, 0xEF, 0xF3)),
@@ -155,7 +155,7 @@ public static class Md
             if (t.StartsWith("**"))
                 p.Inlines.Add(new Run(t[2..^2]) { FontWeight = FontWeights.Bold });
             else if (t.StartsWith('`'))
-                p.Inlines.Add(new Run(t[1..^1]) { FontFamily = new FontFamily("Consolas") });
+                p.Inlines.Add(new Run(t[1..^1]) { FontFamily = new FontFamily("HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans") });
             else if (t.StartsWith('['))
             {
                 var mid = t.IndexOf("](", StringComparison.Ordinal);

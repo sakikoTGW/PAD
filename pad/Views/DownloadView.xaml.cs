@@ -25,7 +25,530 @@ public partial class DownloadView : UserControl, IRefreshable
     int StorePageSize => Math.Clamp((int)(_win.ActualHeight / 17), 10, 100);
 
     int _storePageSizeUsed = 20;
-    bool _growthBusy;
+    int _storeColumns = 3;
+    bool _colSync;
+    bool _shelfPillReady, _periodPillReady, _colPillReady;
+    int _shelfPillGen, _periodPillGen, _colPillGen;
+
+    void StoreLayout_Click(object sender, RoutedEventArgs e)
+    {
+        if (StoreLayoutPop.IsOpen) { StoreLayoutPop.IsOpen = false; return; }
+        _colSync = true;
+        foreach (var rb in ColRow.Children.OfType<RadioButton>())
+            rb.IsChecked = (rb.Tag as string) == _storeColumns.ToString();
+        _colSync = false;
+        StoreLayoutPop.IsOpen = true;
+    }
+
+    void StoreLayoutPop_Opened(object? sender, EventArgs e)
+    {
+        // While open, a click on the gear lands as an outside click and closes the popup;
+        // the gear must not also receive it, or it would reopen at once.
+        StoreLayoutBtn.IsHitTestVisible = false;
+        StoreLayoutBtn.Foreground = (Brush)FindResource("Accent");
+        QueueColPill(false);
+    }
+
+    void StoreLayoutPop_Closed(object? sender, EventArgs e)
+    {
+        StoreLayoutBtn.ClearValue(ForegroundProperty);
+        Dispatcher.BeginInvoke(() => StoreLayoutBtn.IsHitTestVisible = true,
+            DispatcherPriority.Input);
+    }
+
+    void StoreColumns_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_colSync) return;
+        if (sender is not RadioButton box || box.IsChecked != true) return;
+        if (box.Tag is not string tag || !int.TryParse(tag, out var n) || n < 2) return;
+        _colSync = true;
+        foreach (var rb in ColRow.Children.OfType<RadioButton>())
+            if (!ReferenceEquals(rb, box)) rb.IsChecked = false;
+        _colSync = false;
+        // 换列数不是瞬移：先记下每张卡现在的位置，改完列数再让它们滑到新格子。
+        var before = CaptureStoreSlots();
+        _storeColumns = n;
+        ApplyStoreColumns();
+        AnimateStoreSlots(before);
+        QueueColPill(_colPillReady);
+    }
+
+    /// <summary>换列数前的卡片位置（相对 ResultList）。容器没实现出来的行直接跳过。</summary>
+    Dictionary<FrameworkElement, Rect> CaptureStoreSlots()
+    {
+        var map = new Dictionary<FrameworkElement, Rect>();
+        if (ResultList?.ItemsSource is null) return map;
+        var count = ResultList.Items.Count;
+        for (var i = 0; i < count; i++)
+        {
+            if (ResultList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement box) continue;
+            if (box.ActualWidth <= 0 || box.ActualHeight <= 0) continue;
+            // 上一次换列还没播完就再换：先收掉残留位移，否则量到的是"动画中的位置"，会越算越偏。
+            if (box.RenderTransform is TransformGroup) box.RenderTransform = null;
+            map[box] = SlotOf(box);
+        }
+        return map;
+    }
+
+    Rect SlotOf(FrameworkElement box)
+    {
+        var at = box.TransformToAncestor(ResultList).Transform(new Point(0, 0));
+        return new Rect(at, new Size(box.ActualWidth, box.ActualHeight));
+    }
+
+    /// <summary>
+    /// 3 列切 4 列：旧格子大、新格子小。每张卡先在旧位置/旧尺寸上画着（FLIP），
+    /// 再用 320ms 收进新格子——第一行整体缩小，第二行第一个因此滑上来，不是跳。
+    /// </summary>
+    void AnimateStoreSlots(Dictionary<FrameworkElement, Rect> before)
+    {
+        if (before.Count == 0 || ResultList is null) return;
+        ResultList.UpdateLayout();
+
+        var span = Fx.Span(320);
+        var ease = EaseInOut;
+        foreach (var (box, old) in before)
+        {
+            if (!box.IsLoaded) continue;
+            var now = SlotOf(box);
+            if (now.Width <= 1 || now.Height <= 1) continue;
+            var dx = old.X - now.X;
+            var dy = old.Y - now.Y;
+            var sx = old.Width / now.Width;
+            var sy = old.Height / now.Height;
+            if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5
+                && Math.Abs(sx - 1) < 0.004 && Math.Abs(sy - 1) < 0.004) continue;
+
+            var scale = new ScaleTransform(sx, sy);
+            var shift = new TranslateTransform(dx, dy);
+            var group = new TransformGroup();
+            group.Children.Add(scale);
+            group.Children.Add(shift);
+            box.RenderTransformOrigin = new Point(0, 0);
+            box.RenderTransform = group;
+
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(1, span) { EasingFunction = ease });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(1, span) { EasingFunction = ease });
+            shift.BeginAnimation(TranslateTransform.XProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(0, span) { EasingFunction = ease });
+            var slide = new System.Windows.Media.Animation.DoubleAnimation(0, span) { EasingFunction = ease };
+            var done = box;
+            slide.Completed += (_, _) => done.RenderTransform = null;
+            shift.BeginAnimation(TranslateTransform.YProperty, slide);
+        }
+    }
+
+    void QueueShelfPill(bool animate) =>
+        QueuePill(++_shelfPillGen, () => _shelfPillGen, ShelfChipHost, ShelfChipRow, ShelfPill, ShelfPillScale, ShelfPillShift, animate, v => _shelfPillReady = v, () => _shelfPillReady);
+
+    void QueuePeriodPill(bool animate) =>
+        QueuePill(++_periodPillGen, () => _periodPillGen, PeriodHost, PeriodRow, PeriodPill, PeriodPillScale, PeriodPillShift, animate, v => _periodPillReady = v, () => _periodPillReady);
+
+    void QueueColPill(bool animate) =>
+        QueuePill(++_colPillGen, () => _colPillGen, ColHost, ColRow, ColPill, ColPillScale, ColPillShift, animate, v => _colPillReady = v, () => _colPillReady);
+
+    void QueuePill(int gen, Func<int> current, FrameworkElement host, Panel row, Border pill,
+        ScaleTransform scale, TranslateTransform shift, bool animate, Action<bool> setReady, Func<bool> ready)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (gen != current() || host is null || host.ActualWidth < 1) return;
+            MovePill(host, row, pill, scale, shift, animate && ready());
+            setReady(true);
+        }, DispatcherPriority.Loaded);
+    }
+
+    static void MovePill(FrameworkElement host, Panel row, Border pill, ScaleTransform scale,
+        TranslateTransform shift, bool animate)
+    {
+        RadioButton? tab = null;
+        foreach (var child in row.Children.OfType<RadioButton>())
+            if (child.IsChecked == true) { tab = child; break; }
+        if (tab is null || tab.ActualWidth < 1) return;
+        var at = tab.TransformToAncestor(host).Transform(new Point(0, 0));
+        var width = tab.ActualWidth;
+        if (pill.Tag is Rect last && animate
+            && Math.Abs(last.X - at.X) < 0.5 && Math.Abs(last.Width - width) < 0.5)
+            return;
+        pill.Tag = new Rect(at.X, 0, width, 1);
+        pill.Height = tab.ActualHeight;
+        pill.Opacity = 1;
+        if (!animate || !Fx.Animated)
+        {
+            pill.BeginAnimation(FrameworkElement.WidthProperty, null);
+            pill.Width = width;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.ScaleX = 1;
+            shift.BeginAnimation(TranslateTransform.XProperty, null);
+            shift.X = at.X;
+            return;
+        }
+        var baseW = pill.Width > 1 ? pill.Width : width;
+        var visualW = baseW * (scale.ScaleX > 0 ? scale.ScaleX : 1);
+        pill.BeginAnimation(FrameworkElement.WidthProperty, null);
+        pill.Width = width;
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scale.ScaleX = width <= 1 ? 1 : visualW / width;
+        Fx.ScaleXTo(scale, 1);
+        Fx.SpringSlide(shift, at.X);
+    }
+
+    void ApplyStoreColumns()
+    {
+        if (ResultList is null) return;
+        var grid = FindChild<System.Windows.Controls.Primitives.UniformGrid>(ResultList);
+        if (grid is null) return;
+        grid.Columns = _storeColumns;
+        grid.InvalidateMeasure();
+    }
+
+    static T? FindChild<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T hit) return hit;
+            var deeper = FindChild<T>(child);
+            if (deeper is not null) return deeper;
+        }
+        return null;
+    }
+
+    static System.Windows.Media.Animation.CubicEase EaseInOut { get; } = new()
+    {
+        EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut,
+    };
+
+    int _periodGen;
+    bool _periodShown;
+
+    /// <summary>
+    /// 日/周/月只在推荐页。高度逐渐撑开/收拢，行本身从上方渐显/向上渐隐；
+    /// 返回的任务在这层动画播完时结束。
+    /// </summary>
+    Task ShowPeriodRow(bool show)
+    {
+        const double travel = -14;
+        var gen = ++_periodGen;
+        var done = new TaskCompletionSource();
+        if (show == _periodShown && (show ? ChipRowHost.Visibility == Visibility.Visible
+                                          : ChipRowHost.Visibility != Visibility.Visible))
+        {
+            done.TrySetResult();
+            return done.Task;
+        }
+        _periodShown = show;
+
+        var wasVisible = ChipRowHost.Visibility == Visibility.Visible;
+        ChipRowHost.Visibility = Visibility.Visible;
+        ChipRow.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var full = ChipRow.DesiredSize.Height;
+        var from = wasVisible ? (ChipRowHost.ActualHeight > 0 ? ChipRowHost.ActualHeight : full) : 0;
+        var to = show ? full : 0;
+        if (show && !wasVisible)
+        {
+            ChipRow.BeginAnimation(UIElement.OpacityProperty, null);
+            ChipRowShift.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+            ChipRow.Opacity = 0;
+            ChipRowShift.Y = travel;
+        }
+
+        void Settle()
+        {
+            ChipRowHost.BeginAnimation(HeightProperty, null);
+            ChipRow.BeginAnimation(UIElement.OpacityProperty, null);
+            ChipRowShift.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+            ChipRowHost.Height = double.NaN;
+            ChipRow.Opacity = show ? 1 : 0;
+            ChipRowShift.Y = show ? 0 : travel;
+            ChipRowHost.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show) QueuePeriodPill(false);
+            done.TrySetResult();
+        }
+
+        if (!Fx.Animated)
+        {
+            Settle();
+            return done.Task;
+        }
+
+        var span = Fx.Span(show ? 460 : 400);
+        var height = new System.Windows.Media.Animation.DoubleAnimation(from, to, span) { EasingFunction = EaseInOut };
+        height.Completed += (_, _) =>
+        {
+            if (gen == _periodGen) Settle();
+            else done.TrySetResult();
+        };
+        ChipRowHost.BeginAnimation(HeightProperty, height);
+        ChipRow.BeginAnimation(UIElement.OpacityProperty,
+            new System.Windows.Media.Animation.DoubleAnimation(show ? 1 : 0, span) { EasingFunction = EaseInOut });
+        ChipRowShift.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty,
+            new System.Windows.Media.Animation.DoubleAnimation(show ? 0 : travel, span) { EasingFunction = EaseInOut });
+        if (show) QueuePeriodPill(false);
+        return done.Task;
+    }
+
+    static TranslateTransform LayerShift(FrameworkElement el)
+    {
+        if (el.RenderTransform is TranslateTransform shift && !shift.IsFrozen) return shift;
+        shift = new TranslateTransform();
+        el.RenderTransform = shift;
+        return shift;
+    }
+
+    /// <summary>一层上浮出现，或下沉消失。lift 为假时只改透明度。</summary>
+    static Task FloatLayer(FrameworkElement el, bool up, int delayMs, bool lift = true)
+    {
+        var shift = LayerShift(el);
+        shift.BeginAnimation(TranslateTransform.YProperty, null);
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        var fromY = lift ? (up ? 22 : shift.Y) : 0;
+        var toY = lift ? (up ? 0 : 16) : 0;
+        var fromO = up ? 0 : (el.Opacity < 0.02 ? 1 : el.Opacity);
+        var toO = up ? 1.0 : 0;
+        shift.Y = fromY;
+        el.Opacity = fromO;
+        if (!Fx.Animated)
+        {
+            shift.Y = 0;
+            el.Opacity = toO;
+            return Task.CompletedTask;
+        }
+        var ms = up ? 480 : 400;
+        var delay = TimeSpan.FromMilliseconds(Fx.Span(delayMs).TotalMilliseconds);
+        var done = new TaskCompletionSource();
+        var move = new System.Windows.Media.Animation.DoubleAnimation(fromY, toY, Fx.Span(ms))
+        {
+            BeginTime = delay,
+            EasingFunction = EaseInOut,
+        };
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(fromO, toO, Fx.Span(ms))
+        {
+            BeginTime = delay,
+            EasingFunction = EaseInOut,
+        };
+        fade.Completed += (_, _) =>
+        {
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            shift.Y = 0;
+            el.Opacity = toO;
+            done.TrySetResult();
+        };
+        if (lift) shift.BeginAnimation(TranslateTransform.YProperty, move);
+        el.BeginAnimation(UIElement.OpacityProperty, fade);
+        return done.Task;
+    }
+
+    /// <summary>从下往上逐层下沉。标题只渐隐，不位移。</summary>
+    async Task FadeStoreBody()
+    {
+        var jobs = new List<Task>();
+        FrameworkElement[] sinking = [PagerCard, ResultCard, GrowthHero];
+        var live = sinking.Where(el => el.Visibility == Visibility.Visible && el.Opacity > 0.05).ToArray();
+        for (var i = 0; i < live.Length; i++)
+            jobs.Add(FloatLayer(live[i], up: false, delayMs: i * 70));
+        if (StoreSectionHead.Opacity > 0.05)
+            jobs.Add(FloatLayer(StoreSectionHead, up: false, delayMs: 0, lift: false));
+        if (jobs.Count > 0 && Fx.Animated) await Task.WhenAll(jobs);
+        ResultCard.Visibility = Visibility.Collapsed;
+        GrowthHero.Visibility = Visibility.Collapsed;
+        PagerCard.Visibility = Visibility.Collapsed;
+        StoreSectionHead.BeginAnimation(UIElement.OpacityProperty, null);
+        StoreSectionHead.Opacity = 0;
+        if (StoreSectionHead.RenderTransform is TranslateTransform headShift)
+        {
+            headShift.BeginAnimation(TranslateTransform.YProperty, null);
+            headShift.Y = 0;
+        }
+        Fx.SetShown(EmptyCard, false);
+        Fx.SetShown(LoadCard, false);
+    }
+
+    int _busyGen;
+
+    /// <summary>加载态缓入：透明度 + 轻微上浮，EaseInOut。</summary>
+    Task ShowStoreBusy(string text)
+    {
+        if (StoreBusyText is not null) StoreBusyText.Text = text;
+        var gen = ++_busyGen;
+        var shift = LayerShift(StoreBusy);
+        StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
+        shift.BeginAnimation(TranslateTransform.YProperty, null);
+        if (!Fx.Animated)
+        {
+            shift.Y = 0;
+            StoreBusy.Opacity = 1;
+            StoreBusy.Visibility = Visibility.Visible;
+            return Task.CompletedTask;
+        }
+        // 已在场上就只改文案，避免切换货架时反复闪。
+        if (StoreBusy.Visibility == Visibility.Visible && StoreBusy.Opacity > 0.9)
+        {
+            shift.Y = 0;
+            StoreBusy.Opacity = 1;
+            return Task.CompletedTask;
+        }
+        StoreBusy.Visibility = Visibility.Visible;
+        StoreBusy.Opacity = 0;
+        shift.Y = 12;
+        var done = new TaskCompletionSource();
+        var span = Fx.Span(300);
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, span)
+        {
+            EasingFunction = EaseInOut,
+        };
+        var move = new System.Windows.Media.Animation.DoubleAnimation(12, 0, span)
+        {
+            EasingFunction = EaseInOut,
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (gen != _busyGen) { done.TrySetResult(); return; }
+            StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
+            StoreBusy.Opacity = 1;
+            shift.Y = 0;
+            done.TrySetResult();
+        };
+        StoreBusy.BeginAnimation(UIElement.OpacityProperty, fade);
+        shift.BeginAnimation(TranslateTransform.YProperty, move);
+        return done.Task;
+    }
+
+    /// <summary>加载态缓出：透明度 + 轻微下沉，EaseInOut。</summary>
+    Task HideStoreBusy()
+    {
+        var gen = ++_busyGen;
+        var shift = LayerShift(StoreBusy);
+        StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
+        shift.BeginAnimation(TranslateTransform.YProperty, null);
+        if (!Fx.Animated || StoreBusy.Visibility != Visibility.Visible || StoreBusy.Opacity < 0.05)
+        {
+            shift.Y = 0;
+            StoreBusy.Opacity = 0;
+            StoreBusy.Visibility = Visibility.Collapsed;
+            return Task.CompletedTask;
+        }
+        var from = StoreBusy.Opacity;
+        var done = new TaskCompletionSource();
+        var span = Fx.Span(260);
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(from, 0, span)
+        {
+            EasingFunction = EaseInOut,
+        };
+        var move = new System.Windows.Media.Animation.DoubleAnimation(shift.Y, 10, span)
+        {
+            EasingFunction = EaseInOut,
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (gen != _busyGen) { done.TrySetResult(); return; }
+            StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
+            shift.Y = 0;
+            StoreBusy.Opacity = 0;
+            StoreBusy.Visibility = Visibility.Collapsed;
+            done.TrySetResult();
+        };
+        StoreBusy.BeginAnimation(UIElement.OpacityProperty, fade);
+        shift.BeginAnimation(TranslateTransform.YProperty, move);
+        return done.Task;
+    }
+
+    int _fillGen;
+
+    /// <summary>
+    /// 一次塞进几十张带阴影的卡片会占住界面线程几百毫秒（转圈冻住、渐显被吃掉）。
+    /// 第一行同步放入，其余每帧补一行。
+    /// </summary>
+    /// <summary>等这一页的图标都取完；网络死了也别把加载态挂太久，最多 2.5 秒。</summary>
+    static async Task WaitStoreIcons(Task? icons)
+    {
+        if (icons is null) return;
+        try { await Task.WhenAny(icons, Task.Delay(2500)); }
+        catch { /* 图标失败不算加载失败 */ }
+    }
+
+    void FillResults(IReadOnlyList<MarketRow> rows)
+    {
+        var gen = ++_fillGen;
+        var per = Math.Max(1, _storeColumns);
+        var shown = new System.Collections.ObjectModel.ObservableCollection<MarketRow>(rows.Take(per));
+        ResultList.ItemsSource = shown;
+        if (rows.Count <= per) return;
+        _ = Rest();
+
+        async Task Rest()
+        {
+            for (var i = per; i < rows.Count; i += per)
+            {
+                await NextFrame();
+                if (gen != _fillGen || !ReferenceEquals(ResultList.ItemsSource, shown)) return;
+                foreach (var r in rows.Skip(i).Take(per)) shown.Add(r);
+            }
+        }
+    }
+
+    /// <summary>Completes after the next frame has been composed.</summary>
+    static Task NextFrame()
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler? h = null;
+        h = (_, _) =>
+        {
+            System.Windows.Media.CompositionTarget.Rendering -= h;
+            tcs.TrySetResult();
+        };
+        System.Windows.Media.CompositionTarget.Rendering += h;
+        return tcs.Task;
+    }
+
+    /// <summary>
+    /// 新卡片第一次排版/绘制会占住界面线程几百毫秒。先让它们在透明状态下画完，
+    /// 再开始渐显；否则动画时钟在卡顿里走完，看起来就是直接出现。
+    /// </summary>
+    async Task ArriveStorePage(Task? icons = null)
+    {
+        ApplyStoreColumns();
+        Fx.SetShown(LoadCard, false);
+        FrameworkElement[] parts = [StoreSectionHead, ResultCard, GrowthHero, PagerCard];
+        foreach (var el in parts)
+        {
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            el.Opacity = Fx.Animated ? 0 : 1;
+        }
+        if (!Fx.Animated)
+        {
+            await WaitStoreIcons(icons);
+            await HideStoreBusy();
+            return;
+        }
+        var gen = _storeGen;
+        await NextFrame();
+        await NextFrame();
+        if (gen != _storeGen) return;
+        // 图标是异步一个个取的：这一页等它们落定再收加载态，否则会先看到一排骨架再闪成图。
+        await WaitStoreIcons(icons);
+        if (gen != _storeGen) return;
+        // 加载态淡出的同时就让卡片浮上来——两段动画并行，收完再出现中间会空一拍。
+        _ = HideStoreBusy();
+        var jobs = new List<Task>();
+        FrameworkElement[] layers = [GrowthHero, ResultCard, PagerCard];
+        var live = layers.Where(el => el.Visibility == Visibility.Visible).ToArray();
+        for (var i = 0; i < live.Length; i++)
+            jobs.Add(FloatLayer(live[i], up: true, delayMs: i * 80));
+        jobs.Add(FloatLayer(StoreSectionHead, up: true, delayMs: 0, lift: false));
+        if (Fx.Animated) await Task.WhenAll(jobs);
+        else
+        {
+            foreach (var el in live) el.Opacity = 1;
+            StoreSectionHead.Opacity = 1;
+        }
+    }
     string _storeMode = "downloads";
     MarketRow? _heroRow;
     bool _crossShelf;
@@ -86,7 +609,8 @@ public partial class DownloadView : UserControl, IRefreshable
     /// Empty = 发行号 pane; <c>dltasks</c> = download jobs; <c>recommend</c> = growth board;
     /// otherwise a shelf id from <see cref="Market.Shelves"/> (chip inside 插件商店).
     /// </summary>
-    string _shelf = "";
+    string _shelf = "recommend";
+    bool _userPickedShelf;
     /// <summary>Left-rail destination: release | market | dltasks.</summary>
     string _nav = "release";
     int _from;
@@ -100,7 +624,13 @@ public partial class DownloadView : UserControl, IRefreshable
         InitializeComponent();
         _win = win;
         DataContext = _state;
-        Loaded += (_, _) => PaintShelfChips();
+        Loaded += (_, _) =>
+        {
+            PaintShelfChips();
+            SyncStoreEdgeFade();
+        };
+        ShelfChipHost.SizeChanged += (_, _) => { if (ShelfPill.Opacity < 0.5) QueueShelfPill(false); };
+        PeriodHost.SizeChanged += (_, _) => { if (PeriodPill.Opacity < 0.5 && ChipRowHost.Visibility == Visibility.Visible) QueuePeriodPill(false); };
         HookResize();
         IsVisibleChanged += (_, e) =>
         {
@@ -132,6 +662,7 @@ public partial class DownloadView : UserControl, IRefreshable
         // Any shelf id (or "market" / "recommend") opens 插件商店, then selects that chip.
         if (id is "market" or "store") id = "recommend";
         _shelf = id;
+        if (id != "recommend") _userPickedShelf = true;
         NavMarket.IsChecked = true;
         SelectShelfChip(id);
     }
@@ -149,7 +680,7 @@ public partial class DownloadView : UserControl, IRefreshable
         ShelfChipRow.Tag = want;
         _chipsPainted = true;
         SelectShelfChip(string.IsNullOrEmpty(_shelf) || _shelf is "dltasks" ? "recommend" : _shelf);
-        if (ShelfChipHost is not null) Fx.RefreshSlideSelect(ShelfChipHost);
+        QueueShelfPill(false);
     }
 
     void AddShelfChip(string id, string label, bool official)
@@ -217,10 +748,27 @@ public partial class DownloadView : UserControl, IRefreshable
 
     void ShelfChip_Checked(object sender, RoutedEventArgs e)
     {
-        if (_chipSelecting || sender is not RadioButton { IsChecked: true, Tag: string id } chip) return;
+        if (!_chipSelecting && _shelfPillReady)
+        {
+            // Start the slide on this frame; layout settles later and only retargets it.
+            MovePill(ShelfChipHost, ShelfChipRow, ShelfPill, ShelfPillScale, ShelfPillShift, animate: true);
+            _pillMovedAt = Environment.TickCount64;
+        }
+        QueueShelfPill(!_chipSelecting && _shelfPillReady);
+        if (_chipSelecting || sender is not RadioButton { IsChecked: true, Tag: string id }) return;
         if (_nav != "market") return;
-        Fx.Pop(chip);
-        ApplyShelf(id, reload: true);
+        _userPickedShelf = true;
+        // Defer the reload below render so the first frames of the slide paint.
+        Dispatcher.BeginInvoke(() => ApplyShelf(id, reload: true), DispatcherPriority.Background);
+    }
+
+    long _pillMovedAt;
+
+    /// <summary>Hold the card rebuild until the selection slide has landed.</summary>
+    async Task WaitPillLanded()
+    {
+        var left = (long)Fx.Span(380).TotalMilliseconds - (Environment.TickCount64 - _pillMovedAt);
+        if (left > 0) await Task.Delay((int)left);
     }
 
     void ApplyShelf(string id, bool reload)
@@ -235,9 +783,20 @@ public partial class DownloadView : UserControl, IRefreshable
         _ = Load();
     }
 
+    /// <summary>
+    /// Edge fade must be opaque BgPage. A ContentOpacity wash still lets cards print
+    /// through, so the scroll/pager boundary stays a hard cut.
+    /// </summary>
+    public void SyncStoreEdgeFade()
+    {
+        if (StoreEdgeFade is null) return;
+        StoreEdgeFade.Background = (Brush)FindResource("BgPage");
+    }
+
     public void OnShown()
     {
         PaintChrome();
+        SyncStoreEdgeFade();
         if (_nav == "dltasks")
         {
             PaintDlTasks();
@@ -252,6 +811,7 @@ public partial class DownloadView : UserControl, IRefreshable
             return;
         }
         if (PaneMarket is not null) Fx.MarkEnter(PaneMarket);
+        QueueShelfPill(false);
         if (!_state.Settings.Download.AutoFetchOnOpen) return;
         _from = 0;
         _ = Load();
@@ -520,13 +1080,15 @@ public partial class DownloadView : UserControl, IRefreshable
             // 插件商店: keep chip + search; PaneIn handles enter motion.
             ShowMarketList();
             PaintShelfChips();
-            if (string.IsNullOrEmpty(_shelf) || _shelf == "dltasks")
+            if (!_userPickedShelf || string.IsNullOrEmpty(_shelf) || _shelf == "dltasks")
+            {
                 _shelf = "recommend";
+                _storeMode = "downloads";
+            }
             SelectShelfChip(_shelf);
             PaintShelfCopy();
             PickTarget();
-            // First enter or empty list → load; returning with results keeps them.
-            if (ResultList.ItemsSource is null) { _from = 0; _ = Load(); }
+            if (!_userPickedShelf || ResultList.ItemsSource is null) { _from = 0; _ = Load(); }
         });
     }
 
@@ -577,14 +1139,33 @@ public partial class DownloadView : UserControl, IRefreshable
         _dlPoll = null;
     }
 
+    /// <summary>没有图标的任务（插件包）后台补一次；拿到后整页重画。</summary>
+    async Task FillJobIconsAsync(IReadOnlyList<JobRecord> jobs)
+    {
+        var changed = false;
+        foreach (var job in jobs)
+        {
+            if (Dispatcher.HasShutdownStarted) return;
+            try
+            {
+                var path = await IconService.FillJobAsync(_state.Launcher, job, CancellationToken.None);
+                if (!string.IsNullOrWhiteSpace(path)) changed = true;
+            }
+            catch { /* 离线/包没图标就保持占位 */ }
+        }
+        if (changed) _ = Dispatcher.BeginInvoke(new Action(PaintDlTasks));
+    }
+
     void PaintDlTasks()
     {
         if (DlRunning is null || DlDone is null) return;
         var jobs = _state.Launcher.ListJobs();
         var run = DownloadDock.Running(jobs).Select(j => new JobCard { Job = j }).ToList();
-        var done = DownloadDock.Done(jobs, 40).Select(j => new JobCard { Job = j, Reason = FailReason(j) }).ToList();
+        var done = DownloadDock.Done(jobs, 40).Select(j => new JobCard { Job = j, Reason = FailReason(j), IconPath = IconService.ForJob(_state.Launcher, j) }).ToList();
+        var missing = done.Where(c => string.IsNullOrWhiteSpace(c.IconPath)).Select(c => c.Job).ToList();
         DlRunning.ItemsSource = run;
         DlDone.ItemsSource = done;
+        if (missing.Count > 0) _ = FillJobIconsAsync(missing);
         if (DlEmptyRun is not null)
             DlEmptyRun.Visibility = run.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (DlEmptyDone is not null)
@@ -840,12 +1421,15 @@ public partial class DownloadView : UserControl, IRefreshable
     /// One page of one shelf. The registry is the only source; when it is unreachable
     /// the shelf says so instead of rendering as an empty list.
     /// </summary>
+    int _storeGen;
+
     async Task Load()
     {
         if (_nav != "market" || _shelf == "dltasks") return;
+        var gen = ++_storeGen;
         if (_shelf == "recommend" || _storeMode != "all")
         {
-            await LoadGrowth();
+            await LoadGrowth(gen);
             return;
         }
         _live?.Cancel();
@@ -855,11 +1439,9 @@ public partial class DownloadView : UserControl, IRefreshable
         ResultCount.Text = "";
         Fx.SetShown(EmptyCard, false);
         if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
-        var first = ResultList.ItemsSource is null;
-        if (first) ResultCard.Visibility = Visibility.Collapsed;
-        PagerCard.Visibility = Visibility.Collapsed;
-        Fx.SetShown(LoadCard, first);
         Working("正在搜索");
+        // 进页面/换货架就先让加载态淡入，别等内容都返回了才一闪。
+        _ = ShowStoreBusy("正在加载");
 
         try
         {
@@ -868,13 +1450,20 @@ public partial class DownloadView : UserControl, IRefreshable
             _pinyin = false;
             var text = SearchBox.Text.Trim();
             var shelf = Shelf();
-            var found = await MarketCommands.SearchShelfAsync(
+            var status = new Progress<string>(x => StoreSectionRight.Text = x);
+            var fetch = Task.Run(() => MarketCommands.SearchShelfAsync(
                 _state.Launcher, shelf.Id, shelf.Query, text, _from, _storePageSizeUsed,
-                new Progress<string>(x => StoreSectionRight.Text = x), live.Token);
-            if (live.IsCancellationRequested) return;
+                status, live.Token));
+            await FadeStoreBody();
+            if (live.IsCancellationRequested || gen != _storeGen) return;
+            await ShowPeriodRow(false);
+            if (live.IsCancellationRequested || gen != _storeGen) return;
+            var found = await fetch;
+            if (live.IsCancellationRequested || gen != _storeGen) return;
             _pinyin = found.Pinyin;
             var page = found.Page;
-            Paint(page);
+            var icons = Paint(page);
+            await ArriveStorePage(icons);
             PrefetchNext(page);
             MarketPinyinIndex.Prewarm(_state.Launcher);
             if (App.ShotPage == "market-more")
@@ -886,10 +1475,12 @@ public partial class DownloadView : UserControl, IRefreshable
         }
         catch (OperationCanceledException)
         {
+            _ = HideStoreBusy();
             return;
         }
         catch (Exception ex)
         {
+            _ = HideStoreBusy();
             ResultList.ItemsSource = null;
             ResultCard.Visibility = Visibility.Collapsed;
             Warn(PadError.Describe(ex));
@@ -1047,7 +1638,8 @@ public partial class DownloadView : UserControl, IRefreshable
         return text.Contains("dsh") || text.Contains("deepseek");
     }
 
-    void Paint(MarketPage page)
+    /// <summary>绑定这一页的卡片；返回"图标都取完"的任务，加载态要等它才收。</summary>
+    Task Paint(MarketPage page)
     {
         _from = page.From;
         _lastPage = page;
@@ -1061,11 +1653,10 @@ public partial class DownloadView : UserControl, IRefreshable
             shown = Market.RankForQuery(shown, text);
             best = shown.Count == 0 ? 0 : shown.Max(r => Market.QueryScore(r, text));
         }
-        ResultList.ItemsSource = shown;
-        _ = EnrichStoreAsync(shown);
-        _ = LoadMarketIcons(page.Rows);
+        FillResults(shown);
+        var icons = LoadMarketIcons(page.Rows);
+        _ = EnrichStoreAsync(shown);   // 星数/下载数是次要信息，不挡加载态
         GrowthHero.Visibility = Visibility.Collapsed;
-        ChipRow.Visibility = Visibility.Collapsed;
         StoreMoreBtn.Visibility = Visibility.Visible;
         StoreModeLink.Content = "‹ 返回推荐";
         var shelf = Shelf();
@@ -1095,7 +1686,11 @@ public partial class DownloadView : UserControl, IRefreshable
         FirstBtn.IsEnabled = page.HasPrev;
         PrevBtn.IsEnabled = page.HasPrev;
         NextBtn.IsEnabled = page.HasNext;
-        PagerCard.Visibility = !_crossShelf && !_pinyin && page.PageCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        var showPager = !_crossShelf && !_pinyin && page.PageCount > 1;
+        PagerCard.BeginAnimation(UIElement.OpacityProperty, null);
+        PagerCard.Visibility = showPager ? Visibility.Visible : Visibility.Collapsed;
+        if (showPager) PagerCard.Opacity = 0;
+        return icons;
     }
 
     /// <summary>
@@ -1151,9 +1746,15 @@ public partial class DownloadView : UserControl, IRefreshable
     {
         if (sender is not RadioButton { IsChecked: true } rb) return;
         _storePeriod = rb.Name == nameof(PeriodDay) ? 1 : rb.Name == nameof(PeriodMonth) ? 30 : 7;
+        if (_periodPillReady)
+        {
+            MovePill(PeriodHost, PeriodRow, PeriodPill, PeriodPillScale, PeriodPillShift, animate: true);
+            _pillMovedAt = Environment.TickCount64;
+        }
+        QueuePeriodPill(_periodPillReady);
         if (!IsLoaded || _shelf != "recommend") return;
         _from = 0;
-        _ = Load();
+        Dispatcher.BeginInvoke(() => _ = Load(), DispatcherPriority.Background);
     }
 
     /// <summary>供 --shot-page 用：在全部插件里搜一个词。</summary>
@@ -1212,29 +1813,28 @@ public partial class DownloadView : UserControl, IRefreshable
         if (_heroRow is not null) OpenStoreDetail(_heroRow);
     }
 
-    async Task LoadGrowth()
+    async Task LoadGrowth(int gen)
     {
-        if (_growthBusy) return;
-        _growthBusy = true;
         MarketPinyinIndex.Prewarm(_state.Launcher);
         Fx.SetShown(MarketError, false);
         Fx.SetShown(EmptyCard, false);
-        ResultCard.Visibility = Visibility.Visible;
-        PagerCard.Visibility = Visibility.Collapsed;
-        GrowthHero.Visibility = Visibility.Collapsed;
-        ChipRow.Visibility = Visibility.Visible;
         StoreMoreBtn.Visibility = Visibility.Collapsed;
-        StoreModeLink.Content = "浏览全部插件 ›";
         if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
-        Fx.SetShown(LoadCard, ResultList.ItemsSource is null);
-        StoreSectionTitle.Text = "推荐";
-        StoreSectionSub.Text = _storeMode == "stars" ? "Star 增长" : "下载增长";
-        StoreSectionRight.Text = "";
         Working("正在算增长榜");
+        _ = ShowStoreBusy("正在加载");
+        Task? icons = null;
         try
         {
-            var boards = await MarketMetrics.GetAsync(_state.Launcher, false,
-                new Progress<string>(x => StoreSectionRight.Text = x), CancellationToken.None);
+            var growthStatus = new Progress<string>(x => StoreSectionRight.Text = x);
+            var fetch = Task.Run(() => MarketMetrics.GetAsync(_state.Launcher, false,
+                growthStatus, CancellationToken.None));
+            await FadeStoreBody();
+            if (gen != _storeGen) return;
+            _ = ShowStoreBusy("正在算增长榜");
+            await ShowPeriodRow(true);
+            if (gen != _storeGen) return;
+            var boards = await fetch;
+            if (gen != _storeGen) return;
             var periodKey = _storePeriod switch { 1 => "day", 7 => "week", _ => "month" };
             var metric = _storeMode == "stars" ? "stars" : "downloads";
             var board = boards.Boards.FirstOrDefault(b => b.Key == $"{metric}-{periodKey}");
@@ -1253,7 +1853,9 @@ public partial class DownloadView : UserControl, IRefreshable
                 GrowthSign = m.GrowthSign,
             }).ToList();
             foreach (var r in rows) r.Favorite = Favorites.IsFavorite(_state.Launcher.Root, r.Name);
-            ResultList.ItemsSource = rows;
+            FillResults(rows);
+            StoreSectionTitle.Text = "推荐";
+            StoreModeLink.Content = "浏览全部插件 ›";
             StoreSectionSub.Text = $"{board?.Label ?? ""} · Top {rows.Count}";
             StoreSectionRight.Text = boards.FromCache ? $"缓存 · {boards.GeneratedText}" : $"更新 · {boards.GeneratedText}";
             var any = rows.Count > 0;
@@ -1276,13 +1878,13 @@ public partial class DownloadView : UserControl, IRefreshable
                 HeroDesc.Text = $"{_heroRow.DescriptionText} · 本期 {_heroRow.GrowthBadge}";
                 HeroIcon.Spec = _heroRow.Name;
                 GrowthHero.Visibility = Visibility.Visible;
-                Fx.PulseIn(GrowthHero);
-                await LoadMarketIcons(rows);
-                HeroIcon.IconPath = _heroRow.IconPath;
+                icons = ShowHeroIcon(rows);
             }
+            await ArriveStorePage(icons);
         }
         catch (Exception ex)
         {
+            _ = HideStoreBusy();
             ResultList.ItemsSource = null;
             ResultCard.Visibility = Visibility.Collapsed;
             Fx.SetShown(EmptyCard, true);
@@ -1290,7 +1892,6 @@ public partial class DownloadView : UserControl, IRefreshable
         }
         finally
         {
-            _growthBusy = false;
             Fx.SetShown(LoadCard, false);
             Working(null);
         }
@@ -1305,6 +1906,12 @@ public partial class DownloadView : UserControl, IRefreshable
                      ?? _state.SelectedInstance?.Dsh.Version ?? "";
         try { await MarketStats.EnrichAsync(_state.Launcher, rows, kernel, null, CancellationToken.None); }
         catch { /* 取不到就少个数字 */ }
+    }
+
+    async Task ShowHeroIcon(IReadOnlyList<MarketRow> rows)
+    {
+        await LoadMarketIcons(rows);
+        if (_heroRow is not null) HeroIcon.IconPath = _heroRow.IconPath;
     }
 
     async Task LoadMarketIcons(IReadOnlyList<MarketRow> rows)
@@ -1326,7 +1933,7 @@ public partial class DownloadView : UserControl, IRefreshable
                 if (icon is not null) row.IconPath = icon;
             }
             catch { /* 网络/仓库不可达就用占位字形 */ }
-            finally { gate.Release(); }
+            finally { row.IconPending = false; gate.Release(); }
         }));
     }
 

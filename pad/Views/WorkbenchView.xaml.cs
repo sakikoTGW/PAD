@@ -287,9 +287,11 @@ public partial class WorkbenchView : UserControl
     async Task LoadHomeAsync(IReadOnlyList<Instance> insts, int gen)
     {
         var launcher = _state.Launcher;
-        var inventory = await Task.Run(() => Discover.Run(launcher, [], CancellationToken.None));
+        var progress = new Progress<Discover.DiscoverStep>(s => _host.Progress(s.Text, s.Fraction, "扫描"));
+        var inventory = await Task.Run(() => Discover.Run(launcher, [], CancellationToken.None, progress));
         if (gen != _loadGen) return;
         _inventory = inventory;
+        _host.ProgressDone(600);
 
         // 进程现场扫到的"在跑 home"灌给状态灯：桌面端 / 双击脚本起的实例也在这拍亮起来（D53）。
         RunWatch.NoteHomes(inventory.Homes.Where(h => h.Running).Select(h => h.Path));

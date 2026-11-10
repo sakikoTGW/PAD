@@ -24,7 +24,7 @@
   </WindowChrome.WindowChrome>
 
   <Grid>
-    <!-- Boot handoff: chrome plate slides up; brand flies to BrandMark; progress fades. -->
+    <!-- Boot: the mark starts centered. Once the rising plate meets it, it locks to the plate bottom. -->
     <Border x:Name="BootCover" Background="Transparent" CornerRadius="10"
             Visibility="Visible" Panel.ZIndex="200" IsHitTestVisible="True"
             ClipToBounds="True">
@@ -33,35 +33,37 @@
           <Border.RenderTransform>
             <TranslateTransform x:Name="BootPlateShift" />
           </Border.RenderTransform>
+          <Grid>
+            <StackPanel x:Name="BootBrand" Orientation="Horizontal" HorizontalAlignment="Center"
+                        VerticalAlignment="Center" IsHitTestVisible="False">
+              <StackPanel.RenderTransform>
+                <TranslateTransform x:Name="BootBrandShift" />
+              </StackPanel.RenderTransform>
+              <Border x:Name="BootLogoPlate" Width="42" Height="42" CornerRadius="21"
+                      Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
+                      Margin="0,0,10,0" VerticalAlignment="Center" SnapsToDevicePixels="True">
+                <Border.Effect>
+                  <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.5"
+                                    Color="#FF159CB7" />
+                </Border.Effect>
+                <Image x:Name="BootLogo" Width="38" Height="38"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Stretch="Uniform" SnapsToDevicePixels="True"
+                       RenderOptions.BitmapScalingMode="HighQuality">
+                  <Image.Clip>
+                    <EllipseGeometry Center="19,19" RadiusX="18.5" RadiusY="18.5" />
+                  </Image.Clip>
+                </Image>
+              </Border>
+              <TextBlock x:Name="BootBrandText" Text="PAD" Foreground="{StaticResource TextOnAccent}"
+                         FontFamily="{StaticResource FontMono}" FontSize="18" FontWeight="Bold"
+                         VerticalAlignment="Center" />
+            </StackPanel>
+            <ProgressBar x:Name="BootProgress" Style="{StaticResource Meter}" Height="3"
+                         Minimum="0" Maximum="100" Value="0" VerticalAlignment="Center"
+                         Margin="56,72,56,0" IsHitTestVisible="False" />
+          </Grid>
         </Border>
-        <StackPanel x:Name="BootBrand" Orientation="Horizontal" HorizontalAlignment="Center"
-                    VerticalAlignment="Center" IsHitTestVisible="False">
-          <StackPanel.RenderTransform>
-            <TranslateTransform x:Name="BootBrandShift" />
-          </StackPanel.RenderTransform>
-          <Border x:Name="BootLogoPlate" Width="42" Height="42" CornerRadius="21"
-                  Background="#F2FAFC" BorderBrush="#5AA8BA" BorderThickness="2"
-                  Margin="0,0,10,0" VerticalAlignment="Center" SnapsToDevicePixels="True">
-            <Border.Effect>
-              <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.5"
-                                Color="#FF159CB7" />
-            </Border.Effect>
-            <Image x:Name="BootLogo" Width="38" Height="38"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Stretch="Uniform" SnapsToDevicePixels="True"
-                   RenderOptions.BitmapScalingMode="HighQuality">
-              <Image.Clip>
-                <EllipseGeometry Center="19,19" RadiusX="18.5" RadiusY="18.5" />
-              </Image.Clip>
-            </Image>
-          </Border>
-          <TextBlock x:Name="BootBrandText" Text="PAD" Foreground="{StaticResource TextOnAccent}"
-                     FontFamily="{StaticResource FontMono}" FontSize="18" FontWeight="Bold"
-                     VerticalAlignment="Center" />
-        </StackPanel>
-        <ProgressBar x:Name="BootProgress" Style="{StaticResource Meter}" Height="3"
-                     Minimum="0" Maximum="100" Value="0" VerticalAlignment="Bottom"
-                     Margin="56,0,56,40" IsHitTestVisible="False" />
       </Grid>
     </Border>
 
@@ -126,9 +128,13 @@
                   <Grid x:Name="TabStrip" Height="27" HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Border x:Name="TabPill" Width="72" Height="27" HorizontalAlignment="Left"
-                            CornerRadius="13.5" Background="{StaticResource BgCard}">
+                            CornerRadius="13.5" Background="{StaticResource BgCard}"
+                            RenderTransformOrigin="0,0.5">
                       <Border.RenderTransform>
-                        <TranslateTransform x:Name="TabPillShift" />
+                        <TransformGroup>
+                          <ScaleTransform x:Name="TabPillScale" ScaleX="1" />
+                          <TranslateTransform x:Name="TabPillShift" />
+                        </TransformGroup>
                       </Border.RenderTransform>
                     </Border>
                     <StackPanel x:Name="TabRow" Orientation="Horizontal">
@@ -151,11 +157,11 @@
                   </Grid>
                 </Grid>
 
-                <Grid x:Name="InnerMode" Visibility="Collapsed">
+                <Grid x:Name="InnerMode" Visibility="Collapsed" ClipToBounds="True">
                   <Grid.RenderTransform>
                     <TranslateTransform x:Name="InnerModeShift" />
                   </Grid.RenderTransform>
-                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="15,0,0,0">
+                  <StackPanel x:Name="InnerLive" Orientation="Horizontal" VerticalAlignment="Center" Margin="15,0,0,0">
                     <Button x:Name="BackBtn" Style="{StaticResource IcoBtnChrome}" Click="Back_Click">
                       <v:Ico Glyph="{StaticResource I.Back}" Height="13" />
                     </Button>
@@ -163,7 +169,19 @@
                                FontSize="{StaticResource FsTitle}" VerticalAlignment="Center"
                                Margin="12,1,0,0" />
                     <TextBlock x:Name="InnerBadge" Foreground="{StaticResource ChromeInkDim}"
-                               FontFamily="{StaticResource FontMono}" FontSize="{StaticResource FsSmall}"
+                               FontFamily="{StaticResource FontUI}" FontSize="{StaticResource FsSmall}"
+                               VerticalAlignment="Center" Margin="14,2,0,0" Visibility="Collapsed" />
+                  </StackPanel>
+                  <StackPanel x:Name="InnerLeaving" Orientation="Horizontal" VerticalAlignment="Center"
+                              Margin="15,0,0,0" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Button Style="{StaticResource IcoBtnChrome}" IsHitTestVisible="False" Focusable="False">
+                      <v:Ico Glyph="{StaticResource I.Back}" Height="13" />
+                    </Button>
+                    <TextBlock x:Name="InnerLeavingTitle" Foreground="{StaticResource TextOnAccent}"
+                               FontSize="{StaticResource FsTitle}" VerticalAlignment="Center"
+                               Margin="12,1,0,0" />
+                    <TextBlock x:Name="InnerLeavingBadge" Foreground="{StaticResource ChromeInkDim}"
+                               FontFamily="{StaticResource FontUI}" FontSize="{StaticResource FsSmall}"
                                VerticalAlignment="Center" Margin="14,2,0,0" Visibility="Collapsed" />
                   </StackPanel>
                 </Grid>
@@ -181,14 +199,28 @@
           </Border>
 
           <Grid Grid.Row="1" Margin="1,0,1,1">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="Auto" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="RailColumn" Width="0" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
 
-            <!-- 舞台常驻侧栏：换页时它不换实例、不换位置，只有内容在列表/树之间重组。
-                 收起 = 整块向左滑出（宽度 + 位移同动画），旁边的内容连续重排。 -->
+              <!-- 侧栏滑出后留在左缘的把手 -->
+              <Button x:Name="RailEdge" Grid.Column="0" Width="20" MinWidth="20"
+                      HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0,10"
+                      Style="{StaticResource BtnGhost}" Content="›" Padding="0"
+                      Visibility="Collapsed" Click="RailEdge_Click" ToolTip="展开侧栏" />
+
+              <ContentControl x:Name="Host" Grid.Column="1">
+                <ContentControl.RenderTransform>
+                  <TranslateTransform x:Name="HostShift" />
+                </ContentControl.RenderTransform>
+              </ContentControl>
+            </Grid>
+
+            <!-- 侧栏盖在内容上滑，不参与列宽。列宽只在开头定一次，过程里两边一起平移。 -->
             <Border x:Name="StageRail" Width="236" HorizontalAlignment="Left"
+                    VerticalAlignment="Stretch" Panel.ZIndex="2"
                     Background="{StaticResource BgCard}"
                     BorderBrush="{StaticResource LineDivider}" BorderThickness="0,0,1,0"
                     ClipToBounds="True" Visibility="Collapsed">
@@ -197,14 +229,6 @@
               </Border.RenderTransform>
               <v:ProjectRail x:Name="StageRailList" />
             </Border>
-
-            <!-- 侧栏滑出后留在左缘的把手 -->
-            <Button x:Name="RailEdge" Grid.Column="0" Width="20" MinWidth="20"
-                    HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0,10"
-                    Style="{StaticResource BtnGhost}" Content="›" Padding="0"
-                    Visibility="Collapsed" Click="RailEdge_Click" ToolTip="展开侧栏" />
-
-            <ContentControl x:Name="Host" Grid.Column="1" />
           </Grid>
 
           <StackPanel x:Name="ToastLayer" Grid.Row="1" HorizontalAlignment="Right"

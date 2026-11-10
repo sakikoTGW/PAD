@@ -124,7 +124,7 @@ public partial class PackExportWindow : Window
                 version,
                 Description: DescBox.Text.Trim(),
                 Author: AuthorBox.Text.Trim(),
-                KernelMode: InheritRadio.IsChecked == true ? "inherit" : "pin",
+                KernelMode: "pin",
                 IncludeData: DataBox.IsChecked == true,
                 WorkspaceTemplate: WorkspaceBox.IsChecked == true ? _workspaceTemplate : null,
                 BundledSpecs: _bundles.Where(b => b.Selected).Select(b => b.Name).ToList());

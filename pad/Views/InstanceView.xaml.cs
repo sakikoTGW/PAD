@@ -1653,7 +1653,6 @@ public partial class InstanceView : UserControl, IRefreshable
 
     void PackBusy(bool busy)
     {
-        ImportBtn.IsEnabled = !busy;
         ScanBtn.IsEnabled = !busy;
         PackRefreshBtn.IsEnabled = !busy;
         PackSpinner.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;

@@ -75,7 +75,11 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
     /// </summary>
     public virtual (string Spec, string Dir)? IconBundle => null;
 
-    /// <summary>桌面端自己的应用图标：&lt;exe 目录&gt;\resources\icon.png / tray.ico。</summary>
+    /// <summary>
+    /// 桌面端自己的应用图标。Electron 壳放在 <c>resources\icon.png</c>；
+    /// Tauri 壳没有 resources 图标，只有安装目录的 <c>icons\32x32.png</c>（tauri build 的产物），
+    /// 所以这里按 Electron → 根目录 → Tauri 三档找。都找不到由调用方退回 <see cref="AppIcon"/> 从 exe 里抠。
+    /// </summary>
     public static string? ShellIconPath(string? exe)
     {
         if (string.IsNullOrWhiteSpace(exe)) return null;
@@ -83,11 +87,19 @@ public class ProfileVm(Instance inst, DshProfile profile) : Observable
         {
             var dir = Path.GetDirectoryName(exe!.Trim().Trim('"'));
             if (string.IsNullOrWhiteSpace(dir)) return null;
-            foreach (var name in new[] { "icon.png", "icon.ico", "tray.ico" })
+            string? Probe(params string[] parts)
             {
-                var p = Path.Combine(dir!, "resources", name);
-                if (File.Exists(p)) return p;
+                var p = Path.Combine(new[] { dir! }.Concat(parts).ToArray());
+                return File.Exists(p) ? p : null;
             }
+            return Probe("resources", "icon.png")
+                ?? Probe("resources", "icon.ico")
+                ?? Probe("resources", "tray.ico")
+                ?? Probe("icon.png")
+                ?? Probe("icon.ico")
+                ?? Probe("icons", "32x32.png")
+                ?? Probe("icons", "128x128.png")
+                ?? Probe("icons", "icon.png");
         }
         catch { /* 读不到图标就退回默认链 */ }
         return null;
@@ -266,8 +278,12 @@ public sealed class DetectedShellRow(Shell shell, bool canAdopt) : ProfileVm(Syn
 
     public override string? DetectedHome => shell.Home;
 
-    /// <summary>官方桌面端 = 官方小黑鲸图标；第三方 = 壳自己的 resources\icon.png。</summary>
-    public override string? IconPath => ShellIconPath(shell.Exe);
+    /// <summary>
+    /// 官方桌面端 = 官方小黑鲸图标；第三方 = 壳自己的图标。
+    /// Electron 壳有 <c>resources\icon.png</c>，Tauri 壳没有，就从 exe 里抠（缓存进 library/icons/exe）。
+    /// </summary>
+    public override string? IconPath =>
+        ShellIconPath(shell.Exe) ?? AppIcon.PathFor(shell.Exe, AppState.Current.Launcher.Root);
 
     public override string Kind => IsOfficialShell(shell.Exe) ? "官方" : "第三方";
 
@@ -483,6 +499,11 @@ public sealed class AppState : Observable
     public bool CanLaunch => SelectedContainer is not null
         || (SelectedInstance is not null && SelectedProfile is not null);
     public bool NeedsSetup => Instances.Count == 0;
+    /// <summary>Empty launcher: no DSH in the version store and none on PATH, so the first
+    /// action is download, not create-instance.</summary>
+    public bool NeedsDownload => NeedsSetup && StepTarget == "download";
+    /// <summary>Empty launcher that already has a DSH to pin: create or adopt an instance.</summary>
+    public bool NeedsFirstInstance => NeedsSetup && !NeedsDownload;
     public bool HasInstanceNoProfile => SelectedInstance is not null && SelectedProfile is null;
 
     public bool CanOfferAdopt
@@ -504,6 +525,8 @@ public sealed class AppState : Observable
     void RaiseStep()
     {
         Raise(nameof(NeedsSetup));
+        Raise(nameof(NeedsDownload));
+        Raise(nameof(NeedsFirstInstance));
         Raise(nameof(HasInstanceNoProfile));
         Raise(nameof(CanLaunch));
         Raise(nameof(StepTarget));

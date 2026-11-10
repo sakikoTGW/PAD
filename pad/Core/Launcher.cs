@@ -287,6 +287,21 @@ public sealed class Launcher
         return sb.ToString().Trim('-');
     }
 
+    /// <summary>第一个还没被 <c>instances/&lt;id&gt;/instance.json</c> 占住的 id。</summary>
+    public string FreeInstanceId(string baseId)
+    {
+        var root = string.IsNullOrWhiteSpace(baseId) ? "local-dsh" : baseId;
+        var id = root;
+        for (var n = 2; File.Exists(Path.Combine(InstanceDir(id), "instance.json")); n++)
+        {
+            if (n > 100)
+                throw new PadError("PA023", "an instance with this id already exists",
+                    $"instances/{root}", root, ["换个名字"]);
+            id = root + "-" + n;
+        }
+        return id;
+    }
+
     /// <summary>
     /// Make an instance for a pinned release. <paramref name="profile"/> is the instance's
     /// default profile (what the launch button picks before anyone touches the selector);
@@ -1913,23 +1928,25 @@ public sealed class Launcher
         }
 
         var instName = string.IsNullOrWhiteSpace(name) ? "本机 DSH" : name.Trim();
-        var instId = string.IsNullOrWhiteSpace(id) ? Slug(instName) : Slug(id);
-        if (instId.Length == 0) instId = "local-dsh";
-        var dir = InstanceDir(instId);
-        if (File.Exists(Path.Combine(dir, "instance.json")))
+        var slug = string.IsNullOrWhiteSpace(id) ? Slug(instName) : Slug(id);
+        if (slug.Length == 0) slug = "local-dsh";
+        // 显式指定的 id 撞车仍报 PA023。按名字收编时换一个空号，扫描一串 home 不能被一个重名打断。
+        string instId;
+        if (!string.IsNullOrWhiteSpace(id))
         {
-            // 收编时 id 冲突（例如 `C:\Users\Brs\.dsh` 与已有 `dsh` 撞名）：自动加序号，
-            // 而不是让用户换个名字——否则「两个 home 各是一个实例」在 UI 上根本走不通。
-            var baseId = instId;
-            var n = 2;
-            while (n < 100 && File.Exists(Path.Combine(InstanceDir(baseId + "-" + n), "instance.json"))) n++;
-            instId = baseId + "-" + n;
-            dir = InstanceDir(instId);
-            if (File.Exists(Path.Combine(dir, "instance.json")))
+            instId = slug;
+            if (File.Exists(Path.Combine(InstanceDir(instId), "instance.json")))
                 throw new PadError("PA023", "an instance with this id already exists",
                     $"instances/{instId}", instId, ["换个名字"]);
         }
+        else
+        {
+            instId = FreeInstanceId(slug);
+            if (!string.Equals(instId, slug, StringComparison.OrdinalIgnoreCase))
+                instName = instName + " " + instId[(slug.Length + 1)..];
+        }
 
+        var dir = InstanceDir(instId);
         var workspace = Path.Combine(dir, "workspace");
         Directory.CreateDirectory(workspace);
         Directory.CreateDirectory(LogsDir(instId));
@@ -2933,7 +2950,7 @@ public sealed class Launcher
             ["NPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK"] = "true",
         };
         AddPnpmEnv(env);
-        AddShimEnv(env, bin, profile);
+        AddShimEnv(env, bin, prof);
 
         var job = StartJob("plugin-allow-version", inst.Id, null, pkg);
         var token = TrackCancel(job.Id, ct);

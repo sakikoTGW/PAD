@@ -62,7 +62,7 @@ public static class MarkdownWpf
         return new FontFamily(fallback);
     }
 
-    static readonly FontFamily Mono = new("Consolas, Cascadia Mono, Courier New");
+    static readonly FontFamily Mono = new("HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans");
 
     /// <summary>预热 Markdig 管道（首次 Parse 要编译正则/扩展，约 300ms）；开窗时后台跑一次。</summary>
     public static void Warmup()

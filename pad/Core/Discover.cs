@@ -95,43 +95,53 @@ public static class Discover
 
     // ---- 入口 --------------------------------------------------------------
 
-    public static Inventory Run(Launcher launcher, IReadOnlyList<string> deepRoots, CancellationToken ct)
+    public readonly record struct DiscoverStep(string Text, double Fraction);
+
+    public static Inventory Run(Launcher launcher, IReadOnlyList<string> deepRoots, CancellationToken ct,
+        IProgress<DiscoverStep>? progress = null)
     {
-        var scan = new Scan(launcher, ct);
+        var scan = new Scan(launcher, ct) { Progress = progress };
 
         // 进程现场只取一次（PEB 读命令行/环境）：壳的 UserData/Home、TUI 与 CLI 是否在跑
         // 都只能从这儿拿到，但快照本身约 1s，绝不能在每个壳上重扫。
-        Guard(scan, () => scan.Procs = ProcTable.Snapshot(900, ct));
+        Step(scan, "正在看本机进程…", 0.08, () => scan.Procs = ProcTable.Snapshot(900, ct));
 
         // 所有线索互不依赖；某一类抛了不能拖垮其它类。
-        Guard(scan, () => ScanKnownLocations(scan));
-        Guard(scan, () => ScanProcesses(scan));
-        Guard(scan, () => ScanShortcuts(scan));
-        Guard(scan, () => ScanUninstallRegistry(scan));
-        Guard(scan, () => ScanLocalPrograms(scan));
-        Guard(scan, () => ScanPadConfig(scan));
-        Guard(scan, () => ScanExtraRoots(scan));
-        Guard(scan, () => ScanDriveRoots(scan));
-        Guard(scan, () => ScanDeepRoots(scan, deepRoots));
+        Step(scan, "正在看已知位置…", 0.18, () => ScanKnownLocations(scan));
+        Step(scan, "正在看正在跑的程序…", 0.28, () => ScanProcesses(scan));
+        Step(scan, "正在看快捷方式…", 0.38, () => ScanShortcuts(scan));
+        Step(scan, "正在看已安装的程序…", 0.48, () => ScanUninstallRegistry(scan));
+        Step(scan, "正在看本机程序目录…", 0.58, () => ScanLocalPrograms(scan));
+        Step(scan, "正在看启动器配置…", 0.66, () => ScanPadConfig(scan));
+        Step(scan, "正在看额外目录…", 0.72, () => ScanExtraRoots(scan));
+        Step(scan, "正在看磁盘根目录…", 0.82, () => ScanDriveRoots(scan));
+        Step(scan, "正在看指定目录…", 0.88, () => ScanDeepRoots(scan, deepRoots));
 
         var shells = new List<Shell>();
         var shellKernels = new List<Kernel>();
-        Guard(scan, () => BuildShells(scan, shells, shellKernels));
+        Step(scan, "正在整理桌面端…", 0.92, () => BuildShells(scan, shells, shellKernels));
 
         // home 要先于 TUI：TUI 是挂在某个 home 的 profile 上的。
         var homes = new List<DshHome>();
-        Guard(scan, () => BuildHomes(scan, shells, homes));
+        Step(scan, "正在整理已有的 home…", 0.95, () => BuildHomes(scan, shells, homes));
 
         var tuis = new List<Tui>();
-        Guard(scan, () => BuildTuis(scan, homes, tuis));
+        Step(scan, "正在整理终端…", 0.97, () => BuildTuis(scan, homes, tuis));
 
         var kernels = new List<Kernel>();
-        Guard(scan, () => BuildKernels(scan, shellKernels, kernels));
+        Step(scan, "正在整理内核…", 0.99, () => BuildKernels(scan, shellKernels, kernels));
 
         var clis = new List<DshCli>();
-        Guard(scan, () => BuildClis(scan, shells, kernels, clis));
+        Step(scan, "正在整理命令行…", 1, () => BuildClis(scan, shells, kernels, clis));
 
         return new Inventory(kernels, shells, tuis, clis, homes);
+    }
+
+    static void Step(Scan scan, string text, double fraction, Action action)
+    {
+        try { scan.Progress?.Report(new DiscoverStep(text, fraction)); }
+        catch { /* 进度失败不挡扫描 */ }
+        Guard(scan, action);
     }
 
     /// <summary>跑一段探测；取消除外一律吞掉，保证一个坏线索不会让整份清单消失。</summary>
@@ -170,6 +180,7 @@ public static class Discover
         public Launcher Launcher { get; }
 
         public CancellationToken Ct { get; }
+        public IProgress<DiscoverStep>? Progress { get; init; }
 
         public string AppData { get; }
 

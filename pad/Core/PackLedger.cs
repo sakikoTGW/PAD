@@ -147,6 +147,9 @@ public sealed class PackManifest
     /// <summary>包钉的 DSH 内核版本/范围（<c>dsh.version</c>）；没写为空。</summary>
     public string DshVersion { get; init; } = "";
     public List<PackManifestPlugin> Plugins { get; init; } = [];
+    /// <summary>Agent preset ids (<c>dsh.presets</c>) the pack's bundles must make appear in the
+    /// merged configuration; checked after install.</summary>
+    public List<string> Presets { get; init; } = [];
 
     /// <summary>读不出来（不存在/坏 zip/坏 JSON/pinst）返回 null，不抛。</summary>
     public static PackManifest? TryRead(string packPath)
@@ -222,6 +225,13 @@ public sealed class PackManifest
                 }
             }
         }
+        var presets = new List<string>();
+        if (root.TryGetProperty("dsh", out var dshEl) && dshEl.ValueKind == JsonValueKind.Object
+            && dshEl.TryGetProperty("presets", out var pr) && pr.ValueKind == JsonValueKind.Array)
+            presets.AddRange(pr.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => (x.GetString() ?? "").Trim())
+                .Where(x => x.Length > 0));
         return new PackManifest
         {
             Name = Str(root, "name"),
@@ -229,6 +239,7 @@ public sealed class PackManifest
             Profile = profile,
             DshVersion = dshVersion,
             Plugins = plugins,
+            Presets = presets,
         };
     }
 

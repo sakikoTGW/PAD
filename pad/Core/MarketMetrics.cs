@@ -94,6 +94,18 @@ public static class MarketMetrics
 
     /// <summary>Cached boards when fresh, otherwise a fresh build. A failed refresh keeps
     /// the previous file visible rather than blanking the page.</summary>
+    /// <summary>旧缓存里也可能留着负数（以前算法把所有候选都排进榜）：读出来时按同一规则清一遍。</summary>
+    static Leaderboards Clean(Leaderboards boards)
+    {
+        foreach (var board in boards.Boards)
+        {
+            var positive = board.Rows.Where(r => r.Growth > 0).ToList();
+            board.Rows = positive.Count > 0 ? positive : board.Rows.Where(r => r.Growth >= 0).ToList();
+            for (var i = 0; i < board.Rows.Count; i++) board.Rows[i].Rank = i + 1;
+        }
+        return boards;
+    }
+
     public static async Task<Leaderboards> GetAsync(Launcher launcher, bool force,
         IProgress<string>? log, CancellationToken ct)
     {
@@ -233,7 +245,14 @@ public static class MarketMetrics
                     Total = total,
                 });
             }
-            var ranked = rows.OrderByDescending(r => r.Growth).ThenBy(r => r.Name, StringComparer.Ordinal).Take(12).ToList();
+            // 「增长榜」只收正向变化：候选就那么几个，全按变化量排序会把下降的也拉进来（-133、-201）。
+            // 如果一个正增长的都没有，才退回显示 0 变化的行，避免整块空掉。
+            var positive = rows.Where(r => r.Growth > 0).ToList();
+            var ranked = (positive.Count > 0 ? positive : rows.Where(r => r.Growth >= 0).ToList())
+                .OrderByDescending(r => r.Growth)
+                .ThenBy(r => r.Name, StringComparer.Ordinal)
+                .Take(12)
+                .ToList();
             for (var i = 0; i < ranked.Count; i++) ranked[i].Rank = i + 1;
             return ranked;
         }

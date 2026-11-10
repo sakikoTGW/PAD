@@ -398,6 +398,74 @@
     <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
   </Style>
 
+  <!-- Bar keeps its column. Fading it must not widen the cards. -->
+  <Style x:Key="OverlayScroll" TargetType="ScrollViewer">
+    <Setter Property="v:Fx.FadeBar" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ScrollViewer">
+          <Grid Background="{TemplateBinding Background}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="9" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Column="0" Grid.Row="0"
+                                    CanContentScroll="{TemplateBinding CanContentScroll}"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    Margin="{TemplateBinding Padding}" />
+            <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Grid.Row="0"
+                       Opacity="0" IsHitTestVisible="True"
+                       Minimum="0"
+                       Maximum="{TemplateBinding ScrollableHeight}"
+                       ViewportSize="{TemplateBinding ViewportHeight}"
+                       Visibility="Visible"
+                       Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}" />
+            <Border x:Name="BarGhost" Grid.Column="1" Grid.Row="0"
+                    Width="5" Height="28" CornerRadius="3" Opacity="0"
+                    HorizontalAlignment="Center" VerticalAlignment="Top"
+                    IsHitTestVisible="False"
+                    Background="{StaticResource InkDisabled}">
+              <Border.RenderTransform>
+                <TranslateTransform x:Name="BarGhostShift" />
+              </Border.RenderTransform>
+            </Border>
+            <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Column="0" Grid.Row="1"
+                       VerticalAlignment="Bottom" Orientation="Horizontal"
+                       Minimum="0"
+                       Maximum="{TemplateBinding ScrollableWidth}"
+                       ViewportSize="{TemplateBinding ViewportWidth}"
+                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                       Value="{Binding HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="OverlayList" TargetType="ListBox" BasedOn="{StaticResource PlainList}">
+    <Setter Property="ScrollViewer.CanContentScroll" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBox">
+          <ScrollViewer Focusable="False"
+                        Style="{StaticResource OverlayScroll}"
+                        Padding="{TemplateBinding Padding}"
+                        Background="{TemplateBinding Background}"
+                        HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                        VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                        CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}">
+            <ItemsPresenter />
+          </ScrollViewer>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- Compact tick for PCL-style list multi-select. Not the launch Switch. -->
   <Style x:Key="Tick" TargetType="CheckBox">
     <Setter Property="Width" Value="18" />
@@ -624,7 +692,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="RadioButton">
-          <Grid Background="Transparent">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border x:Name="sel" Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCtl}"
                     Margin="2" Opacity="0" RenderTransformOrigin="0.5,0.5">
               <Border.Effect>
@@ -646,6 +717,32 @@
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
               <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.94" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.94" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsChecked" Value="True">
               <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />

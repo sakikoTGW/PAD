@@ -1,0 +1,68 @@
+<Window x:Class="Pad.Views.AdoptHomesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:v="clr-namespace:Pad.Views"
+        Title="收编本机 DSH"
+        Width="640" SizeToContent="Height" MaxHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource BgPage}"
+        FontFamily="{StaticResource FontUI}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+  <Window.Resources>
+    <v:CountToVis x:Key="CountVis" />
+  </Window.Resources>
+  <Border Style="{StaticResource Slab}" Margin="18">
+    <StackPanel>
+      <ContentControl Style="{StaticResource SlabHead}" Content="本机还有这些 DSH"
+                      v:Ico.Of="{StaticResource I.Data}" />
+      <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
+        <ItemsControl x:Name="HomeList">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border Style="{StaticResource Row}" Padding="10,8" Cursor="Hand"
+                      MouseLeftButtonUp="Row_Click" Tag="{Binding}"
+                      ToolTip="{Binding HomePath}">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <CheckBox Style="{StaticResource Tick}" VerticalAlignment="Center"
+                            IsChecked="{Binding Pick, Mode=TwoWay}" Margin="0,0,12,0" />
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                               FontSize="{StaticResource FsBody}"
+                               Foreground="{StaticResource TextPrimary}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding HomePath}" Style="{StaticResource Mono}"
+                               Margin="0,3,0,0"
+                               Foreground="{StaticResource TextMuted}"
+                               TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ContentControl Style="{StaticResource Quant}" Margin="0,0,12,0"
+                                    v:Ico.Of="{StaticResource I.Folder}"
+                                    Content="{Binding Profiles}"
+                                    Visibility="{Binding Profiles, Converter={StaticResource CountVis}}" />
+                    <ContentControl Style="{StaticResource Quant}" Margin="0"
+                                    v:Ico.Of="{StaticResource I.Chat}"
+                                    Content="{Binding Sessions}"
+                                    Visibility="{Binding Sessions, Converter={StaticResource CountVis}}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <Button Style="{StaticResource Btn}" Content="跳过" IsCancel="True" Click="Skip_Click" />
+        <Button Style="{StaticResource BtnPrimary}" Content="收编" Margin="8,0,0,0"
+                IsDefault="True" Click="Adopt_Click" />
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>

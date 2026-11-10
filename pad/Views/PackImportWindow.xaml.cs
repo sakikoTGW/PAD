@@ -15,6 +15,7 @@ public partial class PackImportWindow : Window
     readonly string _packPath;
     readonly PackSpec _spec;
     readonly ObservableCollection<ConflictRow> _rows = [];
+    readonly bool _createNew;
     bool _conflictsShown;
 
     /// <summary>装完的实例；null = 没装（取消或失败）。</summary>
@@ -23,12 +24,14 @@ public partial class PackImportWindow : Window
     /// <summary>最后一行结果摘要（给调用方 toast）。</summary>
     public string Summary { get; private set; } = "";
 
-    public PackImportWindow(Launcher launcher, string packPath, PackSpec spec, Instance? preferred = null)
+    public PackImportWindow(Launcher launcher, string packPath, PackSpec spec, Instance? preferred = null,
+        bool createNew = false)
     {
         InitializeComponent();
         _launcher = launcher;
         _packPath = packPath;
         _spec = spec;
+        _createNew = createNew;
 
         HeaderSub.Text = $"{spec.Name} {spec.Version}";
         PackTitle.Text = spec.Name;
@@ -43,17 +46,28 @@ public partial class PackImportWindow : Window
         InstanceCombo.SelectedItem = preferred ?? instances.FirstOrDefault();
 
         NewNameBox.Text = spec.Name;
-        var hasExisting = instances.Count > 0;
-        ExistingRadio.IsChecked = hasExisting;
-        NewRadio.IsChecked = !hasExisting;
-        InstanceCombo.IsEnabled = hasExisting;
-        NewNameBox.IsEnabled = !hasExisting;
+        if (createNew)
+        {
+            ExistingRow.Visibility = Visibility.Collapsed;
+            NewRadio.IsChecked = true;
+            NewNameBox.IsEnabled = true;
+        }
+        else
+        {
+            var hasExisting = instances.Count > 0;
+            ExistingRadio.IsChecked = hasExisting;
+            NewRadio.IsChecked = !hasExisting;
+            InstanceCombo.IsEnabled = hasExisting;
+            NewNameBox.IsEnabled = !hasExisting;
+        }
         TargetHint.Text = spec.Kernel.Mode == "pin" && spec.Kernel.Version.Length > 0
             ? $"新建实例会钉到内核 {spec.Kernel.Version}（没装的话先去下载页装）。"
             : "工作区按包里的 workspace 模式创建。";
 
         ConflictList.ItemsSource = _rows;
-        FooterHint.Text = "只装这个包；实例里其它内容不动。";
+        FooterHint.Text = createNew
+            ? "会新建一个实例，用包里的 Harness。"
+            : "只装这个包；实例里其它内容不动。";
     }
 
     void ExistingRadio_Checked(object sender, RoutedEventArgs e)
@@ -143,7 +157,9 @@ public partial class PackImportWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError(PadError.Describe(ex) + "（新实例需要内核已安装；也可以装进现有实例）");
+            ShowError(PadError.Describe(ex) + (_createNew
+                ? "（新实例需要这个 Harness 版本已安装）"
+                : "（新实例需要内核已安装；也可以装进现有实例）"));
             return null;
         }
     }

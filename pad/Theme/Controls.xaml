@@ -331,7 +331,7 @@
 
   <!-- Filter chips: no own fill/border — selected chrome is the Fx.SlideSelect thumb. -->
   <Style x:Key="FilterTab" TargetType="RadioButton">
-    <Setter Property="Height" Value="28" />
+    <Setter Property="Height" Value="27" />
     <Setter Property="MinWidth" Value="72" />
     <Setter Property="Padding" Value="12,0" />
     <Setter Property="Margin" Value="0,0,8,0" />
@@ -343,9 +343,12 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="RadioButton">
-          <Grid Background="Transparent">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border x:Name="hot" Background="{StaticResource AccentWash}"
-                    CornerRadius="{StaticResource RadPill}" Opacity="0" />
+                    CornerRadius="13.5" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                               Margin="{TemplateBinding Padding}"
                               TextElement.Foreground="{TemplateBinding Foreground}" />
@@ -354,8 +357,34 @@
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="hot" Property="Opacity" Value="1" />
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.92" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.92" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
+            </Trigger>
             <Trigger Property="IsChecked" Value="True">
-              <Setter Property="Foreground" Value="{StaticResource TextOnAccent}" />
+              <Setter Property="Foreground" Value="{StaticResource AccentText}" />
               <Setter Property="FontWeight" Value="SemiBold" />
               <Setter TargetName="hot" Property="Opacity" Value="0" />
             </Trigger>
@@ -376,15 +405,18 @@
     <Setter Property="Opacity" Value="0" />
   </Style>
 
+  <!-- Same capsule as the top-bar tab pill: white, 27 tall, fully round. -->
   <Style x:Key="SlideThumbPill" TargetType="Border">
-    <Setter Property="Background" Value="{StaticResource Accent}" />
-    <Setter Property="CornerRadius" Value="{StaticResource RadPill}" />
-    <Setter Property="Height" Value="28" />
-    <Setter Property="MinWidth" Value="40" />
+    <Setter Property="Background" Value="{StaticResource BgCard}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineDivider}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="13.5" />
+    <Setter Property="Height" Value="27" />
     <Setter Property="HorizontalAlignment" Value="Left" />
-    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="IsHitTestVisible" Value="False" />
     <Setter Property="Opacity" Value="0" />
+    <Setter Property="RenderTransformOrigin" Value="0,0.5" />
   </Style>
 
   <!-- ============================ status dot ============================ -->
@@ -518,23 +550,7 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ContentControl">
-          <Grid RenderTransformOrigin="0.5,0.5">
-            <Grid.RenderTransform>
-              <RotateTransform Angle="0" />
-            </Grid.RenderTransform>
-            <!-- The trigger lives on the element it animates: an EventTrigger declared
-                 in ControlTemplate.Triggers resolves its target against the container's
-                 namescope, where a template part does not exist. -->
-            <Grid.Triggers>
-              <EventTrigger RoutedEvent="Loaded">
-                <BeginStoryboard>
-                  <Storyboard RepeatBehavior="Forever">
-                    <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(RotateTransform.Angle)"
-                                     From="0" To="360" Duration="0:0:0.9" />
-                  </Storyboard>
-                </BeginStoryboard>
-              </EventTrigger>
-            </Grid.Triggers>
+          <Grid x:Name="ring" v:Fx.Spin="True">
             <Ellipse Margin="1" StrokeThickness="2" Stroke="{StaticResource LineBorder}" />
             <Ellipse Margin="1" StrokeThickness="2" Stroke="{StaticResource Accent}"
                      StrokeDashArray="6 22" StrokeDashCap="Round" />
@@ -661,7 +677,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="RadioButton">
-          <Grid Background="Transparent">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border x:Name="hot" Background="#18FFFFFF" CornerRadius="13.5" Opacity="0" />
             <StackPanel x:Name="cp" Orientation="Horizontal" VerticalAlignment="Center">
               <v:Ico Height="16" Margin="12,0,0,0" VerticalAlignment="Center"
@@ -693,6 +712,32 @@
                 </BeginStoryboard>
               </Trigger.ExitActions>
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.92" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.92" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
+            </Trigger>
             <Trigger Property="IsChecked" Value="True">
               <Setter Property="Foreground" Value="{StaticResource AccentText}" />
               <Setter Property="FontWeight" Value="SemiBold" />
@@ -720,7 +765,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="Button">
-          <Grid x:Name="root" Background="Transparent">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border x:Name="hot" Background="{StaticResource AccentWash}"
                     CornerRadius="{StaticResource RadCtl}" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -747,6 +795,32 @@
                 </BeginStoryboard>
               </Trigger.ExitActions>
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
+            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="root" Property="Opacity" Value="0.32" />
               <Setter Property="Cursor" Value="Arrow" />
@@ -763,7 +837,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="Button">
-          <Grid x:Name="root" Background="Transparent">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
             <Border x:Name="hot" Background="#22FFFFFF" CornerRadius="{StaticResource RadCtl}"
                     Opacity="0" />
             <ContentPresenter x:Name="cp" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -797,6 +874,32 @@
                                      Storyboard.TargetProperty="RenderTransform.(TranslateTransform.X)"
                                      To="0" Duration="{StaticResource DMicro}"
                                      EasingFunction="{StaticResource EaseIn}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="{StaticResource DShort}"
+                                     EasingFunction="{StaticResource EaseOut}" />
                   </Storyboard>
                 </BeginStoryboard>
               </Trigger.ExitActions>

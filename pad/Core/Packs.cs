@@ -1364,6 +1364,25 @@ public sealed class Packs
             facts = PackLedger.ReadProfile(inst, prof);
         }
 
+        // 4b) 包声明的 agent preset 必须真的出现在最终配置里；pnpm 成功不等于预设生效。
+        if (manifest.Presets.Count > 0)
+        {
+            var (probe, probeError) = await AgentPresets.ProbeAsync(_launcher, inst.Home, inst.Dsh.Version,
+                inst.Workspace?.Path ?? "", prof, ct);
+            foreach (var id in manifest.Presets)
+            {
+                if (probe is not null && probe.Presets.Any(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                result.Failures.Add(new PackPluginFailure
+                {
+                    Spec = "preset:" + id,
+                    Required = true,
+                    Reason = probe is null ? "校验不了：" + probeError : "最终配置里没有这个预设",
+                });
+                result.Warnings.Add($"预设没生效：{id}");
+            }
+        }
+
         // 5) 写账本：内容事实 + 这次真正登记的插件。
         var ledger = PackLedger.Load(_launcher, inst);
         ledger.RecordPack(packId, result.Title, result.Version, abs, ContentDirFor(manifest),

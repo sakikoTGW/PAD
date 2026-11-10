@@ -87,9 +87,9 @@
   <!-- WPF renders from installed fonts only, so the pairing is drawn from what ships
        with Windows: the UI grotesque for prose, the terminal mono as the one outlier
        register, used for machine-issued strings (发行号, pid, session id, 路径). -->
-  <FontFamily x:Key="FontUI">Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
-  <FontFamily x:Key="FontDisplay">Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
-  <FontFamily x:Key="FontMono">Cascadia Mono, Consolas, Courier New</FontFamily>
+  <FontFamily x:Key="FontUI">HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
+  <FontFamily x:Key="FontDisplay">HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
+  <FontFamily x:Key="FontMono">HarmonyOS Sans SC, HarmonyOS Sans, HarmonySans, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
 
   <!-- Six sizes, anchored on 13 (the Windows UI body size), roughly x1.2 upward. 14 is
        the list-row title, the one size that exists because rows outnumber headings. -->

@@ -53,7 +53,7 @@ public partial class LaunchView : UserControl, IRefreshable
         for (var i = 0; i < 120; i++)
         {
             await Task.Delay(1000);
-            if (WindowFocus.Activate(pid) || WindowFocus.ActivateByExe(shell.Source.Exe))
+            if (WindowFocus.ActivateAny(shell.Source.Exe, pid) > 0)
             {
                 _win.Toast($"{shell.Name} 已打开（窗口已就绪）");
                 PaintRunBtn();
@@ -178,6 +178,24 @@ public partial class LaunchView : UserControl, IRefreshable
         else _win.ShowInner("versions", "版本选择");
     }
 
+    ScheduleRow? SelectedRow() => _state.SelectedContainer switch
+    {
+        DetectedTuiRow t => Schedule.FromTui(t.Source),
+        DetectedShellRow s => Schedule.FromShell(s.Source, RealInstance()),
+        BundleRow b => Schedule.FromInstance(b.Instance, b.Profile.Name),
+        ProfileVm p => Schedule.FromInstance(p.Instance, p.Name),
+        _ => _state.SelectedInstance is { } inst
+            ? Schedule.FromInstance(inst, _state.SelectedProfile?.Name)
+            : null,
+    };
+
+    Instance? RealInstance()
+    {
+        var target = _state.SelectedInstance;
+        return target is not null && !target.Id.StartsWith("detected-", StringComparison.OrdinalIgnoreCase)
+            ? target : null;
+    }
+
     async void Run_Click(object sender, RoutedEventArgs e)
     {
             _state.SaveSelection();   // 记住这次点的是哪一行（重启后还原）
@@ -186,8 +204,7 @@ public partial class LaunchView : UserControl, IRefreshable
             // 同一个按钮兼作关闭：这个 profile 在跑就先关，不再起第二个。
             if (RunningProfiles() is { Count: > 0 } runningProfiles && _state.SelectedInstance is { } runningInst)
             {
-                var closed = Nodes.Close(runningInst.Home, runningProfiles[0]);
-                _state.Runner.Stop(runningInst.Id, runningProfiles[0]);
+                var closed = Schedule.Close(_state.Launcher, Schedule.FromInstance(runningInst, runningProfiles[0]), runningProfiles[0]);
                 _state.RefreshRunning();
                 PaintRunBtn();
                 _win.Toast(closed > 0 ? $"已关闭 {runningProfiles[0]}" : "进程已经退出，账本已清理");
@@ -199,7 +216,8 @@ public partial class LaunchView : UserControl, IRefreshable
             {
                 case DetectedTuiRow tui when !tui.LocalRunning:
                 {
-                    var opened = await BundleLaunch.OpenTuiAsync(_state.Launcher, tui.Source, CancellationToken.None);
+                    var opened = await Schedule.OpenAsync(_state.Launcher, Schedule.FromTui(tui.Source),
+                        _state.Settings, CancellationToken.None);
                     _win.Toast($"已启动 {tui.Name}（终端窗口，pid {opened.Pid}）");
                     _state.RefreshRunning();
                     return;
@@ -222,24 +240,31 @@ public partial class LaunchView : UserControl, IRefreshable
                             && LaunchPolicy.SamePath(shell.Source.Home ?? "", wantHome);
                         if (!realInstance || string.IsNullOrWhiteSpace(wantHome) || sameHome)
                         {
-                            var focused = WindowFocus.Activate(shell.Source.Pid ?? 0)
-                                || WindowFocus.ActivateByExe(shell.Source.Exe);
-                            _win.Toast(focused
-                                ? $"已切到 {shell.Name}（pid {shell.Source.Pid}）"
-                                : $"没找到 {shell.Name} 的窗口（pid {shell.Source.Pid}）");
+                            var focusedPid = WindowFocus.ActivateAny(shell.Source.Exe, shell.Source.Pid ?? 0);
+                            if (focusedPid > 0)
+                            {
+                                _win.Toast($"已切到 {shell.Name}（pid {focusedPid}）");
+                                return;
+                            }
+                            // 扫描时说它在跑，现在窗口没了（pid 已经换人 / 应用重启过）。
+                            // 这不是启动失败：当成没在跑，直接往下走真正的启动。
+                            _state.RefreshRunning();
+                        }
+                        else
+                        {
+                            var go = _win.Ask("桌面端用的是另一个 home",
+                                $"现在：{shell.Source.Home}\n要重启到：{wantHome}\n\n重启会关闭当前桌面端窗口。", warn: true);
+                            if (!go) return;
+                            var restarted = Schedule.Open(_state.Launcher, Schedule.FromShell(shell.Source, target), target, restart: true);
+                            _win.Toast($"已重启到 home {restarted.Home}（pid {restarted.Pid}）");
+                            _state.RefreshRunning();
                             return;
                         }
-                        var go = _win.Ask("桌面端用的是另一个 home",
-                            $"现在：{shell.Source.Home}\n要重启到：{wantHome}\n\n重启会关闭当前桌面端窗口。", warn: true);
-                        if (!go) return;
-                        var restarted = BundleLaunch.OpenShell(_state.Launcher, shell.Source, target, restart: true);
-                        _win.Toast($"已重启到 home {restarted.Home}（pid {restarted.Pid}）");
-                        _state.RefreshRunning();
-                        return;
                     }
 
                     _win.Toast($"正在启动 {shell.Name}…");
-                    var opened = BundleLaunch.OpenShell(_state.Launcher, shell.Source, target);
+                    var opened = Schedule.Open(_state.Launcher, Schedule.FromShell(shell.Source, realInstance ? target : null),
+                        realInstance ? target : null);
                     _state.RefreshRunning();
                     // 进程起来不等于窗口出来：等窗口真的出现再报“已启动”。
                     _ = AwaitShellWindowAsync(shell, opened.Pid);
@@ -262,8 +287,8 @@ public partial class LaunchView : UserControl, IRefreshable
 
                 var bundle = Bundle.For(bundleRow.BundleKind);
                 if (bundle is null) return;
-                var opened = await BundleLaunch.OpenAsync(_state.Launcher, bundleRow.Instance,
-                    bundleRow.Profile.Name, bundle, _state.Settings, CancellationToken.None);
+                var opened = await Schedule.OpenAsync(_state.Launcher, Schedule.FromInstance(bundleRow.Instance, bundleRow.Profile.Name),
+                    _state.Settings, CancellationToken.None, profile: bundleRow.Profile.Name, bundle: bundle);
                 _win.Toast($"已启动 {bundleRow.InstanceName} · {bundleRow.Profile.Name}（{bundle.Shows}，pid {opened.Pid}）");
                 _state.RefreshRunning();
                 await Task.Delay(700);   // 进程与账本落盘需要一点时间，晚一拍再刷新按钮
@@ -285,21 +310,8 @@ public partial class LaunchView : UserControl, IRefreshable
             // 所以这个 profile 的"启动"就等于"拉起/切到该 home 的官方桌面端"。
             if (string.Equals(profile.Name, "desktop", StringComparison.OrdinalIgnoreCase))
             {
-                var home = profile.Instance.Home;
-                Shell? shell = null;
-                try
-                {
-                    var inv = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None));
-                    shell = inv.Shells.FirstOrDefault(s =>
-                        !string.IsNullOrWhiteSpace(s.Home) && LaunchPolicy.SamePath(s.Home, home));
-                }
-                catch { /* 探测失败就按下面提示 */ }
-                if (shell is null)
-                {
-                    _win.Toast("desktop profile 由桌面端管理，但没找到这个 home 的桌面端；请直接打开 DeepSeek Harness");
-                    return;
-                }
-                var opened = BundleLaunch.OpenShell(_state.Launcher, shell, profile.Instance);
+                var opened = await Schedule.OpenAsync(_state.Launcher, Schedule.FromInstance(profile.Instance, "desktop"),
+                    _state.Settings, CancellationToken.None, profile: "desktop");
                 _win.Toast(opened.Verified
                     ? $"桌面端已在运行（pid {opened.Pid}），已切到窗口"
                     : $"已启动桌面端（pid {opened.Pid}，home {opened.Home}）");
@@ -330,26 +342,12 @@ public partial class LaunchView : UserControl, IRefreshable
 
 
     /// <summary>关闭本机探测到的桌面端 / TUI（PAD 没启动它，但可以关它）。</summary>
-    async void CloseBtn_Click(object sender, RoutedEventArgs e)
+    void CloseBtn_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var closed = 0;
-            switch (_state.SelectedContainer)
-            {
-                case DetectedShellRow shell:
-                    closed = BundleLaunch.CloseShell(shell.Source);
-                    break;
-                case DetectedTuiRow tui when tui.Source.Pid is { } pid && Proc.Alive(pid):
-                    try
-                    {
-                        using var p = System.Diagnostics.Process.GetProcessById(pid);
-                        p.Kill(entireProcessTree: true);
-                        closed++;
-                    }
-                    catch { /* 已经退出 */ }
-                    break;
-            }
+            var row = SelectedRow();
+            var closed = row is null ? 0 : Schedule.Close(_state.Launcher, row);
             _win.Toast(closed > 0 ? $"已关闭（{closed} 个进程）" : "进程已经退出");
             _state.RefreshRunning();
             PaintRunBtn();
@@ -358,7 +356,6 @@ public partial class LaunchView : UserControl, IRefreshable
         {
             _win.Toast(PadError.Describe(ex), bad: true);
         }
-        await Task.CompletedTask;
     }
     void Manage_Click(object sender, RoutedEventArgs e) => _win.ShowTab("manage");
 

@@ -43,7 +43,12 @@ public partial class MakePackView : UserControl
         NameBox.Text = inst is null ? "我的整合包" : $"{inst.Name}-整合包";
         VersionBox.Text = "0.1.0";
         if (inst is not null) DescBox.Text = inst.Name;
-        try { _inventory = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None)); }
+        try
+        {
+            var progress = new Progress<Discover.DiscoverStep>(s => _win.Progress(s.Text, s.Fraction, "扫描"));
+            _inventory = await Task.Run(() => Discover.Run(_state.Launcher, [], CancellationToken.None, progress));
+            _win.ProgressDone(600);
+        }
         catch { _inventory = null; }
 
         BuildKernels(inst);

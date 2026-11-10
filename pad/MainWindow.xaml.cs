@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     string _page = "launch";
     DispatcherFrame? _msgFrame;
     bool _msgAccepted;
+    bool _adoptBusy;
 
     static readonly Dictionary<string, string> PageNames = new()
     {
@@ -35,7 +36,13 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        Loaded += (_, _) => Pad.Core.Market.Prefetch();
         InitializeComponent();
+        _progressIdle.Tick += (_, _) =>
+        {
+            _progressIdle.Stop();
+            ProgressDone(0);
+        };
         AddHandler(Hyperlink.RequestNavigateEvent, new RequestNavigateEventHandler(OnMdLink));
         PreviewKeyDown += Window_PreviewKeyDown;
         AllowDrop = true;
@@ -47,13 +54,23 @@ public partial class MainWindow : Window
         OuterShell.SizeChanged += (_, _) => SyncShellClip();
         ApplyWindowPrefs();
         ApplyBrand();
+        ApplyType();
         Show("launch");
+        Loaded += (_, _) => HookRecentHotKey();
+        // 等主窗口真正画出来再开浮动窗口：Loaded 里直接 Show 子窗口，冷启动/独立 root 时会被吞掉。
+        Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(OpenRequestedWindow), DispatcherPriority.ApplicationIdle);
+        Closed += (_, _) =>
+        {
+            _recentHotKey?.Dispose();
+            _recentHotKey = null;
+        };
         Loaded += (_, _) =>
         {
             SyncShellClip();
             UiWatchdog.QuietFor(TimeSpan.FromSeconds(15));
             MoveTabPill(CurrentTab());
             ApplyBrand();
+            ApplyType();
             ApplyWindowPrefs();
             if (AppState.Current.Settings.Other.LoadWarning is { Length: > 0 } warn)
                 Toast(warn, bad: true);
@@ -110,6 +127,8 @@ public partial class MainWindow : Window
             }
             if (App.ShotPath is not null && App.ShotPage is "pack-picker" or "pack-preflight" or "pack-preflight-report")
                 _ = ShotPackConceptWindowAsync(App.ShotPath);
+            else if (App.ShotPath is not null && App.ShotPage == "adopt-homes")
+                ShotAdoptHomes(App.ShotPath);
             else if (App.ShotPath is not null)
                 ScheduleShot(App.ShotPath);
             if (App.ShotPath is null) _ = WarmBootAsync();
@@ -138,7 +157,9 @@ public partial class MainWindow : Window
     {
         // Sync title / logo / custom asset with 个性化 before the plate shows.
         ApplyBrand();
+        ApplyType();
         ApplySkin();
+        CenterBootBrand();
         BrandMark.Opacity = BrandMark.Visibility == Visibility.Visible ? 0 : 1;
         BootPlateShift.BeginAnimation(TranslateTransform.YProperty, null);
         BootBrandShift.BeginAnimation(TranslateTransform.XProperty, null);
@@ -174,82 +195,146 @@ public partial class MainWindow : Window
         }
 
         ApplyBrand();
+        ApplyType();
         ApplySkin();
+        CenterBootBrand();
         UpdateLayout();
         BrandMark.UpdateLayout();
         BootBrand.UpdateLayout();
 
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        // Base ≥750ms; 动画速度 (AnimSpeed) stretches/shortens like every other Fx motion.
         var beat = Fx.Span(750);
         var fade = Fx.Span(220);
-        var ease = new System.Windows.Media.Animation.CubicEase
-        {
-            EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut,
-        };
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
         BootProgress.BeginAnimation(UIElement.OpacityProperty,
-            new System.Windows.Media.Animation.DoubleAnimation(1, 0, fade)
-            {
-                EasingFunction = ease,
-            });
-
-        var plate = new System.Windows.Media.Animation.DoubleAnimation(
-            0, -BootCover.ActualHeight - 8, beat)
-        {
-            EasingFunction = ease,
-        };
+            new DoubleAnimation(1, 0, fade) { EasingFunction = ease });
 
         var flyBrand = BootBrand.Visibility == Visibility.Visible
             && BrandMark.Visibility == Visibility.Visible;
-        double dx = 0, dy = 0;
-        if (flyBrand)
+        if (!flyBrand)
         {
-            try
-            {
-                // Common ancestor: window root Grid (BootCover and OuterShell are siblings).
-                var root = (Visual)Content;
-                var from = BootBrand.TransformToAncestor(root).Transform(new Point(0, 0));
-                var to = BrandMark.TransformToAncestor(root).Transform(new Point(0, 0));
-                dx = to.X - from.X;
-                dy = to.Y - from.Y;
-            }
-            catch
-            {
-                flyBrand = false;
-            }
+            BootBrand.Visibility = Visibility.Collapsed;
+            var plateOnly = new DoubleAnimation(0, ChromeBottomDelta(), beat) { EasingFunction = ease };
+            plateOnly.Completed += (_, _) => { EndBootCover(); tcs.TrySetResult(); };
+            BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plateOnly);
+            await tcs.Task;
+            return;
         }
 
-        void Done(object? _, EventArgs __)
+        Point centered;
+        try
+        {
+            var root = (Visual)Content;
+            centered = BootBrand.TransformToAncestor(root).Transform(new Point(0, 0));
+        }
+        catch
         {
             EndBootCover();
             tcs.TrySetResult();
+            await tcs.Task;
+            return;
         }
 
-        if (flyBrand)
-        {
-            var brandX = new System.Windows.Media.Animation.DoubleAnimation(0, dx, beat)
-            {
-                EasingFunction = ease,
-            };
-            var brandY = new System.Windows.Media.Animation.DoubleAnimation(0, dy, beat)
-            {
-                EasingFunction = ease,
-            };
-            brandY.Completed += Done;
-            BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plate);
-            BootBrandShift.BeginAnimation(TranslateTransform.XProperty, brandX);
-            BootBrandShift.BeginAnimation(TranslateTransform.YProperty, brandY);
-        }
-        else
-        {
-            // 顶栏名称/logo 都关：只收蓝底板。
-            BootBrand.Visibility = Visibility.Collapsed;
-            plate.Completed += Done;
-            BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plate);
-        }
+        // Switch to bottom anchoring, then offset Y so the mark is still visually centered.
+        // It stays there until the plate's bottom slot rises to that point, then rides the edge.
+        SeatBootBrand();
+        BootBrandShift.X = 0;
+        BootBrandShift.Y = 0;
+        UpdateLayout();
+        BootBrand.UpdateLayout();
 
+        double dx, dy, hold;
+        try
+        {
+            var root = (Visual)Content;
+            var seated = BootBrand.TransformToAncestor(root).Transform(new Point(0, 0));
+            var mark = BrandMark.TransformToAncestor(root).Transform(new Point(0, 0));
+            dx = mark.X - seated.X;
+            dy = mark.Y - seated.Y;
+            hold = centered.Y - seated.Y;
+        }
+        catch
+        {
+            EndBootCover();
+            tcs.TrySetResult();
+            await tcs.Task;
+            return;
+        }
+        if (hold <= dy) hold = 0;
+        BootBrandShift.Y = hold;
+
+        var plate = new DoubleAnimation(0, dy, beat) { EasingFunction = ease };
+        EventHandler? frame = null;
+        frame = (_, _) => SyncBootBrand(hold, dy, dx);
+        CompositionTarget.Rendering += frame;
+        plate.Completed += (_, _) =>
+        {
+            if (frame is not null) CompositionTarget.Rendering -= frame;
+            frame = null;
+            EndBootCover();
+            tcs.TrySetResult();
+        };
+        BootPlateShift.BeginAnimation(TranslateTransform.YProperty, plate);
         await tcs.Task;
+    }
+
+    /// <summary>Keep the mark centered until the plate's bottom slot reaches it, then lock to that edge.</summary>
+    void SyncBootBrand(double hold, double dy, double dx)
+    {
+        var plateY = BootPlateShift.Y;
+        if (plateY > hold)
+        {
+            BootBrandShift.Y = hold - plateY;
+            BootBrandShift.X = 0;
+            return;
+        }
+        BootBrandShift.Y = 0;
+        var span = dy - hold;
+        var u = Math.Abs(span) < 0.5 ? 1 : Math.Clamp((plateY - hold) / span, 0, 1);
+        BootBrandShift.X = dx * u;
+    }
+
+    void CenterBootBrand()
+    {
+        BootBrand.VerticalAlignment = VerticalAlignment.Center;
+        BootBrand.HorizontalAlignment = HorizontalAlignment.Center;
+        BootBrand.Margin = new Thickness(0);
+        BootBrand.UpdateLayout();
+        var brandH = BootBrand.ActualHeight > 1 ? BootBrand.ActualHeight : 42;
+        // Center alignment shifts by half the extra top margin, so the bar clears the mark.
+        BootProgress.VerticalAlignment = VerticalAlignment.Center;
+        BootProgress.Margin = new Thickness(56, brandH + 36, 56, 0);
+    }
+
+    /// <summary>Seat the boot mark on the plate bottom, with the same gap the chrome mark keeps.</summary>
+    void SeatBootBrand()
+    {
+        BootBrand.VerticalAlignment = VerticalAlignment.Bottom;
+        BootBrand.HorizontalAlignment = HorizontalAlignment.Center;
+        var chromeH = ChromeBar.ActualHeight;
+        if (chromeH < 1) chromeH = AppState.Current.Settings.Ui.ChromeHeight;
+        BootBrand.UpdateLayout();
+        var brandH = BootBrand.ActualHeight > 1 ? BootBrand.ActualHeight : 42;
+        var gap = Math.Max(0, (chromeH - brandH) / 2);
+        BootBrand.Margin = new Thickness(0, 0, 0, gap);
+    }
+
+    double ChromeBottomDelta()
+    {
+        try
+        {
+            var root = (Visual)Content;
+            var coverBottom = BootCover.TransformToAncestor(root)
+                .Transform(new Point(0, BootCover.ActualHeight)).Y;
+            var chromeBottom = ChromeBar.TransformToAncestor(root)
+                .Transform(new Point(0, ChromeBar.ActualHeight)).Y;
+            return chromeBottom - coverBottom;
+        }
+        catch
+        {
+            return -Math.Max(0, BootCover.ActualHeight - ChromeBar.ActualHeight);
+        }
     }
 
     void EndBootCover()
@@ -544,6 +629,8 @@ public partial class MainWindow : Window
 
     void ResetShellLayout()
     {
+        if (OuterShell.Clip is RectangleGeometry geo)
+            geo.BeginAnimation(RectangleGeometry.RectProperty, null);
         OuterShell.BeginAnimation(FrameworkElement.WidthProperty, null);
         OuterShell.BeginAnimation(FrameworkElement.HeightProperty, null);
         OuterShell.ClearValue(WidthProperty);
@@ -664,6 +751,68 @@ public partial class MainWindow : Window
         ApplyWindowPrefs();
     }
 
+    double _fontScale = 1;
+
+    /// <summary>设置里的字号和粗细。字号按正文 13 为 1 倍，改已经画出来的字。</summary>
+    public void ApplyType()
+    {
+        var ui = AppState.Current.Settings.Ui;
+        var scale = ui.FontSize / 13.0;
+        if (scale <= 0) scale = 1;
+        var weight = ui.FontWeight switch
+        {
+            // 雅黑没有 Medium，这一档会换到另一套中文字体，看起来像繁简混用。
+            "normal" => FontWeights.Normal,
+            "medium" or "semibold" => FontWeights.SemiBold,
+            _ => FontWeights.Bold,
+        };
+        SetFontStep("FsMicro", 11 * scale);
+        SetFontStep("FsSmall", 12 * scale);
+        SetFontStep("FsBody", 13 * scale);
+        SetFontStep("FsRow", 14 * scale);
+        SetFontStep("FsTitle", 15 * scale);
+        SetFontStep("FsSection", 19 * scale);
+        FontSize = 13 * scale;
+        FontWeight = weight;
+        RescaleFonts(this, _fontScale, scale, weight);
+        _fontScale = scale;
+    }
+
+    static readonly double[] FontBases = [11, 12, 13, 14, 15, 19];
+
+    static FontFamily? UiFace =>
+        Application.Current?.TryFindResource("FontUI") as FontFamily;
+
+    static void SetFontStep(string key, double px)
+    {
+        if (Application.Current is null) return;
+        Application.Current.Resources[key] = px;
+    }
+
+    static void RescaleFonts(DependencyObject node, double from, double to, FontWeight weight)
+    {
+        if (from <= 0) from = 1;
+        if (node is TextBlock tb && tb.FontSize > 0)
+        {
+            var back = tb.FontSize / from;
+            if (FontBases.Any(b => Math.Abs(b - back) < 0.45))
+                tb.FontSize = back * to;
+            tb.FontWeight = weight;
+            if (UiFace is not null) tb.FontFamily = UiFace;
+        }
+        else if (node is Control control && control.FontSize > 0)
+        {
+            var back = control.FontSize / from;
+            if (FontBases.Any(b => Math.Abs(b - back) < 0.45))
+                control.FontSize = back * to;
+            control.FontWeight = weight;
+            if (UiFace is not null) control.FontFamily = UiFace;
+        }
+        var count = VisualTreeHelper.GetChildrenCount(node);
+        for (var i = 0; i < count; i++)
+            RescaleFonts(VisualTreeHelper.GetChild(node, i), from, to, weight);
+    }
+
     /// <summary>Logo + wallpaper + wash opacities from pad.json.</summary>
     public void ApplySkin()
     {
@@ -695,6 +844,32 @@ public partial class MainWindow : Window
         var chrome = (Brush)FindResource("BgChrome");
         PageWash.Background = Skin.Wash(page, ui.ContentOpacity);
         ChromeBar.Background = Skin.Wash(chrome, ui.ChromeOpacity);
+        if (Page("download") is DownloadView dv) dv.SyncStoreEdgeFade();
+    }
+
+    /// <summary>--shot-page adopt-homes：离屏渲染收编清单，不扫本机、不抢前台。</summary>
+    void ShotAdoptHomes(string path)
+    {
+        var demo = new[]
+        {
+            new PendingHome(@"E:\DSH-Home", 3, 22, "known"),
+            new PendingHome(@"C:\Users\Brs\.dsh", 2, 2, "known"),
+            new PendingHome(@"C:\Users\Brs\AppData\Roaming\dsh-desktop\harness", 1, 5, "desktop"),
+            new PendingHome(@"E:\dsh-tui\dsh-home", 1, 0, "known"),
+        };
+        var win = new Views.AdoptHomesWindow(demo)
+        {
+            Owner = this,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left = -20000,
+            Top = -20000,
+        };
+        win.Show();
+        win.UpdateLayout();
+        win.RenderTo(path);
+        win.Close();
+        if (App.ShotExit) Close();
     }
 
     /// <summary>
@@ -890,7 +1065,9 @@ public partial class MainWindow : Window
     public void ShowInner(string name, string title, string back = "launch", bool backNav = false)
     {
         _back = back;
-        BackBtn.ToolTip = "返回" + (PageNames.TryGetValue(back, out var label) ? label : "启动");
+        var backLabel = PageNames.TryGetValue(back, out var label) ? label
+            : back == "versions" ? "版本选择" : "启动";
+        BackBtn.ToolTip = "返回" + backLabel;
         var forward = !backNav;
         var nextTitle = name == "instance" ? InstanceSetupTitle() : title;
         var wasInner = InnerMode.Visibility == Visibility.Visible;
@@ -906,12 +1083,18 @@ public partial class MainWindow : Window
 
         if (wasInner)
         {
-            // Already in inner chrome — only the heading text swaps directionally.
-            Fx.TitleSlide(InnerTitle, nextTitle, forward);
+            // 两级内页和主页进二级同一套：旧顶栏先离开，新顶栏再进来。
+            InnerLeavingTitle.Text = InnerTitle.Text;
+            InnerLeavingBadge.Text = InnerBadge.Text;
+            InnerLeavingBadge.Visibility = InnerBadge.Visibility;
+            InnerTitle.Text = nextTitle;
+            InnerLeaving.Visibility = Visibility.Visible;
+            InnerLeaving.UpdateLayout();
+            var travel = ChromeStage.ActualWidth > 1 ? ChromeStage.ActualWidth : ActualWidth;
+            Fx.ChromeSwap(InnerLeaving, InnerLive, forward, travel: travel);
         }
         else
         {
-            // Whole strip: brand+tabs slide left, back+title come in from the right.
             InnerTitle.Text = nextTitle;
             Fx.ChromeSwap(TopMode, InnerMode, forward: true);
         }
@@ -1090,80 +1273,113 @@ public partial class MainWindow : Window
     void ShowRail(bool animate = true)
     {
         StageRailList.ShowCollapse = true;
-        RailEdge.Visibility = Visibility.Collapsed;
-        StageRail.Visibility = Visibility.Visible;
         if (!_railOpen)
         {
             // 页面换了但用户收着侧栏：保持收起，把手留在原位
-            StageRail.Width = 0;
-            StageRailShift.X = -RailW;
-            RailEdge.Visibility = Visibility.Visible;
+            SnapRail(open: false, edge: true);
             return;
         }
-        if (!animate)
+        if (!animate || !Fx.Animated)
         {
-            // A page switch must not animate layout: resizing this rail reflows the
-            // whole page every frame. Snap it, and let the page entrance be the motion.
-            StageRail.BeginAnimation(FrameworkElement.WidthProperty, null);
-            StageRail.Width = RailW;
-            StageRailShift.BeginAnimation(TranslateTransform.XProperty, null);
-            StageRailShift.X = 0;
+            SnapRail(open: true, edge: false);
             return;
         }
-        Fx.WidthTo(StageRail, RailW);
-        Fx.Slide(StageRailShift, 0);
+        SlideRail(open: true, edgeOnClose: false);
     }
 
     void HideRail(bool animate = true)
     {
-        RailEdge.Visibility = Visibility.Collapsed;
-        if (StageRail.Visibility != Visibility.Visible) { StageRail.Width = 0; return; }
-        if (!animate || !Fx.Animated)
+        if (StageRail.Visibility != Visibility.Visible && RailColumn.Width.Value < 1)
         {
-            StageRail.BeginAnimation(FrameworkElement.WidthProperty, null);
-            StageRail.Width = 0;
-            StageRailShift.BeginAnimation(TranslateTransform.XProperty, null);
-            StageRailShift.X = -RailW;
-            StageRail.Visibility = Visibility.Collapsed;
+            SnapRail(open: false, edge: false);
             return;
         }
-        Fx.WidthTo(StageRail, 0);
-        Fx.Slide(StageRailShift, -RailW);
-        var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
-        t.Tick += (_, _) =>
+        if (!animate || !Fx.Animated)
         {
-            t.Stop();
-            if (StageRail.Width < 1) StageRail.Visibility = Visibility.Collapsed;
-        };
-        t.Start();
+            SnapRail(open: false, edge: false);
+            return;
+        }
+        SlideRail(open: false, edgeOnClose: false);
     }
 
     void ToggleRail()
     {
         _railOpen = !_railOpen;
-        if (_railOpen)
+        if (!Fx.Animated)
+        {
+            SnapRail(_railOpen, edge: !_railOpen);
+            return;
+        }
+        SlideRail(_railOpen, edgeOnClose: true);
+    }
+
+    const double EdgeW = 20;
+    int _railGen;
+
+    void SetRailColumn(double px) => RailColumn.Width = new GridLength(Math.Max(0, px));
+
+    double RailColumnPx =>
+        RailColumn.Width.GridUnitType == GridUnitType.Pixel ? RailColumn.Width.Value : 0;
+
+    /// <summary>列宽立刻到位（只排一次）。侧栏和内容只平移，不再逐帧改宽度。</summary>
+    void SlideRail(bool open, bool edgeOnClose)
+    {
+        var gen = ++_railGen;
+        if (open && RailColumnPx > 0 && RailColumnPx < RailW - 1)
+            SetRailColumn(0);
+
+        var currentCol = RailColumnPx;
+        var targetCol = open ? RailW : 0;
+        var delta = targetCol - currentCol;
+
+        StageRail.Width = RailW;
+        StageRail.Visibility = Visibility.Visible;
+        if (open) RailEdge.Visibility = Visibility.Collapsed;
+
+        var hostNow = HostShift.X;
+        var railNow = StageRailShift.X;
+        SetRailColumn(targetCol);
+        HostShift.BeginAnimation(TranslateTransform.XProperty, null);
+        HostShift.X = hostNow - delta;
+        StageRailShift.BeginAnimation(TranslateTransform.XProperty, null);
+        StageRailShift.X = railNow;
+
+        const int ms = 260;
+        Fx.Slide(HostShift, 0, ms);
+        Fx.Slide(StageRailShift, open ? 0 : -RailW, ms);
+
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = Fx.Span(ms) + TimeSpan.FromMilliseconds(40),
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (gen != _railGen) return;
+            SnapRail(open, edge: !open && edgeOnClose);
+        };
+        timer.Start();
+    }
+
+    void SnapRail(bool open, bool edge)
+    {
+        _railGen++;
+        StageRail.Width = RailW;
+        StageRailShift.BeginAnimation(TranslateTransform.XProperty, null);
+        HostShift.BeginAnimation(TranslateTransform.XProperty, null);
+        HostShift.X = 0;
+        if (open)
         {
             RailEdge.Visibility = Visibility.Collapsed;
             StageRail.Visibility = Visibility.Visible;
-            Fx.WidthTo(StageRail, RailW);
-            Fx.Slide(StageRailShift, 0);
+            StageRailShift.X = 0;
+            SetRailColumn(RailW);
+            return;
         }
-        else
-        {
-            Fx.WidthTo(StageRail, 0);
-            Fx.Slide(StageRailShift, -RailW);
-            var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
-            t.Tick += (_, _) =>
-            {
-                t.Stop();
-                if (StageRail.Width < 1 && !_railOpen)
-                {
-                    StageRail.Visibility = Visibility.Collapsed;
-                    RailEdge.Visibility = Visibility.Visible;
-                }
-            };
-            t.Start();
-        }
+        StageRailShift.X = -RailW;
+        StageRail.Visibility = Visibility.Collapsed;
+        RailEdge.Visibility = edge ? Visibility.Visible : Visibility.Collapsed;
+        SetRailColumn(edge ? EdgeW : 0);
     }
 
     void RailEdge_Click(object sender, RoutedEventArgs e)
@@ -1229,11 +1445,36 @@ public partial class MainWindow : Window
             _ => TabLaunch,
         };
         if (!Fx.TryLayoutSlot(TabStrip, tab, out var at, out var size) || size.Width <= 1) return;
+        if (!_pillReady || !Fx.Animated)
+        {
+            SnapTabPill(size.Width, at.X);
+            _pillReady = true;
+            return;
+        }
+        // 宽度只在点击时定一次。过程里用 ScaleX 从当前视觉宽度收到目标，
+        // 和位移一起走渲染线程，不再每帧重排。
+        var visualW = TabPill.Width * TabPillScale.ScaleX;
+        if (visualW < 1 || double.IsNaN(visualW)) visualW = size.Width;
+        TabPill.BeginAnimation(WidthProperty, null);
         TabPill.Width = size.Width;
-        // Instant place — no sliding thumb travel.
-        TabPillShift.BeginAnimation(TranslateTransform.XProperty, null);
-        TabPillShift.X = at.X;
+        var from = size.Width <= 1 ? 1 : visualW / size.Width;
+        TabPillScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        TabPillScale.ScaleX = from;
+        Fx.ScaleXTo(TabPillScale, 1);
+        Fx.SpringSlide(TabPillShift, at.X);
     }
+
+    void SnapTabPill(double width, double x)
+    {
+        TabPill.BeginAnimation(WidthProperty, null);
+        TabPill.Width = width;
+        TabPillScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        TabPillScale.ScaleX = 1;
+        TabPillShift.BeginAnimation(TranslateTransform.XProperty, null);
+        TabPillShift.X = x;
+    }
+
+    bool _pillReady;
 
     /// <summary>
     /// A corner notice for work whose result is not visible in this window — a terminal
@@ -1338,6 +1579,8 @@ public partial class MainWindow : Window
     double? _progressFraction;
     JobRecord? _progressJob;
     bool _progressCollapsed;
+    /// <summary>进度到 100% 后自动收卡片（扫描类调用只推进度、不会调 ProgressDone）。</summary>
+    readonly System.Windows.Threading.DispatcherTimer _progressIdle = new();
     StackPanel? _progressDetail;
     StackPanel? _progressActions;
 
@@ -1375,6 +1618,18 @@ public partial class MainWindow : Window
             _progressActions.Visibility = _progressJob is { CanCancel: true } && !_progressCollapsed
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+        // 扫描这类活儿只推进度、不负责收卡片；到 100% 后自己收掉，别一直挂在右下角。
+        if (fraction is { } finished && finished >= 1)
+        {
+            _progressIdle.Stop();
+            _progressIdle.Interval = TimeSpan.FromMilliseconds(1500);
+            _progressIdle.Start();
+        }
+        else
+        {
+            _progressIdle.Stop();
+        }
     }
 
     void BuildProgressCard()
@@ -1479,8 +1734,9 @@ public partial class MainWindow : Window
             Height = 5,
             CornerRadius = new CornerRadius(3),
             Background = (Brush)FindResource("Accent"),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Width = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            RenderTransformOrigin = new Point(0, 0.5),
+            RenderTransform = new ScaleTransform(0, 1),
         };
         var track = new Grid();
         track.Children.Add(_progressTrack);
@@ -1615,15 +1871,17 @@ public partial class MainWindow : Window
     void UpdateProgressFill()
     {
         if (_progressFill is null || _progressTrack is null) return;
-        var width = Math.Max(0, _progressTrack.ActualWidth * Math.Clamp(_progressFraction ?? 0, 0, 1));
+        if (_progressFill.RenderTransform is not ScaleTransform scale)
+            return;
+        var frac = Math.Clamp(_progressFraction ?? 0, 0, 1);
         if (!Fx.Animated)
         {
-            _progressFill.BeginAnimation(FrameworkElement.WidthProperty, null);
-            _progressFill.Width = width;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.ScaleX = frac;
             return;
         }
-        _progressFill.BeginAnimation(FrameworkElement.WidthProperty,
-            new DoubleAnimation(width, new Duration(TimeSpan.FromMilliseconds(220)))
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(frac, new Duration(TimeSpan.FromMilliseconds(220)))
             {
                 EasingFunction = new PowerEase { Power = 3, EasingMode = EasingMode.EaseOut },
             });
@@ -1644,6 +1902,7 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(new Action(() => ProgressDone(delayMs)));
             return;
         }
+        _progressIdle.Stop();
         var card = _progressCard;
         _progressCard = null;
         _progressTitle = null;
@@ -1876,7 +2135,7 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = text,
-                        FontFamily = new FontFamily("Consolas"),
+                        FontFamily = (FontFamily)FindResource("FontUI"),
                         FontSize = 12,
                         TextWrapping = TextWrapping.Wrap,
                         MaxWidth = 460,
@@ -2014,43 +2273,89 @@ public partial class MainWindow : Window
             return;
         }
 
-        var import = LaunchPolicy.DropUsesImport(state.SelectedInstance is not null);
         var log = new Progress<string>(_ => { });
+        var imported = false;
         try
         {
             foreach (var path in paths)
             {
-                // v3 包走新窗口；其余格式保持原 import/project 链路。
+                if (LauncherPack.Contains(path))
+                {
+                    await OpenLauncherPackAsync(path);
+                    continue;
+                }
+
+                // v3 包新建实例。其余格式也走 import，不改正在看的实例。
                 var spec = PackSpec.Load(path);
                 if (spec.Valid && spec.Schema == PackSpec.SchemaV3)
                 {
-                    var win = new PackImportWindow(state.Launcher, path, spec, state.SelectedInstance) { Owner = this };
+                    var win = new PackImportWindow(state.Launcher, path, spec, createNew: true) { Owner = this };
                     if (win.ShowDialog() == true && win.Installed is not null)
                     {
+                        imported = true;
                         state.Reload();
                         Toast($"已导入 {spec.Name} {spec.Version}：{win.Summary}");
                     }
                     continue;
                 }
 
-                if (import || state.SelectedInstance is null)
-                {
-                    Toast("正在装 " + System.IO.Path.GetFileName(path));
-                    await packs.Import(path, log, CancellationToken.None);
-                }
-                else
-                {
-                    Toast("装进 " + state.SelectedInstance.Name);
-                    await packs.Project(state.SelectedInstance, path, log, CancellationToken.None);
-                }
+                Toast("正在装 " + System.IO.Path.GetFileName(path));
+                await packs.Import(path, log, CancellationToken.None);
+                imported = true;
             }
             state.Reload();
-            Toast("装好了");
+            if (imported) Toast("装好了");
         }
         catch (Exception ex)
         {
             Toast(PadError.Describe(ex), bad: true);
         }
+    }
+
+    /// <summary>
+    /// 带启动器的整合包：解到用户选的空文件夹。找到 exe 就问要不要换用它。
+    /// 锁是按启动器根分的，新目录和当前 PAD 不抢同一把锁。
+    /// </summary>
+    public async Task OpenLauncherPackAsync(string zipPath)
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择一个空文件夹，整合包会解到这里",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        var dest = dlg.FolderName;
+        if (!LauncherPack.IsEmpty(dest))
+        {
+            Toast("选一个空文件夹", bad: true);
+            return;
+        }
+        Progress("正在解开…", null, "整合包");
+        try
+        {
+            await Task.Run(() => LauncherPack.Extract(zipPath, dest));
+        }
+        catch (Exception ex)
+        {
+            ProgressDone(0);
+            Toast(PadError.Describe(ex), bad: true);
+            return;
+        }
+        ProgressDone(0);
+        var exe = LauncherPack.FindExe(dest);
+        if (exe is null)
+        {
+            Toast("解开了，里面没有启动器");
+            Reveal.Path(dest);
+            return;
+        }
+        if (!Ask("换用包里的启动器？", "即将打开：" + exe, okText: "换用", cancelText: "留在这里"))
+        {
+            Toast("已解开");
+            Reveal.Path(dest);
+            return;
+        }
+        Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
+        Application.Current.Shutdown();
     }
 
     async void PickupSidecarPacks()
@@ -2089,20 +2394,19 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 启动对账（D56）：本机在用的 home 变了，就把「本机 DSH」跟着改指过去——不弹窗、不让用户点。
-    /// 只有确实能确定时才动（<see cref="Launcher.ReconcileMachineHome"/> 的判据）；
-    /// 事后仍然没有可用 home 才落回手动收编提示（那是兜底，不是常态）。
+    /// 启动对账（D56）然后列出还没收编的 home（D114）。对账能确定才改指；清单勾选才收编，不自动收。
     /// </summary>
     void AutoReconcileHome()
     {
         var state = AppState.Current;
+        var progress = new Progress<Discover.DiscoverStep>(s => Progress(s.Text, s.Fraction, "扫描"));
+        Progress("正在扫描本机已有的 DSH…", 0, "扫描");
         Task.Run(() =>
         {
             string? movedTo = null;
+            Inventory? inventory = null;
             try
             {
-                // 扫一遍机器（进程现场 + 壳的 asar），对账时顺手把钉的内核也对齐到在跑的那个壳。
-                Inventory? inventory = null;
                 try { inventory = Discover.Run(state.Launcher, [], CancellationToken.None); }
                 catch { /* 扫不出来就只按 pad.json + 进程 DSH_HOME 改指 */ }
                 if (state.Launcher.ReconcileMachineHome(out _, out var hit, inventory) is not null)
@@ -2110,37 +2414,80 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                Dispatcher.BeginInvoke(new Action(() => App.ReportPage(ex)));
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ProgressDone(0);
+                    App.ReportPage(ex);
+                    OfferAdoptIfNeeded(inventory);
+                }));
                 return;
             }
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                ProgressDone(0);
                 if (movedTo is not null)
                 {
                     state.Reload();
                     Toast($"本机 DSH 已跟随到 {movedTo}");
                 }
-                OfferAdoptIfNeeded();
+                OfferAdoptIfNeeded(inventory);
             }));
         });
     }
 
-    public void OfferAdoptIfNeeded()
+    public void OfferAdoptIfNeeded(Inventory? inventory = null)
     {
+        if (App.ShotPath is not null) return;
+        if (_adoptBusy) return;
         var state = AppState.Current;
-        if (!state.CanOfferAdopt) return;
-        var home = LaunchPolicy.DefaultDshHome(AppState.Current.Settings.Launch.DshHome);
-        var ask = MessageBox.Show(
-            $"本机有一份 DSH_HOME：\n{home}\n\n收到启动器里当实例用？里面的文件不会被改。",
-            "PAD", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (ask != MessageBoxResult.Yes)
+        var sniffed = new List<DshHome>(inventory?.Homes ?? []);
+        try
         {
-            state.Settings.Other.AdoptDismissed = true;
-            state.ApplySettings(state.Settings);
-            return;
+            var def = LaunchPolicy.DefaultDshHome(state.Settings.Launch.DshHome);
+            if (DshSniff.LooksLikeHome(def)
+                && sniffed.All(h => !LaunchPolicy.SamePath(h.Path, def)))
+                sniffed.Add(new DshHome(def, [], 0, false, "DSH_HOME"));
         }
-        AdoptNow();
+        catch { /* 默认 home 读不到就不补这一条 */ }
+
+        List<string> have;
+        try { have = state.Launcher.Instances().Select(i => i.Home).ToList(); }
+        catch { have = []; }
+        var pending = PendingAdopt.List(sniffed, have, state.Settings.Other.AdoptSkippedHomes);
+        if (pending.Count == 0) return;
+
+        _adoptBusy = true;
+        try
+        {
+            var win = new Views.AdoptHomesWindow(pending) { Owner = this };
+            if (win.ShowDialog() == true)
+            {
+                RememberSkipped(state, win.Skipped);
+                _ = AdoptListed(win.Chosen);
+                return;
+            }
+            if (win.RememberSkip) RememberSkipped(state, win.Skipped);
+        }
+        finally { _adoptBusy = false; }
+    }
+
+    void RememberSkipped(AppState state, IEnumerable<string> paths)
+    {
+        var list = state.Settings.Other.AdoptSkippedHomes;
+        foreach (var path in paths)
+            if (!list.Any(p => LaunchPolicy.SamePath(p, path))) list.Add(path);
+        state.Settings.Other.Clamp();
+        state.ApplySettings(state.Settings);
+    }
+
+    async Task AdoptListed(IReadOnlyList<string> homes)
+    {
+        var n = 0;
+        foreach (var home in homes)
+            if (await AdoptHomeAt(home, "", toast: false, name: PendingAdopt.SuggestName(home)))
+                n++;
+        if (n > 0) Toast(n == 1 ? "已收编 1 个" : $"已收编 {n} 个");
     }
 
     public async void AdoptNow()
@@ -2160,7 +2507,7 @@ public partial class MainWindow : Window
         _ = AdoptHomeAt(dlg.FolderName, "已添加这个文件夹");
     }
 
-    async Task AdoptHomeAt(string home, string done)
+    async Task<bool> AdoptHomeAt(string home, string done, bool toast = true, string? name = null)
     {
         var state = AppState.Current;
         try
@@ -2168,14 +2515,16 @@ public partial class MainWindow : Window
             if (state.Releases.Count == 0)
                 Toast("在装 DSH 发行号，随后收编");
             var version = await state.Launcher.EnsureRelease(null, CancellationToken.None);
-            var inst = state.Launcher.AdoptHome(home, version);
+            var inst = state.Launcher.AdoptHome(home, version, name);
             state.Reload();
             state.SelectedInstance = state.Instances.FirstOrDefault(i => i.Id == inst.Id);
-            Toast(done);
+            if (toast) Toast(done);
+            return true;
         }
         catch (Exception ex)
         {
             Toast(PadError.Describe(ex), bad: true);
+            return false;
         }
     }
 
@@ -2296,6 +2645,99 @@ public partial class MainWindow : Window
     }
 
     public void SyncTrayState() => App.TrayIcon?.SyncCloseToTray(App.CloseToTray);
+
+    HotKeyRegistration? _recentHotKey;
+    Views.LocalModelsShopWindow? _shopWindow;
+
+    /// <summary><c>--open recent|local-models</c>：自动化截图/QA 用，启动后打开对应浮动窗口。</summary>
+    void OpenRequestedWindow()
+    {
+        switch ((App.OpenWindow ?? "").Trim().ToLowerInvariant())
+        {
+            case "recent":
+                ShowRecent();
+                break;
+            case "local-models" or "models" or "local-models-shop" or "models-shop":
+                ShowLocalModels();
+                break;
+        }
+    }
+
+    /// <summary>设置页改完快捷键后调一次，立刻按新组合重新注册。</summary>
+    public void ReloadHotKey() => HookRecentHotKey();
+
+    /// <summary>注册「最近会话」全局快捷键。被别的程序占用时静默记下，不影响其他功能。</summary>
+    void HookRecentHotKey()
+    {
+        try { _recentHotKey?.Dispose(); } catch { /* 旧句柄已失效 */ }
+        _recentHotKey = null;
+        var spec = AppState.Current.Settings.Other.RecentHotkey;
+        if (string.IsNullOrWhiteSpace(spec)) return;
+        try
+        {
+            var reg = new HotKeyRegistration(this, spec);
+            if (reg.Registered) reg.Pressed += ShowRecent;
+            else if (reg.Error.Length > 0) Toast($"快捷键「{spec}」没注册上：{reg.Error}", bad: true);
+            _recentHotKey = reg;
+        }
+        catch { /* 注册失败不影响主流程 */ }
+    }
+
+    /// <summary>托盘 / 快捷键：列出所有实例的最近会话，回车就在对应实例里打开。</summary>
+    public void ShowRecent()
+    {
+        IReadOnlyList<Core.RecentSession> rows;
+        try { rows = Core.RecentSessions.List(AppState.Current.Launcher); }
+        catch (Exception ex) { Toast(PadError.Describe(ex), bad: true); return; }
+
+        var win = new Views.RecentWindow(rows);
+        win.Chosen += session => OpenRecent(session);
+        win.Show();
+        win.Activate();
+        win.Focus();
+    }
+
+    void OpenRecent(Core.RecentSession session)
+    {
+        var inst = AppState.Current.Launcher.Instances()
+            .FirstOrDefault(i => string.Equals(i.Id, session.InstanceId, StringComparison.OrdinalIgnoreCase));
+        if (inst is null)
+        {
+            Toast("那个实例已经不在了", bad: true);
+            return;
+        }
+        AppState.Current.SelectedInstance = inst;
+        Toast($"正在打开「{session.Title}」…");
+        _ = OpenRecentAsync(inst, session);
+    }
+
+    async Task OpenRecentAsync(Instance inst, Core.RecentSession session)
+    {
+        try
+        {
+            var plan = await Core.Jump.JumpPlanner.ExecuteAsync(
+                AppState.Current.Launcher, inst, session.SessionId, null, execute: true);
+            if (!plan.Executed)
+                Toast(plan.Detail is { Length: > 0 } detail ? detail : "这个实例现在没有可用的界面，已停在 PAD 里", bad: true);
+        }
+        catch (Exception ex)
+        {
+            Toast(PadError.Describe(ex), bad: true);
+        }
+    }
+
+    /// <summary>本地模型：探测 Ollama、列模型、拉一个。从托盘点进来时先把主窗口叫回来，否则对话框会跟着隐藏窗口一起看不见。</summary>
+    public void ShowLocalModels()
+    {
+        if (!IsVisible) RestoreFromTray();
+        if (_shopWindow is { IsVisible: true })
+        {
+            _shopWindow.Activate();
+            return;
+        }
+        _shopWindow = new Views.LocalModelsShopWindow { Owner = this };
+        _shopWindow.Show();
+    }
 }
 
 /// <summary>A page that wants a chance to reload when it becomes visible.</summary>

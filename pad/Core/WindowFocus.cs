@@ -51,10 +51,15 @@ public static class WindowFocus
         catch { return false; }
     }
 
-    /// <summary>pid 自己的窗口找不到时，按进程名兜底（Electron 的窗口可能挂在子进程上）。</summary>
-    public static bool ActivateByExe(string? exe)
+    /// <summary>
+    /// 先按 pid 找，找不到再按 exe 名兜底：Electron 的窗口可能挂在子进程上，
+    /// 扫描时记下的 pid 也可能已经换人（应用重启过）。
+    /// 返回真正被叫到前台的那个 pid；0 = 没找到窗口。
+    /// </summary>
+    public static int ActivateAny(string? exe, int pid)
     {
-        if (string.IsNullOrWhiteSpace(exe)) return false;
+        if (pid > 0 && Activate(pid)) return pid;
+        if (string.IsNullOrWhiteSpace(exe)) return 0;
         var name = Path.GetFileNameWithoutExtension(exe.Trim().Trim('"'));
         try
         {
@@ -63,15 +68,18 @@ public static class WindowFocus
                 try
                 {
                     if (!string.Equals(p.ProcessName, name, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (Activate(p.Id)) return true;
+                    if (Activate(p.Id)) return p.Id;
                 }
                 catch { /* 进程退出/无权限 */ }
                 finally { p.Dispose(); }
             }
         }
         catch { }
-        return false;
+        return 0;
     }
+
+    /// <summary>pid 自己的窗口找不到时，按进程名兜底（Electron 的窗口可能挂在子进程上）。</summary>
+    public static bool ActivateByExe(string? exe) => ActivateAny(exe, 0) > 0;
 
     static IntPtr FindWindow(int pid)
     {

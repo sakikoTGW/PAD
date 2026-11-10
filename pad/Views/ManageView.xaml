@@ -32,7 +32,7 @@
                           Margin="0,0,8,0" />
           <TextBlock Text="实例" Style="{StaticResource Label}" VerticalAlignment="Center" />
         </StackPanel>
-        <ListBox Grid.Row="1" x:Name="InstList" Style="{StaticResource PlainList}" Margin="12,0,12,12"
+        <ListBox Grid.Row="1" x:Name="InstList" Style="{StaticResource OverlayList}" Margin="12,0,12,12"
                  ItemsSource="{Binding Instances}" SelectionChanged="Inst_Changed">
           <ListBox.ItemTemplate>
             <DataTemplate>
@@ -224,11 +224,7 @@
                 <TextBlock Text="整合包" Style="{StaticResource Label}" VerticalAlignment="Center" />
               </StackPanel>
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button x:Name="BundleImportBtn" Style="{StaticResource Btn}" Content="装整合包…"
-                        Click="BundleImport_Click"
-                        ToolTip="选 .pack.zip / .pack.json / .pinst.zip，装进这个实例"
-                        v:Ico.Of="{StaticResource I.Pack}" />
-                <Button x:Name="ExportDspackBtn" Style="{StaticResource Btn}" Content="导出 .dspack" Margin="8,0,0,0"
+                <Button x:Name="ExportDspackBtn" Style="{StaticResource Btn}" Content="导出 .dspack" Margin="0,0,0,0"
                         Click="ExportDspack_Click"
                         ToolTip="把当前实例导出成 PackForge .dspack，给别的启动器装（sessions/凭据不进包）"
                         v:Ico.Of="{StaticResource I.Download}" />

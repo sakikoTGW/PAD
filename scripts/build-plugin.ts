@@ -5,28 +5,30 @@
  *
  * 两个入口：主插件（tools/skills/commands）和 PAD 管理侧门（inject apiProxy）。
  * 侧门单独打，因为它是 cordis.patch.yml 里独立的一行。
+ *
+ * 布局自己探测（见 layout.ts），所以在 monorepo 和 PAD 独立仓里是同一份文件。
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { packAgentRoot } from '../../src/package-root.js'
-import { packTmpRoot } from '../../src/tmp-root.js'
+import { findPackBase, findRepoRoot } from './layout.js'
 
-const root = packAgentRoot()
-const tmp = packTmpRoot()
+const REPO = findRepoRoot()
+const BASE = findPackBase(REPO)
 
-// Two packages: the projection manager, and the PAD management side door. The
-// side door is separate because it must insert DSH's official apiproxy, which a
-// manager-only profile never installs.
 const entries = [
   { pkg: 'plugin', src: 'index.ts', out: 'index.js' },
   { pkg: 'gateway', src: 'index.ts', out: 'index.js' },
 ]
 
 for (const { pkg, src, out } of entries) {
-  const libDir = join(root, 'agent-pack-dsh', pkg, 'lib')
+  const entry = join(BASE, pkg, 'src', src)
+  if (!existsSync(entry)) {
+    console.error(`missing ${entry}`)
+    process.exit(1)
+  }
+  const libDir = join(BASE, pkg, 'lib')
   mkdirSync(libDir, { recursive: true })
-  const entry = join(root, 'agent-pack-dsh', pkg, 'src', src)
   const outfile = join(libDir, out)
   const r = spawnSync(
     process.execPath,
@@ -39,9 +41,8 @@ for (const { pkg, src, out } of entries) {
       '--external', '@deepseek-ai/*',
     ],
     {
-      cwd: root,
+      cwd: REPO,
       stdio: 'inherit',
-      env: { ...process.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp, BUN_TMPDIR: tmp },
     },
   )
   if (r.status !== 0) {

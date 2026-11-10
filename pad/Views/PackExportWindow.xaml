@@ -147,12 +147,9 @@
                     <ColumnDefinition Width="Auto" />
                   </Grid.ColumnDefinitions>
                   <TextBlock Style="{StaticResource Label}" Text="内核" VerticalAlignment="Center" />
-                  <RadioButton x:Name="PinRadio" Grid.Column="1" GroupName="kernel" Content="钉版本（包小）"
+                  <RadioButton x:Name="PinRadio" Grid.Column="1" GroupName="kernel" Content="钉版本（记下 Harness 版本号）"
                                IsChecked="True" Foreground="{StaticResource TextPrimary}"
                                FontSize="{StaticResource FsBody}" VerticalAlignment="Center" />
-                  <RadioButton x:Name="InheritRadio" Grid.Column="2" GroupName="kernel" Content="不钉（用目标机版本）"
-                               Foreground="{StaticResource TextMuted}" FontSize="{StaticResource FsBody}"
-                               Margin="18,0,0,0" VerticalAlignment="Center" />
                 </Grid>
               </StackPanel>
             </Border>

@@ -60,7 +60,22 @@
 
         <StackPanel Grid.Row="0" Margin="25,18,25,0"
                     Visibility="{Binding NeedsSetup, Converter={StaticResource B2V}}">
-          <Border Style="{StaticResource EmptyWell}">
+          <Border Style="{StaticResource EmptyWell}"
+                  Visibility="{Binding NeedsDownload, Converter={StaticResource B2V}}">
+            <StackPanel>
+              <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Download}"
+                              HorizontalAlignment="Left" Margin="0,0,0,12" />
+              <TextBlock Text="还没有 DSH" Style="{StaticResource SectionTitle}" />
+              <Button Style="{StaticResource BtnWidePrimary}" Content="下载 DSH"
+                      HorizontalAlignment="Stretch" Margin="0,12,0,0" Click="Step_Click"
+                      v:Ico.Of="{StaticResource I.Download}" />
+              <Button Style="{StaticResource BtnWide}" Content="添加已有文件夹"
+                      Margin="0,8,0,0" HorizontalAlignment="Stretch" Click="Adopt_Click"
+                      v:Ico.Of="{StaticResource I.Upload}" />
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource EmptyWell}"
+                  Visibility="{Binding NeedsFirstInstance, Converter={StaticResource B2V}}">
             <StackPanel>
               <ContentControl Style="{StaticResource PictLg}" v:Ico.Of="{StaticResource I.Plus}"
                               HorizontalAlignment="Left" Margin="0,0,0,12" />

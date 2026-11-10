@@ -51,6 +51,106 @@ public static class Fx
     static readonly DependencyProperty ScrollTargetYProperty = DependencyProperty.RegisterAttached(
         "ScrollTargetY", typeof(double), typeof(Fx), new PropertyMetadata(double.NaN));
 
+    /// <summary>
+    /// Keep the vertical bar's column, and fade the bar instead of collapsing it.
+    /// Collapsing changes the content width and the list jumps.
+    /// </summary>
+    public static readonly DependencyProperty FadeBarProperty = DependencyProperty.RegisterAttached(
+        "FadeBar", typeof(bool), typeof(Fx), new PropertyMetadata(false, OnFadeBarChanged));
+
+    static readonly DependencyProperty FadeBarShownProperty = DependencyProperty.RegisterAttached(
+        "FadeBarShown", typeof(bool?), typeof(Fx), new PropertyMetadata(null));
+
+    public static void SetFadeBar(DependencyObject d, bool value) => d.SetValue(FadeBarProperty, value);
+
+    public static bool GetFadeBar(DependencyObject d) => (bool)d.GetValue(FadeBarProperty);
+
+    /// <summary>
+    /// Spin a fresh rotate transform. One declared in a sealed template is frozen,
+    /// and animating it throws instead of turning.
+    /// </summary>
+    public static readonly DependencyProperty SpinProperty = DependencyProperty.RegisterAttached(
+        "Spin", typeof(bool), typeof(Fx), new PropertyMetadata(false, OnSpinChanged));
+
+    public static void SetSpin(DependencyObject d, bool value) => d.SetValue(SpinProperty, value);
+
+    public static bool GetSpin(DependencyObject d) => (bool)d.GetValue(SpinProperty);
+
+    static void OnSpinChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not FrameworkElement el) return;
+        el.IsVisibleChanged -= Spin_Visible;
+        if (e.NewValue is not true) return;
+        el.IsVisibleChanged += Spin_Visible;
+        if (el.IsVisible) StartSpin(el);
+    }
+
+    static void Spin_Visible(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is FrameworkElement { IsVisible: true } el) StartSpin(el);
+    }
+
+    static void StartSpin(FrameworkElement el)
+    {
+        var spin = new RotateTransform();
+        el.RenderTransformOrigin = new Point(0.5, 0.5);
+        el.RenderTransform = spin;
+        spin.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900))
+        {
+            RepeatBehavior = RepeatBehavior.Forever,
+        });
+    }
+
+    static void OnFadeBarChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not ScrollViewer sv) return;
+        sv.Loaded -= FadeBar_Loaded;
+        sv.ScrollChanged -= FadeBar_Scroll;
+        if (e.NewValue is not true) return;
+        sv.Loaded += FadeBar_Loaded;
+        sv.ScrollChanged += FadeBar_Scroll;
+        if (sv.IsLoaded) FadeBar_Loaded(sv, new RoutedEventArgs());
+    }
+
+    static void FadeBar_Loaded(object sender, RoutedEventArgs e) =>
+        ApplyBarFade((ScrollViewer)sender, animate: false);
+
+    static void FadeBar_Scroll(object sender, ScrollChangedEventArgs e) =>
+        ApplyBarFade((ScrollViewer)sender, animate: true);
+
+    static void ApplyBarFade(ScrollViewer sv, bool animate)
+    {
+        if (sv.Template?.FindName("BarGhost", sv) is not FrameworkElement ghost) return;
+        if (sv.Template.FindName("BarGhostShift", sv) is not TranslateTransform shift) return;
+        if (sv.Template.FindName("PART_VerticalScrollBar", sv) is ScrollBar bar)
+        {
+            bar.Visibility = Visibility.Visible;
+            bar.Opacity = 0;
+        }
+
+        var trackH = (ghost.Parent as FrameworkElement)?.ActualHeight ?? 0;
+        var show = sv.ScrollableHeight > 0.5 && sv.ExtentHeight > 0 && trackH > 1;
+        if (show)
+        {
+            var thumbH = Math.Min(trackH, Math.Max(28, trackH * sv.ViewportHeight / sv.ExtentHeight));
+            ghost.Height = thumbH;
+            var travel = Math.Max(0, trackH - thumbH);
+            shift.Y = travel * (sv.VerticalOffset / sv.ScrollableHeight);
+        }
+
+        if (sv.GetValue(FadeBarShownProperty) is bool prev && prev == show) return;
+        sv.SetValue(FadeBarShownProperty, show);
+        var to = show ? 0.7 : 0.0;
+        if (!animate || !Animated)
+        {
+            ghost.BeginAnimation(UIElement.OpacityProperty, null);
+            ghost.Opacity = to;
+            return;
+        }
+        ghost.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(to, Ms(280)) { EasingFunction = FadeEase });
+    }
+
     static void OnScrollYChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         if (d is ScrollViewer sv) sv.ScrollToVerticalOffset((double)e.NewValue);
@@ -415,6 +515,13 @@ public static class Fx
         return shift;
     }
 
+    static readonly ConditionalWeakTable<System.Windows.Media.Effects.DropShadowEffect, ShadowRest> ShadowRests = new();
+
+    sealed class ShadowRest
+    {
+        public double Blur, Depth, Alpha;
+    }
+
     static void HoverShadow(FrameworkElement fe, bool lifted)
     {
         if (!Animated) return;
@@ -424,16 +531,18 @@ public static class Fx
             sh = (System.Windows.Media.Effects.DropShadowEffect)sh.Clone();
             fe.Effect = sh;
         }
-        var blur = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty);
-        var depth = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty);
-        var alpha = (double)sh.GetAnimationBaseValue(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty);
-        var ms = Ms(lifted ? 200 : 280);
-        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty,
-            new DoubleAnimation(lifted ? blur + 8 : blur, ms) { EasingFunction = Settle });
-        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty,
-            new DoubleAnimation(lifted ? depth + 2 : depth, ms) { EasingFunction = Settle });
-        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty,
-            new DoubleAnimation(lifted ? Math.Min(1, alpha + 0.07) : alpha, ms) { EasingFunction = Settle });
+        // 逐帧改模糊半径会把这块拉回软件渲染。阴影只在抬起/放下时改一次，位移仍走变换。
+        if (!ShadowRests.TryGetValue(sh, out var rest))
+        {
+            rest = new ShadowRest { Blur = sh.BlurRadius, Depth = sh.ShadowDepth, Alpha = sh.Opacity };
+            ShadowRests.Add(sh, rest);
+        }
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty, null);
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ShadowDepthProperty, null);
+        sh.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+        sh.BlurRadius = lifted ? rest.Blur + 8 : rest.Blur;
+        sh.ShadowDepth = lifted ? rest.Depth + 2 : rest.Depth;
+        sh.Opacity = lifted ? Math.Min(1, rest.Alpha + 0.07) : rest.Alpha;
     }
 
     static void OnButtonFollowMove(object sender, MouseEventArgs e)
@@ -1562,16 +1671,22 @@ public static class Fx
     /// has fully finished — with fade and cubic-bezier acceleration.
     /// </summary>
     public static void ChromeSwap(FrameworkElement leaving, FrameworkElement entering,
-        bool forward, int ms = 340)
+        bool forward, int ms = 340, double? travel = null)
     {
         var leaveShift = EnsureTranslate(leaving);
         var enterShift = EnsureTranslate(entering);
 
         leaving.UpdateLayout();
-        var span = leaving.ActualWidth > 1 ? leaving.ActualWidth
-            : entering.ActualWidth > 1 ? entering.ActualWidth
-            : 320;
-        var dist = Math.Max(180, span * 0.6);
+        double dist;
+        if (travel is double given)
+            dist = Math.Max(180, given);
+        else
+        {
+            var span = leaving.ActualWidth > 1 ? leaving.ActualWidth
+                : entering.ActualWidth > 1 ? entering.ActualWidth
+                : 320;
+            dist = Math.Max(180, span * 0.6);
+        }
         var leaveTo = forward ? -dist : dist;
         var enterFrom = forward ? dist : -dist;
 
@@ -1958,6 +2073,32 @@ public static class Fx
         }
     }
 
+    /// <summary>顶栏白框：平滑滑过去，不回弹。位移走渲染线程。</summary>
+    public static void SpringSlide(TranslateTransform transform, double to, int ms = 380)
+    {
+        if (!Animated)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = to;
+            return;
+        }
+        transform.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(to, Ms(ms)) { EasingFunction = Settle });
+    }
+
+    /// <summary>顶栏白框的横向缩放，和位移同一条渲染线程，不碰布局。</summary>
+    public static void ScaleXTo(ScaleTransform scale, double to, int ms = 380)
+    {
+        if (!Animated)
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.ScaleX = to;
+            return;
+        }
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(to, Ms(ms)) { EasingFunction = Settle });
+    }
+
     /// <summary>
     /// A To-only animation: WPF starts it from the live presentation value, so a second
     /// click retargets the pill mid-flight instead of jumping to a fixed origin.
@@ -1977,8 +2118,8 @@ public static class Fx
     /// <summary>
     /// Shared selection thumb for a radio strip. Put on a Grid whose first <see cref="Border"/>
     /// is the thumb (with a <see cref="TranslateTransform"/>) and whose other child is a
-    /// Panel of RadioButtons. Kind: <c>nav</c> (vertical), <c>pill</c>/<c>tab</c> (horizontal).
-    /// Placement is instant — no travel animation.
+    /// Panel of RadioButtons. Kind: <c>nav</c> (vertical, snaps), <c>pill</c>/<c>tab</c>
+    /// (horizontal; the thumb slides and scales like the top-bar capsule).
     /// </summary>
     public static readonly DependencyProperty SlideSelectProperty = DependencyProperty.RegisterAttached(
         "SlideSelect", typeof(string), typeof(Fx),
@@ -2015,9 +2156,16 @@ public static class Fx
     static void SlideSelect_Loaded(object sender, RoutedEventArgs e) =>
         WireSlideSelect((FrameworkElement)sender);
 
+    static readonly DependencyProperty SlideFollowProperty = DependencyProperty.RegisterAttached(
+        "SlideFollow", typeof(bool), typeof(Fx), new PropertyMetadata(false));
+
     static void SlideSelect_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (sender is FrameworkElement host) ScheduleSlideSnap(host);
+        if (sender is not FrameworkElement host) return;
+        // A check changes the selected label's weight, so the strip resizes. Follow that
+        // with the same slide — a snap here is the "stall, then jump".
+        host.SetValue(SlideFollowProperty, true);
+        ScheduleSlideSnap(host);
     }
 
     static void SlideSelect_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -2039,7 +2187,7 @@ public static class Fx
             {
                 if (ev.Source is not RadioButton { IsChecked: true } rb) return;
                 if (!IsDescendant(host, rb)) return;
-                PlaceSlideSelect(host, rb);
+                PlaceSlideSelect(host, rb, animate: true);
             }),
             handledEventsToo: true);
         HookSlideWindow(Window.GetWindow(host));
@@ -2090,15 +2238,22 @@ public static class Fx
         host.Dispatcher.BeginInvoke(() =>
         {
             host.SetValue(SlideSelectPendingProperty, false);
-            SnapSlideSelect(host);
+            var follow = (bool)host.GetValue(SlideFollowProperty);
+            host.SetValue(SlideFollowProperty, false);
+            SnapSlideSelect(host, follow);
         }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
-    static void SnapSlideSelect(FrameworkElement host)
+    static void SnapSlideSelect(FrameworkElement host, bool follow)
     {
         if (!host.IsVisible) return;
         var rb = FindCheckedRadio(host);
-        if (rb is not null) PlaceSlideSelect(host, rb);
+        if (rb is null) return;
+        var animate = follow
+            && GetSlideSelect(host) is not "nav"
+            && ResolveSlideThumb(host) is { Thumb: { } thumb }
+            && (bool)thumb.GetValue(PillPlacedProperty);
+        PlaceSlideSelect(host, rb, animate);
     }
 
     static RadioButton? FindCheckedRadio(FrameworkElement host)
@@ -2126,34 +2281,66 @@ public static class Fx
         return false;
     }
 
-    static void PlaceSlideSelect(FrameworkElement host, RadioButton tab)
+    static readonly DependencyProperty PillPlacedProperty = DependencyProperty.RegisterAttached(
+        "PillPlaced", typeof(bool), typeof(Fx), new PropertyMetadata(false));
+
+    static void PlaceSlideSelect(FrameworkElement host, RadioButton tab, bool animate)
     {
         if (ResolveSlideThumb(host) is not { } pair) return;
-        var (thumb, shift, kind) = pair;
+        var (thumb, shift, scale, kind) = pair;
         if (tab.Visibility != Visibility.Visible || !host.IsVisible) return;
         if (tab.ActualWidth < 1 || tab.ActualHeight < 1) return;
         if (!TryLayoutSlot(host, tab, out var at, out var size)) return;
         if (size.Width < 1 || size.Height < 1) return;
         if (double.IsNaN(at.X) || double.IsNaN(at.Y)) return;
 
-        shift.BeginAnimation(TranslateTransform.XProperty, null);
-        shift.BeginAnimation(TranslateTransform.YProperty, null);
-        thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
-        thumb.BeginAnimation(FrameworkElement.HeightProperty, null);
+        if (kind is "nav" || scale is null)
+        {
+            shift.BeginAnimation(TranslateTransform.XProperty, null);
+            shift.BeginAnimation(TranslateTransform.YProperty, null);
+            thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
+            thumb.BeginAnimation(FrameworkElement.HeightProperty, null);
+            if (kind is "nav")
+            {
+                thumb.Height = size.Height;
+                shift.X = 0;
+                shift.Y = at.Y;
+            }
+            else
+            {
+                thumb.Width = size.Width;
+                thumb.Height = size.Height;
+                shift.X = at.X;
+                shift.Y = at.Y;
+            }
+            thumb.Opacity = 1;
+            return;
+        }
 
-        if (kind is "nav")
+        thumb.Height = size.Height;
+        var placed = (bool)thumb.GetValue(PillPlacedProperty);
+        if (!placed || !animate || !Animated)
         {
-            thumb.Height = size.Height;
-            shift.X = 0;
-            shift.Y = at.Y;
-        }
-        else
-        {
+            thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
             thumb.Width = size.Width;
-            thumb.Height = size.Height;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.ScaleX = 1;
+            shift.BeginAnimation(TranslateTransform.XProperty, null);
             shift.X = at.X;
-            shift.Y = at.Y;
+            thumb.SetValue(PillPlacedProperty, true);
+            thumb.Opacity = 1;
+            return;
         }
+
+        var baseW = double.IsNaN(thumb.Width) || thumb.Width < 1 ? size.Width : thumb.Width;
+        var visualW = baseW * (scale.ScaleX <= 0 ? 1 : scale.ScaleX);
+        thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
+        thumb.Width = size.Width;
+        var from = size.Width <= 1 ? 1 : visualW / size.Width;
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scale.ScaleX = from;
+        ScaleXTo(scale, 1);
+        SpringSlide(shift, at.X);
         thumb.Opacity = 1;
     }
 
@@ -2183,7 +2370,7 @@ public static class Fx
         return true;
     }
 
-    static (Border Thumb, TranslateTransform Shift, string Kind)? ResolveSlideThumb(FrameworkElement host)
+    static (Border Thumb, TranslateTransform Shift, ScaleTransform? Scale, string Kind)? ResolveSlideThumb(FrameworkElement host)
     {
         var kind = GetSlideSelect(host) ?? "pill";
         Border? thumb = null;
@@ -2200,17 +2387,37 @@ public static class Fx
         }
         if (thumb is null) return null;
 
-        TranslateTransform shift;
-        if (thumb.RenderTransform is TranslateTransform live && !live.IsFrozen)
+        thumb.RenderTransformOrigin = new Point(0, 0.5);
+        if (thumb.RenderTransform is TransformGroup group && !group.IsFrozen)
         {
-            shift = live;
+            ScaleTransform? scale = null;
+            TranslateTransform? shift = null;
+            foreach (var child in group.Children)
+            {
+                if (child is ScaleTransform s) scale = s;
+                if (child is TranslateTransform t) shift = t;
+            }
+            if (shift is not null) return (thumb, shift, scale, kind);
         }
+
+        TranslateTransform live;
+        if (thumb.RenderTransform is TranslateTransform plain && !plain.IsFrozen)
+            live = plain;
         else
+            live = new TranslateTransform();
+
+        if (kind is "nav")
         {
-            shift = new TranslateTransform();
-            thumb.RenderTransform = shift;
+            thumb.RenderTransform = live;
+            return (thumb, live, null, kind);
         }
-        return (thumb, shift, kind);
+
+        var sx = new ScaleTransform(1, 1);
+        var wrap = new TransformGroup();
+        wrap.Children.Add(sx);
+        wrap.Children.Add(live);
+        thumb.RenderTransform = wrap;
+        return (thumb, live, sx, kind);
     }
 
     /// <summary>Toast leave: same edge it entered, then the caller removes the card.</summary>

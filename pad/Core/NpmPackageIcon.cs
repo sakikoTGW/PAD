@@ -17,6 +17,38 @@ namespace Pad.Core;
 /// </summary>
 public static class NpmPackageIcon
 {
+    static async Task<string?> LatestJsonAsync(string name, CancellationToken ct)
+    {
+        foreach (var host in Market.RegistryBases)
+        {
+            try
+            {
+                return await Http.GetStringAsync(
+                    $"{host}/{Uri.EscapeDataString(name).Replace("%40", "@")}/latest", ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+            {
+                // 这个 registry 不通，换下一个
+            }
+        }
+        return null;
+    }
+
+    /// <summary>包的 repository.url；只用于「没有 icon 字段」时回退到仓库 logo。</summary>
+    public static async Task<string?> RepoAsync(string name, CancellationToken ct)
+    {
+        try
+        {
+            var json = await Http.GetStringAsync(
+                $"https://registry.npmjs.org/{Uri.EscapeDataString(name).Replace("%40", "@")}/latest", ct);
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("repository", out var r)) return null;
+            if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("url", out var u))
+                return u.GetString();
+            return r.ValueKind == JsonValueKind.String ? r.GetString() : null;
+        }
+        catch { return null; }
+    }
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(6) };
     static readonly object Gate = new();
     static readonly Dictionary<string, Meta> Memory = new(StringComparer.OrdinalIgnoreCase);
@@ -99,6 +131,9 @@ public static class NpmPackageIcon
             return null;
         }
     }
+
+    /// <summary>只查本地缓存（不联网）。</summary>
+    public static string? TryCached(string launcherRoot, string name) => FindCached(launcherRoot, name);
 
     static string? FindCached(string launcherRoot, string name)
     {
