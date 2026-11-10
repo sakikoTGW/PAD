@@ -1068,6 +1068,8 @@ public static class Fx
             item.RenderTransform = Transform.Identity;
             item.Opacity = 1;
         }
+        foreach (var host in NavSlideHosts(rail))
+            PlayNavSelectIntro(host, TimeSpan.FromMilliseconds(MsValue(180)));
     }
 
     /// <summary>
@@ -1267,6 +1269,23 @@ public static class Fx
         ShowBundle(rail);
         foreach (var item in RailItems(rail))
             ShowBundle(item);
+        foreach (var host in NavSlideHosts(rail))
+        {
+            if (ResolveSlideThumb(host) is not { Thumb: { } thumb }) continue;
+            thumb.BeginAnimation(UIElement.OpacityProperty, null);
+            thumb.Opacity = 1;
+            thumb.SetValue(NavIntroPlayedProperty, true);
+            thumb.SetValue(PillPlacedProperty, true);
+            if (TryNavChrome(thumb, out var washScale, out var barShift, out _, out _))
+            {
+                washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                washScale.ScaleX = 1;
+                barShift.BeginAnimation(TranslateTransform.XProperty, null);
+                barShift.X = 0;
+            }
+            var rb = FindCheckedRadio(host);
+            if (rb is not null) PlaceSlideSelect(host, rb, animate: false);
+        }
     }
 
     static void HideMain(FrameworkElement main)
@@ -1285,6 +1304,38 @@ public static class Fx
         rail.RenderTransform = Transform.Identity;
         foreach (var item in RailItems(rail))
             HideRailItem(item);
+        foreach (var host in NavSlideHosts(rail))
+            HideNavThumb(host);
+    }
+
+    static IEnumerable<FrameworkElement> NavSlideHosts(FrameworkElement rail)
+    {
+        var found = new List<FrameworkElement>();
+        void Walk(DependencyObject n)
+        {
+            if (n is FrameworkElement fe && GetSlideSelect(fe) is "nav")
+                found.Add(fe);
+            for (int i = 0, c = VisualTreeHelper.GetChildrenCount(n); i < c; i++)
+                Walk(VisualTreeHelper.GetChild(n, i));
+        }
+        Walk(rail);
+        return found;
+    }
+
+    static void HideNavThumb(FrameworkElement host)
+    {
+        if (ResolveSlideThumb(host) is not { Thumb: { } thumb }) return;
+        thumb.BeginAnimation(UIElement.OpacityProperty, null);
+        thumb.Opacity = 0;
+        thumb.SetValue(PillPlacedProperty, false);
+        thumb.SetValue(NavIntroPlayedProperty, false);
+        if (TryNavChrome(thumb, out var washScale, out var barShift, out _, out _))
+        {
+            washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            washScale.ScaleX = 0;
+            barShift.BeginAnimation(TranslateTransform.XProperty, null);
+            barShift.X = -14;
+        }
     }
 
     static void HideRailItem(FrameworkElement item)
@@ -1374,6 +1425,99 @@ public static class Fx
                 EasingFunction = Settle,
             });
         }
+
+        // Labels first, then selection chrome: accent bar slides in, wash expands right.
+        var introAt = begin + At(0, 52, 560) + TimeSpan.FromMilliseconds(MsValue(160));
+        foreach (var host in NavSlideHosts(rail))
+            PlayNavSelectIntro(host, introAt);
+    }
+
+    static readonly DependencyProperty NavIntroPlayedProperty = DependencyProperty.RegisterAttached(
+        "NavIntroPlayed", typeof(bool), typeof(Fx), new PropertyMetadata(false));
+
+    static bool TryNavChrome(Border thumb,
+        out ScaleTransform washScale, out TranslateTransform barShift,
+        out Border? wash, out Border? bar)
+    {
+        washScale = null!;
+        barShift = null!;
+        wash = null;
+        bar = null;
+        if (thumb.Child is not Grid grid) return false;
+        foreach (var child in grid.Children)
+        {
+            if (child is not Border b) continue;
+            if (Equals(b.Tag, "navWash") && b.RenderTransform is ScaleTransform sx)
+            {
+                wash = b;
+                washScale = sx;
+            }
+            else if (Equals(b.Tag, "navBar") && b.RenderTransform is TranslateTransform tx)
+            {
+                bar = b;
+                barShift = tx;
+            }
+        }
+        return washScale is not null && barShift is not null;
+    }
+
+    /// <summary>
+    /// After nav labels are on screen: dark bar slides in from the left, then the wash
+    /// expands to the right — Liquid Glass materialize, not a hard pop.
+    /// </summary>
+    static void PlayNavSelectIntro(FrameworkElement host, TimeSpan begin)
+    {
+        if (ResolveSlideThumb(host) is not { Thumb: { } thumb }) return;
+        if ((bool)thumb.GetValue(NavIntroPlayedProperty)) return;
+
+        // Park on the checked row while still hidden, then materialize chrome.
+        var rb = FindCheckedRadio(host);
+        if (rb is not null) PlaceSlideSelect(host, rb, animate: false);
+
+        if (!TryNavChrome(thumb, out var washScale, out var barShift, out _, out _))
+        {
+            thumb.BeginAnimation(UIElement.OpacityProperty, null);
+            thumb.Opacity = 1;
+            thumb.SetValue(NavIntroPlayedProperty, true);
+            return;
+        }
+
+        thumb.BeginAnimation(UIElement.OpacityProperty, null);
+        thumb.Opacity = 0;
+        washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        washScale.ScaleX = 0;
+        barShift.BeginAnimation(TranslateTransform.XProperty, null);
+        barShift.X = -14;
+        thumb.SetValue(PillPlacedProperty, true);
+
+        if (!Animated)
+        {
+            thumb.Opacity = 1;
+            washScale.ScaleX = 1;
+            barShift.X = 0;
+            thumb.SetValue(NavIntroPlayedProperty, true);
+            return;
+        }
+
+        // Sequence: accent bar slides in from left first; only then wash expands right.
+        const int barMs = 300;
+        const int washMs = 360;
+        thumb.SetValue(NavIntroPlayedProperty, true);
+        thumb.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, Ms(90))
+        {
+            BeginTime = begin,
+            EasingFunction = FadeEase,
+        });
+        barShift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-18, 0, Ms(barMs))
+        {
+            BeginTime = begin,
+            EasingFunction = NavTravelEase,
+        });
+        washScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0, 1, Ms(washMs))
+        {
+            BeginTime = begin + TimeSpan.FromMilliseconds(MsValue(barMs)),
+            EasingFunction = NavTravelEase,
+        });
     }
 
     /// <summary>Left-rail parts, top→bottom. List rows, nav buttons, then tagged / sections.</summary>
@@ -2086,6 +2230,31 @@ public static class Fx
             new DoubleAnimation(to, Ms(ms)) { EasingFunction = Settle });
     }
 
+    /// <summary>~px/ms for nav thumb travel — duration scales with distance so retargets keep speed.</summary>
+    const double NavPxPerMs = 0.38;
+
+    static readonly IEasingFunction NavTravelEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+    static int TravelMs(double distancePx, int minMs = 200, int maxMs = 520)
+    {
+        var ms = (int)Math.Round(Math.Abs(distancePx) / NavPxPerMs);
+        return Math.Clamp(ms, minMs, maxMs);
+    }
+
+    /// <summary>侧栏选中块纵向滑动：时长∝路程，中途改目标也保持相近速度。</summary>
+    public static void SpringSlideY(TranslateTransform transform, double to, int? ms = null)
+    {
+        if (!Animated)
+        {
+            transform.BeginAnimation(TranslateTransform.YProperty, null);
+            transform.Y = to;
+            return;
+        }
+        var dur = ms ?? TravelMs(to - transform.Y);
+        transform.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(to, Ms(dur)) { EasingFunction = NavTravelEase });
+    }
+
     /// <summary>顶栏白框的横向缩放，和位移同一条渲染线程，不碰布局。</summary>
     public static void ScaleXTo(ScaleTransform scale, double to, int ms = 380)
     {
@@ -2096,6 +2265,19 @@ public static class Fx
             return;
         }
         scale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(to, Ms(ms)) { EasingFunction = Settle });
+    }
+
+    /// <summary>选中块纵向形变：行程中略拉长再落回，像玻璃液滴重塑。</summary>
+    public static void ScaleYTo(ScaleTransform scale, double to, int ms = 420)
+    {
+        if (!Animated)
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            scale.ScaleY = to;
+            return;
+        }
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty,
             new DoubleAnimation(to, Ms(ms)) { EasingFunction = Settle });
     }
 
@@ -2118,7 +2300,7 @@ public static class Fx
     /// <summary>
     /// Shared selection thumb for a radio strip. Put on a Grid whose first <see cref="Border"/>
     /// is the thumb (with a <see cref="TranslateTransform"/>) and whose other child is a
-    /// Panel of RadioButtons. Kind: <c>nav</c> (vertical, snaps), <c>pill</c>/<c>tab</c>
+    /// Panel of RadioButtons. Kind: <c>nav</c> (vertical liquid slide), <c>pill</c>/<c>tab</c>
     /// (horizontal; the thumb slides and scales like the top-bar capsule).
     /// </summary>
     public static readonly DependencyProperty SlideSelectProperty = DependencyProperty.RegisterAttached(
@@ -2249,8 +2431,8 @@ public static class Fx
         if (!host.IsVisible) return;
         var rb = FindCheckedRadio(host);
         if (rb is null) return;
+        // First place snaps; later moves (incl. nav) animate — liquid morph, not jump.
         var animate = follow
-            && GetSlideSelect(host) is not "nav"
             && ResolveSlideThumb(host) is { Thumb: { } thumb }
             && (bool)thumb.GetValue(PillPlacedProperty);
         PlaceSlideSelect(host, rb, animate);
@@ -2294,31 +2476,113 @@ public static class Fx
         if (size.Width < 1 || size.Height < 1) return;
         if (double.IsNaN(at.X) || double.IsNaN(at.Y)) return;
 
-        if (kind is "nav" || scale is null)
+        var placed = (bool)thumb.GetValue(PillPlacedProperty);
+
+        // Vertical nav: first show stays hidden for PlayNavSelectIntro; later moves keep constant speed.
+        if (kind is "nav")
+        {
+            shift.BeginAnimation(TranslateTransform.XProperty, null);
+            shift.X = 0;
+            thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
+            var hasChrome = TryNavChrome(thumb, out var washScale, out var barShift, out _, out _);
+
+            if (!placed || !animate || !Animated)
+            {
+                shift.BeginAnimation(TranslateTransform.YProperty, null);
+                thumb.BeginAnimation(FrameworkElement.HeightProperty, null);
+                if (scale is not null)
+                {
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    scale.ScaleX = 1;
+                    scale.ScaleY = 1;
+                }
+                thumb.Height = size.Height;
+                shift.Y = at.Y;
+                thumb.SetValue(PillPlacedProperty, true);
+
+                // First layout before intro: park chrome off-stage. Intro / non-animated reveals it.
+                if (!Animated)
+                {
+                    if (hasChrome)
+                    {
+                        washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                        washScale.ScaleX = 1;
+                        barShift.BeginAnimation(TranslateTransform.XProperty, null);
+                        barShift.X = 0;
+                    }
+                    thumb.Opacity = 1;
+                    thumb.SetValue(NavIntroPlayedProperty, true);
+                }
+                else if (!(bool)thumb.GetValue(NavIntroPlayedProperty))
+                {
+                    if (hasChrome)
+                    {
+                        washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                        washScale.ScaleX = 0;
+                        barShift.BeginAnimation(TranslateTransform.XProperty, null);
+                        barShift.X = -14;
+                    }
+                    thumb.BeginAnimation(UIElement.OpacityProperty, null);
+                    thumb.Opacity = 0;
+                }
+                return;
+            }
+
+            // Switching tabs: finish any pending intro chrome so the thumb is fully formed, then slide.
+            if (hasChrome && (!(bool)thumb.GetValue(NavIntroPlayedProperty) || thumb.Opacity < 0.95
+                || washScale.ScaleX < 0.98))
+            {
+                thumb.BeginAnimation(UIElement.OpacityProperty, null);
+                thumb.Opacity = 1;
+                washScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                washScale.ScaleX = 1;
+                barShift.BeginAnimation(TranslateTransform.XProperty, null);
+                barShift.X = 0;
+                thumb.SetValue(NavIntroPlayedProperty, true);
+            }
+
+            var fromH = thumb.ActualHeight > 1 ? thumb.ActualHeight : size.Height;
+            var travelY = Math.Abs(at.Y - shift.Y);
+            var ms = TravelMs(Math.Max(travelY, Math.Abs(fromH - size.Height)));
+            thumb.BeginAnimation(FrameworkElement.HeightProperty, null);
+            if (Math.Abs(fromH - size.Height) > 0.5)
+            {
+                thumb.Height = fromH;
+                thumb.BeginAnimation(FrameworkElement.HeightProperty,
+                    new DoubleAnimation(fromH, size.Height, Ms(ms)) { EasingFunction = NavTravelEase });
+            }
+            else
+            {
+                thumb.Height = size.Height;
+            }
+
+            if (scale is not null)
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                scale.ScaleX = 1;
+                scale.ScaleY = 1;
+            }
+            SpringSlideY(shift, at.Y, ms);
+            return;
+        }
+
+        if (scale is null)
         {
             shift.BeginAnimation(TranslateTransform.XProperty, null);
             shift.BeginAnimation(TranslateTransform.YProperty, null);
             thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
             thumb.BeginAnimation(FrameworkElement.HeightProperty, null);
-            if (kind is "nav")
-            {
-                thumb.Height = size.Height;
-                shift.X = 0;
-                shift.Y = at.Y;
-            }
-            else
-            {
-                thumb.Width = size.Width;
-                thumb.Height = size.Height;
-                shift.X = at.X;
-                shift.Y = at.Y;
-            }
+            thumb.Width = size.Width;
+            thumb.Height = size.Height;
+            shift.X = at.X;
+            shift.Y = at.Y;
             thumb.Opacity = 1;
             return;
         }
 
         thumb.Height = size.Height;
-        var placed = (bool)thumb.GetValue(PillPlacedProperty);
         if (!placed || !animate || !Animated)
         {
             thumb.BeginAnimation(FrameworkElement.WidthProperty, null);
@@ -2406,16 +2670,12 @@ public static class Fx
         else
             live = new TranslateTransform();
 
-        if (kind is "nav")
-        {
-            thumb.RenderTransform = live;
-            return (thumb, live, null, kind);
-        }
-
+        // nav + pill both get Scale+Translate so selection can morph (liquid reshape) while sliding.
         var sx = new ScaleTransform(1, 1);
         var wrap = new TransformGroup();
         wrap.Children.Add(sx);
         wrap.Children.Add(live);
+        thumb.RenderTransformOrigin = kind is "nav" ? new Point(0.5, 0.5) : new Point(0, 0.5);
         thumb.RenderTransform = wrap;
         return (thumb, live, sx, kind);
     }

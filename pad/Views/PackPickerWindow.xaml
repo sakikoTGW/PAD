@@ -1,4 +1,4 @@
-<Window x:Class="Pad.Views.PackPickerWindow"
+﻿<Window x:Class="Pad.Views.PackPickerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:v="clr-namespace:Pad.Views"
@@ -45,9 +45,9 @@
           <Setter Property="Foreground" Value="{StaticResource DangerText}" />
         </DataTrigger>
         <DataTrigger Binding="{Binding Tone}" Value="info">
-          <Setter Property="Background" Value="{StaticResource AccentWash}" />
-          <Setter Property="BorderBrush" Value="{StaticResource AccentWash}" />
-          <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+          <Setter Property="Background" Value="{DynamicResource AccentWash}" />
+          <Setter Property="BorderBrush" Value="{DynamicResource AccentWash}" />
+          <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
         </DataTrigger>
       </Style.Triggers>
     </Style>

@@ -1,8 +1,8 @@
-<UserControl x:Class="Pad.Views.InstMark"
+﻿<UserControl x:Class="Pad.Views.InstMark"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v="clr-namespace:Pad.Views">
-  <Border x:Name="Tile" Background="{StaticResource AccentDeep}"
+  <Border x:Name="Tile" Background="{DynamicResource AccentDeep}"
           CornerRadius="{StaticResource RadRow}" ClipToBounds="True">
     <Grid>
       <Image x:Name="Pic" Stretch="UniformToFill" Visibility="Collapsed" />

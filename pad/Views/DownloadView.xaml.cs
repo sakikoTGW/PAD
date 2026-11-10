@@ -30,9 +30,11 @@ public partial class DownloadView : UserControl, IRefreshable
     bool _shelfPillReady, _periodPillReady, _colPillReady;
     int _shelfPillGen, _periodPillGen, _colPillGen;
 
-    void StoreLayout_Click(object sender, RoutedEventArgs e)
+    bool _layoutSync;
+
+    void StoreLayoutBtn_Checked(object sender, RoutedEventArgs e)
     {
-        if (StoreLayoutPop.IsOpen) { StoreLayoutPop.IsOpen = false; return; }
+        if (_layoutSync) return;
         _colSync = true;
         foreach (var rb in ColRow.Children.OfType<RadioButton>())
             rb.IsChecked = (rb.Tag as string) == _storeColumns.ToString();
@@ -40,18 +42,28 @@ public partial class DownloadView : UserControl, IRefreshable
         StoreLayoutPop.IsOpen = true;
     }
 
+    void StoreLayoutBtn_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (_layoutSync) return;
+        StoreLayoutPop.IsOpen = false;
+    }
+
     void StoreLayoutPop_Opened(object? sender, EventArgs e)
     {
-        // While open, a click on the gear lands as an outside click and closes the popup;
-        // the gear must not also receive it, or it would reopen at once.
+        // Keep IsChecked so IcoToggle shows the selected wash while the menu is open.
+        _layoutSync = true;
+        StoreLayoutBtn.IsChecked = true;
+        _layoutSync = false;
+        // Outside-click closes the popup; disable the gear for that click or it would reopen.
         StoreLayoutBtn.IsHitTestVisible = false;
-        StoreLayoutBtn.Foreground = (Brush)FindResource("Accent");
         QueueColPill(false);
     }
 
     void StoreLayoutPop_Closed(object? sender, EventArgs e)
     {
-        StoreLayoutBtn.ClearValue(ForegroundProperty);
+        _layoutSync = true;
+        StoreLayoutBtn.IsChecked = false;
+        _layoutSync = false;
         Dispatcher.BeginInvoke(() => StoreLayoutBtn.IsHitTestVisible = true,
             DispatcherPriority.Input);
     }
@@ -430,18 +442,54 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     int _busyGen;
+    DateTime _busyShownAt;
 
-    /// <summary>加载态缓入：透明度 + 轻微上浮。</summary>
+    /// <summary>纯透明度渐显/渐隐（不做位移）。</summary>
+    static Task FadeOpacity(FrameworkElement el, double to, int ms)
+    {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        var from = el.Opacity;
+        if (Math.Abs(from - to) < 0.01)
+        {
+            el.Opacity = to;
+            return Task.CompletedTask;
+        }
+        if (!Fx.Animated)
+        {
+            el.Opacity = to;
+            return Task.CompletedTask;
+        }
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(from, to, Fx.Span(ms))
+        {
+            EasingFunction = EaseInOut,
+        };
+        fade.Completed += (_, _) =>
+        {
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            el.Opacity = to;
+            done.TrySetResult();
+        };
+        el.BeginAnimation(UIElement.OpacityProperty, fade);
+        return done.Task;
+    }
+
+    /// <summary>清掉可能残留的位移，避免旧 Translate 动画被看成「往下沉」。</summary>
+    void ResetStoreBusyShift()
+    {
+        StoreBusy.RenderTransform = null;
+    }
+
+    /// <summary>加载态缓入：只改不透明度。</summary>
     Task ShowStoreBusy(string text)
     {
         if (StoreBusyText is not null) StoreBusyText.Text = text;
         var gen = ++_busyGen;
-        var shift = LayerShift(StoreBusy);
+        _busyShownAt = DateTime.UtcNow;
         StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
-        shift.BeginAnimation(TranslateTransform.YProperty, null);
+        ResetStoreBusyShift();
         if (!Fx.Animated)
         {
-            shift.Y = 0;
             StoreBusy.Opacity = 1;
             StoreBusy.Visibility = Visibility.Visible;
             return Task.CompletedTask;
@@ -449,20 +497,13 @@ public partial class DownloadView : UserControl, IRefreshable
         // 已在场上就只改文案，避免切换货架时反复闪。
         if (StoreBusy.Visibility == Visibility.Visible && StoreBusy.Opacity > 0.85)
         {
-            shift.Y = 0;
             StoreBusy.Opacity = 1;
             return Task.CompletedTask;
         }
         StoreBusy.Visibility = Visibility.Visible;
         StoreBusy.Opacity = 0;
-        shift.Y = 10;
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var span = Fx.Span(280);
-        var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, span)
-        {
-            EasingFunction = EaseInOut,
-        };
-        var move = new System.Windows.Media.Animation.DoubleAnimation(10, 0, span)
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, Fx.Span(280))
         {
             EasingFunction = EaseInOut,
         };
@@ -470,38 +511,28 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             if (gen != _busyGen) { done.TrySetResult(); return; }
             StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
-            shift.BeginAnimation(TranslateTransform.YProperty, null);
             StoreBusy.Opacity = 1;
-            shift.Y = 0;
             done.TrySetResult();
         };
         StoreBusy.BeginAnimation(UIElement.OpacityProperty, fade);
-        shift.BeginAnimation(TranslateTransform.YProperty, move);
         return done.Task;
     }
 
-    /// <summary>加载态缓出：透明度 + 轻微下沉。</summary>
+    /// <summary>加载态缓出：只改不透明度。</summary>
     Task HideStoreBusy()
     {
         var gen = ++_busyGen;
-        var shift = LayerShift(StoreBusy);
         StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
-        shift.BeginAnimation(TranslateTransform.YProperty, null);
+        ResetStoreBusyShift();
         if (!Fx.Animated || StoreBusy.Visibility != Visibility.Visible || StoreBusy.Opacity < 0.05)
         {
-            shift.Y = 0;
             StoreBusy.Opacity = 0;
             StoreBusy.Visibility = Visibility.Collapsed;
             return Task.CompletedTask;
         }
         var from = StoreBusy.Opacity;
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var span = Fx.Span(220);
-        var fade = new System.Windows.Media.Animation.DoubleAnimation(from, 0, span)
-        {
-            EasingFunction = EaseInOut,
-        };
-        var move = new System.Windows.Media.Animation.DoubleAnimation(shift.Y, 8, span)
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(from, 0, Fx.Span(320))
         {
             EasingFunction = EaseInOut,
         };
@@ -509,24 +540,29 @@ public partial class DownloadView : UserControl, IRefreshable
         {
             if (gen != _busyGen) { done.TrySetResult(); return; }
             StoreBusy.BeginAnimation(UIElement.OpacityProperty, null);
-            shift.BeginAnimation(TranslateTransform.YProperty, null);
-            shift.Y = 0;
             StoreBusy.Opacity = 0;
             StoreBusy.Visibility = Visibility.Collapsed;
             done.TrySetResult();
         };
         StoreBusy.BeginAnimation(UIElement.OpacityProperty, fade);
-        shift.BeginAnimation(TranslateTransform.YProperty, move);
         return done.Task;
+    }
+
+    /// <summary>转圈至少停留一会儿，避免数据太快时一闪就没。</summary>
+    async Task WaitBusyDwell(int minMs = 650)
+    {
+        if (_busyShownAt == default) return;
+        var left = Fx.Span(minMs) - (DateTime.UtcNow - _busyShownAt);
+        if (left > TimeSpan.Zero) await Task.Delay(left);
     }
 
     int _fillGen;
 
-    /// <summary>等这一页的图标都取完；网络死了也别把加载态挂太久，最多 2 秒。</summary>
+    /// <summary>等这一页图标全部落定再揭幕；失败也算落定，避免永远转圈。</summary>
     static async Task WaitStoreIcons(Task? icons)
     {
         if (icons is null) return;
-        try { await Task.WhenAny(icons, Task.Delay(2000)); }
+        try { await icons; }
         catch { /* 图标失败不算加载失败 */ }
     }
 
@@ -569,7 +605,7 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     /// <summary>
-    /// 等内容（含卡片行 + 图标）都落定后，加载态渐隐，内容马上渐显——中间几乎不空档。
+    /// 等卡片行 + 图标都落定后，加载态与内容纯透明度交叉渐隐/渐显——中间不空档。
     /// </summary>
     async Task ArriveStorePage(Task? icons = null, Task? fill = null)
     {
@@ -579,16 +615,24 @@ public partial class DownloadView : UserControl, IRefreshable
         foreach (var el in parts)
         {
             el.BeginAnimation(UIElement.OpacityProperty, null);
+            if (el.RenderTransform is TranslateTransform shift)
+            {
+                shift.BeginAnimation(TranslateTransform.YProperty, null);
+                shift.Y = 0;
+            }
             el.Opacity = 0;
         }
 
         var gen = _storeGen;
+        // 真加载：行塞完、图标全取完（或确认失败）才揭幕，避免先出骨架再闪图标。
         if (fill is not null) await fill;
         if (gen != _storeGen) return;
         await WaitStoreIcons(icons);
         if (gen != _storeGen) return;
+        await WaitBusyDwell(650);
+        if (gen != _storeGen) return;
 
-        // 让透明内容先排一帧，避免渐显时才首次 measure 卡顿把淡出吃掉。
+        // 透明内容先排一帧，交叉淡入时不再卡首次 measure。
         await NextFrame();
         if (gen != _storeGen) return;
 
@@ -600,17 +644,13 @@ public partial class DownloadView : UserControl, IRefreshable
             return;
         }
 
-        // 加载态开始淡出后立刻让内容上来（约 40ms 错开），不要等淡出播完再空等。
-        var hide = HideStoreBusy();
-        await Task.Delay(Fx.Span(40));
-        if (gen != _storeGen) return;
-
-        var jobs = new List<Task> { hide };
-        FrameworkElement[] layers = [GrowthHero, ResultCard, PagerCard];
-        var live = layers.Where(el => el.Visibility == Visibility.Visible).ToArray();
-        for (var i = 0; i < live.Length; i++)
-            jobs.Add(FloatLayer(live[i], up: true, delayMs: i * 35, ms: 320));
-        jobs.Add(FloatLayer(StoreSectionHead, up: true, delayMs: 0, lift: false, ms: 280));
+        // 转圈与内容同时做不透明度交叉：一边 1→0，一边 0→1，中间不会空白。
+        var jobs = new List<Task> { HideStoreBusy() };
+        foreach (var el in parts)
+        {
+            if (el.Visibility != Visibility.Visible) continue;
+            jobs.Add(FadeOpacity(el, 1, 320));
+        }
         await Task.WhenAll(jobs);
     }
     string _storeMode = "downloads";
@@ -1504,8 +1544,6 @@ public partial class DownloadView : UserControl, IRefreshable
         Fx.SetShown(EmptyCard, false);
         if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
         Working("正在搜索");
-        // 进页面/换货架就先让加载态淡入，别等内容都返回了才一闪。
-        _ = ShowStoreBusy("正在加载");
 
         try
         {
@@ -1518,7 +1556,10 @@ public partial class DownloadView : UserControl, IRefreshable
             var fetch = Task.Run(() => MarketCommands.SearchShelfAsync(
                 _state.Launcher, shelf.Id, shelf.Query, text, _from, _storePageSizeUsed,
                 status, live.Token));
+            // 先让转圈淡入，再收旧内容；两段都用透明度，避免中间空白。
+            var busyIn = ShowStoreBusy("正在加载");
             await FadeStoreBody();
+            await busyIn;
             if (live.IsCancellationRequested || gen != _storeGen) return;
             await ShowPeriodRow(false);
             if (live.IsCancellationRequested || gen != _storeGen) return;
@@ -1885,14 +1926,15 @@ public partial class DownloadView : UserControl, IRefreshable
         StoreMoreBtn.Visibility = Visibility.Collapsed;
         if (EmptyCrossBtn is not null) Fx.SetShown(EmptyCrossBtn, false);
         Working("正在算增长榜");
-        _ = ShowStoreBusy("正在加载");
         Task? icons = null;
         try
         {
             var growthStatus = new Progress<string>(x => StoreSectionRight.Text = x);
             var fetch = Task.Run(() => MarketMetrics.GetAsync(_state.Launcher, false,
                 growthStatus, CancellationToken.None));
+            var busyIn = ShowStoreBusy("正在加载");
             await FadeStoreBody();
+            await busyIn;
             if (gen != _storeGen) return;
             _ = ShowStoreBusy("正在算增长榜");
             await ShowPeriodRow(true);

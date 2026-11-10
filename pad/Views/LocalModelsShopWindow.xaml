@@ -1,4 +1,4 @@
-<Window x:Class="Pad.Views.LocalModelsShopWindow"
+﻿<Window x:Class="Pad.Views.LocalModelsShopWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="本地模型"
@@ -69,7 +69,7 @@
                             <Setter TargetName="Box" Property="Background" Value="{StaticResource BgSubtle}" />
                           </Trigger>
                           <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Box" Property="Background" Value="{StaticResource AccentWash}" />
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentWash}" />
                           </Trigger>
                         </ControlTemplate.Triggers>
                       </ControlTemplate>

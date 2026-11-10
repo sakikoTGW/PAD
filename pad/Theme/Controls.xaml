@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime"
                     xmlns:v="clr-namespace:Pad.Views">
@@ -93,7 +93,7 @@
 
   <!-- PCL MyCard.Title: accent, 13px bold, sitting at the top of the card. -->
   <Style x:Key="CardHead" TargetType="TextBlock">
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="{StaticResource FsBody}" />
     <Setter Property="FontWeight" Value="Bold" />
@@ -112,10 +112,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ContentControl">
-          <Border Background="{StaticResource AccentWash}" CornerRadius="7"
+          <Border Background="{DynamicResource AccentWash}" CornerRadius="7"
                   Width="{TemplateBinding Width}" Height="{TemplateBinding Height}">
             <v:Ico Glyph="{Binding Path=(v:Ico.Of), RelativeSource={RelativeSource TemplatedParent}}"
-                   Foreground="{StaticResource AccentText}" Height="14" />
+                   Foreground="{DynamicResource AccentText}" Height="14" />
           </Border>
         </ControlTemplate>
       </Setter.Value>
@@ -128,10 +128,10 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ContentControl">
-          <Border Background="{StaticResource AccentWash}" CornerRadius="12"
+          <Border Background="{DynamicResource AccentWash}" CornerRadius="12"
                   Width="{TemplateBinding Width}" Height="{TemplateBinding Height}">
             <v:Ico Glyph="{Binding Path=(v:Ico.Of), RelativeSource={RelativeSource TemplatedParent}}"
-                   Foreground="{StaticResource AccentText}" Height="22" />
+                   Foreground="{DynamicResource AccentText}" Height="22" />
           </Border>
         </ControlTemplate>
       </Setter.Value>
@@ -149,10 +149,10 @@
       <Setter.Value>
         <ControlTemplate TargetType="ContentControl">
           <StackPanel Orientation="Horizontal">
-            <Border Width="26" Height="26" Background="{StaticResource AccentWash}"
+            <Border Width="26" Height="26" Background="{DynamicResource AccentWash}"
                     CornerRadius="7" VerticalAlignment="Center">
               <v:Ico Glyph="{Binding Path=(v:Ico.Of), RelativeSource={RelativeSource TemplatedParent}}"
-                     Foreground="{StaticResource AccentText}" Height="14" />
+                     Foreground="{DynamicResource AccentText}" Height="14" />
             </Border>
             <TextBlock Style="{StaticResource SlabTitle}" Margin="10,0,0,0"
                        VerticalAlignment="Center"
@@ -187,7 +187,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="Button">
           <Grid Background="Transparent">
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="{StaticResource RadRow}" Opacity="0" />
             <ContentPresenter Margin="{TemplateBinding Padding}"
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -288,7 +288,7 @@
   </Style>
 
   <Style x:Key="QuantLoud" TargetType="ContentControl" BasedOn="{StaticResource Quant}">
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="FontSize" Value="{StaticResource FsBody}" />
   </Style>
 
@@ -324,9 +324,9 @@
   </Style>
 
   <Style x:Key="PillAccent" TargetType="ContentControl" BasedOn="{StaticResource Pill}">
-    <Setter Property="Background" Value="{StaticResource AccentWash}" />
-    <Setter Property="BorderBrush" Value="{StaticResource AccentWash}" />
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Background" Value="{DynamicResource AccentWash}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentWash}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
   </Style>
 
   <!-- Filter chips: no own fill/border — selected chrome is the Fx.SlideSelect thumb. -->
@@ -337,7 +337,7 @@
     <Setter Property="Margin" Value="0,0,8,0" />
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="{StaticResource FsBody}" />
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="Cursor" Value="Hand" />
     <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
@@ -347,7 +347,7 @@
             <Grid.RenderTransform>
               <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
             </Grid.RenderTransform>
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="13.5" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                               Margin="{TemplateBinding Padding}"
@@ -384,7 +384,7 @@
               </Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsChecked" Value="True">
-              <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
               <Setter Property="FontWeight" Value="SemiBold" />
               <Setter TargetName="hot" Property="Opacity" Value="0" />
             </Trigger>
@@ -394,15 +394,39 @@
     </Setter>
   </Style>
 
-  <!-- Selection thumbs — sit behind a radio strip inside a Grid with Fx.SlideSelect. -->
+  <!-- Nav selection host: only carries Y placement. Wash + accent bar are inner chrome
+       so enter can do bar-slide then wash-expand independently (Liquid Glass morph). -->
   <Style x:Key="SlideThumbNav" TargetType="Border">
-    <Setter Property="Background" Value="{StaticResource AccentWash}" />
-    <Setter Property="CornerRadius" Value="{StaticResource RadCtl}" />
+    <Setter Property="Background" Value="Transparent" />
     <Setter Property="Height" Value="36" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalAlignment" Value="Top" />
     <Setter Property="IsHitTestVisible" Value="False" />
     <Setter Property="Opacity" Value="0" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+  </Style>
+
+  <Style x:Key="SlideThumbNavWash" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource AccentWash}" />
+    <Setter Property="BorderBrush" Value="#66A8D4E0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadCtl}" />
+    <Setter Property="RenderTransformOrigin" Value="0,0.5" />
+    <Setter Property="Effect">
+      <Setter.Value>
+        <DropShadowEffect BlurRadius="14" ShadowDepth="0" Opacity="0.14"
+                          Color="#278197" />
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="SlideThumbNavBar" TargetType="Border">
+    <Setter Property="Width" Value="3" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="Margin" Value="0,9" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Background" Value="{DynamicResource Accent}" />
+    <Setter Property="Opacity" Value="0.92" />
   </Style>
 
   <!-- Same capsule as the top-bar tab pill: white, 27 tall, fully round. -->
@@ -434,7 +458,7 @@
   <Style x:Key="Monogram" TargetType="ContentControl">
     <Setter Property="Width" Value="34" />
     <Setter Property="Height" Value="34" />
-    <Setter Property="Background" Value="{StaticResource AccentDeep}" />
+    <Setter Property="Background" Value="{DynamicResource AccentDeep}" />
     <Setter Property="Foreground" Value="{StaticResource TextOnAccent}" />
     <Setter Property="FontFamily" Value="{StaticResource FontMono}" />
     <Setter Property="FontSize" Value="11" />
@@ -475,8 +499,8 @@
   <!-- ============================ banners ============================ -->
 
   <Style x:Key="Banner" TargetType="Border">
-    <Setter Property="Background" Value="{StaticResource AccentWash}" />
-    <Setter Property="BorderBrush" Value="{StaticResource AccentSoft}" />
+    <Setter Property="Background" Value="{DynamicResource AccentWash}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentSoft}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{StaticResource RadRow}" />
     <Setter Property="Padding" Value="12,9,12,10" />
@@ -489,8 +513,8 @@
 
   <!-- PCL MyHint: left accent bar, wash fill. -->
   <Style x:Key="HintBar" TargetType="Border">
-    <Setter Property="Background" Value="{StaticResource AccentWash}" />
-    <Setter Property="BorderBrush" Value="{StaticResource Accent}" />
+    <Setter Property="Background" Value="{DynamicResource AccentWash}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
     <Setter Property="BorderThickness" Value="3,0,0,0" />
     <Setter Property="CornerRadius" Value="2" />
     <Setter Property="Padding" Value="12,9" />
@@ -503,7 +527,7 @@
   </Style>
 
   <Style x:Key="HintBarCopy" TargetType="TextBlock" BasedOn="{StaticResource Body}">
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="FontSize" Value="{StaticResource FsSmall}" />
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
@@ -552,7 +576,7 @@
         <ControlTemplate TargetType="ContentControl">
           <Grid x:Name="ring" v:Fx.Spin="True">
             <Ellipse Margin="1" StrokeThickness="2" Stroke="{StaticResource LineBorder}" />
-            <Ellipse Margin="1" StrokeThickness="2" Stroke="{StaticResource Accent}"
+            <Ellipse Margin="1" StrokeThickness="2" Stroke="{DynamicResource Accent}"
                      StrokeDashArray="6 22" StrokeDashCap="Round" />
           </Grid>
         </ControlTemplate>
@@ -567,7 +591,7 @@
   <Style x:Key="Meter" TargetType="ProgressBar">
     <Setter Property="Height" Value="4" />
     <Setter Property="Minimum" Value="0" />
-    <Setter Property="Foreground" Value="{StaticResource Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource Accent}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ProgressBar">
@@ -739,7 +763,7 @@
               </Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsChecked" Value="True">
-              <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
               <Setter Property="FontWeight" Value="SemiBold" />
               <Setter TargetName="hot" Property="Opacity" Value="0" />
             </Trigger>
@@ -769,13 +793,13 @@
             <Grid.RenderTransform>
               <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
             </Grid.RenderTransform>
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="{StaticResource RadCtl}" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
               <Trigger.EnterActions>
                 <BeginStoryboard>
                   <Storyboard>
@@ -796,14 +820,18 @@
               </Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentPress}" />
               <Trigger.EnterActions>
                 <BeginStoryboard>
                   <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                     To="1" Duration="0:0:0.10"
+                                     EasingFunction="{StaticResource EaseOut}" />
                     <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
-                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     To="0.94" Duration="0:0:0.10"
                                      EasingFunction="{StaticResource EaseOut}" />
                     <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
-                                     To="0.9" Duration="{StaticResource DMicro}"
+                                     To="0.94" Duration="0:0:0.10"
                                      EasingFunction="{StaticResource EaseOut}" />
                   </Storyboard>
                 </BeginStoryboard>
@@ -812,10 +840,10 @@
                 <BeginStoryboard>
                   <Storyboard>
                     <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
-                                     To="1" Duration="{StaticResource DShort}"
+                                     To="1" Duration="0:0:0.18"
                                      EasingFunction="{StaticResource EaseOut}" />
                     <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
-                                     To="1" Duration="{StaticResource DShort}"
+                                     To="1" Duration="0:0:0.18"
                                      EasingFunction="{StaticResource EaseOut}" />
                   </Storyboard>
                 </BeginStoryboard>
@@ -823,6 +851,134 @@
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="root" Property="Opacity" Value="0.32" />
+              <Setter Property="Cursor" Value="Arrow" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Icon toggle: VSM cross-fades — default / hover / press(deeper) / checked(open). -->
+  <Style x:Key="IcoToggle" TargetType="ToggleButton">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ToggleButton">
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5"
+                TextElement.Foreground="{TemplateBinding Foreground}">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
+            <!-- selected = menu open; hot = hover; deep = press wash. Separate layers so states don't fight. -->
+            <Border x:Name="selected" Background="{DynamicResource AccentWash}"
+                    CornerRadius="{StaticResource RadCtl}" Opacity="0" />
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
+                    CornerRadius="{StaticResource RadCtl}" Opacity="0" />
+            <Border x:Name="deep" Background="{DynamicResource Accent}"
+                    CornerRadius="{StaticResource RadCtl}" Opacity="0" />
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualStateGroup.Transitions>
+                  <VisualTransition GeneratedDuration="0:0:0.16">
+                    <VisualTransition.GeneratedEasingFunction>
+                      <CubicEase EasingMode="EaseInOut" />
+                    </VisualTransition.GeneratedEasingFunction>
+                  </VisualTransition>
+                  <VisualTransition To="Pressed" GeneratedDuration="0:0:0.10">
+                    <VisualTransition.GeneratedEasingFunction>
+                      <CubicEase EasingMode="EaseOut" />
+                    </VisualTransition.GeneratedEasingFunction>
+                  </VisualTransition>
+                  <VisualTransition From="Pressed" GeneratedDuration="0:0:0.18">
+                    <VisualTransition.GeneratedEasingFunction>
+                      <CubicEase EasingMode="EaseOut" />
+                    </VisualTransition.GeneratedEasingFunction>
+                  </VisualTransition>
+                </VisualStateGroup.Transitions>
+                <VisualState x:Name="Normal">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="deep" Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="0:0:0.18" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="0:0:0.18" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="MouseOver">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                     To="1" Duration="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="deep" Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="0:0:0.16" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="0:0:0.16" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
+                                     To="1" Duration="0:0:0.10" />
+                    <DoubleAnimation Storyboard.TargetName="deep" Storyboard.TargetProperty="Opacity"
+                                     To="0.22" Duration="0:0:0.10" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.94" Duration="0:0:0.10" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.94" Duration="0:0:0.10" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="root" Storyboard.TargetProperty="Opacity"
+                                     To="0.32" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="CheckStates">
+                <VisualStateGroup.Transitions>
+                  <VisualTransition GeneratedDuration="0:0:0.20">
+                    <VisualTransition.GeneratedEasingFunction>
+                      <CubicEase EasingMode="EaseInOut" />
+                    </VisualTransition.GeneratedEasingFunction>
+                  </VisualTransition>
+                </VisualStateGroup.Transitions>
+                <VisualState x:Name="Unchecked">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="selected" Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.20" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Checked">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="selected" Storyboard.TargetProperty="Opacity"
+                                     To="1" Duration="0:0:0.20" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Indeterminate" />
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentPress}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Cursor" Value="Arrow" />
             </Trigger>
           </ControlTemplate.Triggers>
@@ -923,9 +1079,14 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="RadioButton">
-          <Grid Background="Transparent">
-            <!-- Wash + left rail live on the Fx.SlideSelect thumb; item only recolors. -->
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+          <Grid x:Name="root" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+            <Grid.RenderTransform>
+              <ScaleTransform x:Name="squash" ScaleX="1" ScaleY="1" />
+            </Grid.RenderTransform>
+            <!-- Selected chrome is the sliding glass thumb; row only handles hover/press + ink. -->
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
+                    CornerRadius="{StaticResource RadCtl}" Opacity="0" />
+            <Border x:Name="deep" Background="{DynamicResource Accent}"
                     CornerRadius="{StaticResource RadCtl}" Opacity="0" />
             <StackPanel Orientation="Horizontal" Margin="13,0,10,0" VerticalAlignment="Center">
               <v:Ico Height="16" Margin="0,0,10,0" VerticalAlignment="Center"
@@ -936,11 +1097,12 @@
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
               <Trigger.EnterActions>
                 <BeginStoryboard>
                   <Storyboard>
                     <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
-                                     To="1" Duration="{StaticResource DMicro}"
+                                     To="0.72" Duration="0:0:0.16"
                                      EasingFunction="{StaticResource EaseOut}" />
                   </Storyboard>
                 </BeginStoryboard>
@@ -949,14 +1111,47 @@
                 <BeginStoryboard>
                   <Storyboard>
                     <DoubleAnimation Storyboard.TargetName="hot" Storyboard.TargetProperty="Opacity"
-                                     To="0" Duration="{StaticResource DMicro}"
+                                     To="0" Duration="0:0:0.16"
                                      EasingFunction="{StaticResource EaseIn}" />
                   </Storyboard>
                 </BeginStoryboard>
               </Trigger.ExitActions>
             </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource AccentPress}" />
+              <Trigger.EnterActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="deep" Storyboard.TargetProperty="Opacity"
+                                     To="0.14" Duration="0:0:0.10"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="0.97" Duration="0:0:0.10"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="0.97" Duration="0:0:0.10"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.EnterActions>
+              <Trigger.ExitActions>
+                <BeginStoryboard>
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="deep" Storyboard.TargetProperty="Opacity"
+                                     To="0" Duration="0:0:0.16"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleX"
+                                     To="1" Duration="0:0:0.18"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                    <DoubleAnimation Storyboard.TargetName="squash" Storyboard.TargetProperty="ScaleY"
+                                     To="1" Duration="0:0:0.18"
+                                     EasingFunction="{StaticResource EaseOut}" />
+                  </Storyboard>
+                </BeginStoryboard>
+              </Trigger.ExitActions>
+            </Trigger>
             <Trigger Property="IsChecked" Value="True">
-              <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+              <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
               <Setter Property="FontWeight" Value="SemiBold" />
               <Setter TargetName="hot" Property="Opacity" Value="0" />
             </Trigger>
@@ -981,7 +1176,7 @@
        line inside itself instead of in a caption underneath. -->
   <Style x:Key="HeroButton" TargetType="Button">
     <Setter Property="Height" Value="56" />
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
     <Setter Property="FontSize" Value="16" />
     <Setter Property="FontWeight" Value="SemiBold" />
@@ -997,10 +1192,10 @@
               </TransformGroup>
             </Grid.RenderTransform>
             <Border Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCtl}"
-                    BorderThickness="1.4" BorderBrush="{StaticResource Accent}" />
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+                    BorderThickness="1.4" BorderBrush="{DynamicResource Accent}" />
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="{StaticResource RadCtl}" BorderThickness="1.4"
-                    BorderBrush="{StaticResource AccentPress}" Opacity="0" />
+                    BorderBrush="{DynamicResource AccentPress}" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Grid>
           <ControlTemplate.Triggers>
@@ -1093,9 +1288,9 @@
             </Grid.RenderTransform>
             <Border Background="{StaticResource BgCard}" CornerRadius="{StaticResource RadCtl}"
                     BorderThickness="1" BorderBrush="{StaticResource LineBorder}" />
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="{StaticResource RadCtl}" BorderThickness="1"
-                    BorderBrush="{StaticResource AccentLight}" Opacity="0" />
+                    BorderBrush="{DynamicResource AccentLight}" Opacity="0" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Margin="{TemplateBinding Padding}">
               <v:Ico x:Name="btnIco" Height="12" Margin="0,0,6,0"
@@ -1205,8 +1400,8 @@
                 <TranslateTransform x:Name="lift" />
               </TransformGroup>
             </Grid.RenderTransform>
-            <Border Background="{StaticResource AccentDeep}" CornerRadius="{StaticResource RadCtl}" />
-            <Border x:Name="hot" Background="{StaticResource AccentPress}"
+            <Border Background="{DynamicResource AccentDeep}" CornerRadius="{StaticResource RadCtl}" />
+            <Border x:Name="hot" Background="{DynamicResource AccentPress}"
                     CornerRadius="{StaticResource RadCtl}" Opacity="0" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Margin="{TemplateBinding Padding}">
@@ -1395,7 +1590,7 @@
   </Style>
 
   <Style x:Key="BtnGhost" TargetType="Button" BasedOn="{StaticResource Btn}">
-    <Setter Property="Foreground" Value="{StaticResource AccentText}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
     <Setter Property="Height" Value="26" />
     <Setter Property="FontSize" Value="{StaticResource FsSmall}" />
     <Setter Property="Padding" Value="9,0" />
@@ -1403,7 +1598,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="Button">
           <Grid x:Name="root" Background="Transparent">
-            <Border x:Name="hot" Background="{StaticResource AccentWash}"
+            <Border x:Name="hot" Background="{DynamicResource AccentWash}"
                     CornerRadius="{StaticResource RadCtl}" Opacity="0" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"
                         Margin="{TemplateBinding Padding}">

@@ -938,6 +938,8 @@ public partial class SettingsView : UserControl, IRefreshable
         if (_loading || sender is not RadioButton { Tag: string tag }) return;
         var s = _state.Settings;
         s.Ui.Theme = tag;
+        if (tag == "custom")
+            s.Ui.CustomAccent = CustomAccentBox.Text.Trim();
         Commit(s);
     }
 

@@ -32,9 +32,11 @@ public static class Theme
         if (app is null) return;
         foreach (var key in BrushKeys)
         {
-            if (app.Resources[key] is not SolidColorBrush b) continue;
+            if (FindBrush(app.Resources, key) is not SolidColorBrush b) continue;
             if (!b.IsFrozen) continue;
-            app.Resources[key] = b.Clone();
+            // Styles/templates use DynamicResource for these keys; swap in a live clone
+            // so Apply can mutate Color without replacing the instance UI already holds.
+            PutBrush(app.Resources, key, b.Clone());
         }
     }
 
@@ -62,8 +64,39 @@ public static class Theme
 
     static void Set(Application app, string key, Color c)
     {
-        if (app.Resources[key] is SolidColorBrush b && !b.IsFrozen) b.Color = c;
-        else app.Resources[key] = new SolidColorBrush(c);
+        if (FindBrush(app.Resources, key) is SolidColorBrush b && !b.IsFrozen)
+        {
+            b.Color = c;
+            return;
+        }
+        PutBrush(app.Resources, key, new SolidColorBrush(c));
+    }
+
+    static SolidColorBrush? FindBrush(ResourceDictionary dict, string key)
+    {
+        if (dict.Contains(key) && dict[key] is SolidColorBrush direct) return direct;
+        foreach (var merged in dict.MergedDictionaries)
+        {
+            var hit = FindBrush(merged, key);
+            if (hit is not null) return hit;
+        }
+        return null;
+    }
+
+    static void PutBrush(ResourceDictionary dict, string key, SolidColorBrush brush)
+    {
+        if (dict.Contains(key))
+        {
+            dict[key] = brush;
+            return;
+        }
+        foreach (var merged in dict.MergedDictionaries)
+        {
+            if (!merged.Contains(key)) continue;
+            merged[key] = brush;
+            return;
+        }
+        dict[key] = brush;
     }
 
     static (Color, Color, Color, Color, Color, Color, Color, Color, Color) FromCustom(string hex)
