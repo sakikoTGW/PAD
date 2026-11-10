@@ -56,6 +56,8 @@ public partial class DownloadView : UserControl, IRefreshable
             DispatcherPriority.Input);
     }
 
+    int _colAnimGen;
+
     void StoreColumns_Changed(object sender, RoutedEventArgs e)
     {
         if (_colSync) return;
@@ -65,11 +67,10 @@ public partial class DownloadView : UserControl, IRefreshable
         foreach (var rb in ColRow.Children.OfType<RadioButton>())
             if (!ReferenceEquals(rb, box)) rb.IsChecked = false;
         _colSync = false;
-        // 换列数不是瞬移：先记下每张卡现在的位置，改完列数再让它们滑到新格子。
+        // 正向 FLIP：布局先不动，视觉上实时缩到新列宽，播完再提交 Columns——避免「先压扁内容再播动画」。
         var before = CaptureStoreSlots();
         _storeColumns = n;
-        ApplyStoreColumns();
-        AnimateStoreSlots(before);
+        AnimateStoreColumnsForward(before, n);
         QueueColPill(_colPillReady);
     }
 
@@ -78,16 +79,29 @@ public partial class DownloadView : UserControl, IRefreshable
     {
         var map = new Dictionary<FrameworkElement, Rect>();
         if (ResultList?.ItemsSource is null) return map;
+        // 打断上一次未完成的换列动画，量到真实布局槽位。
+        ClearStoreSlotTransforms();
         var count = ResultList.Items.Count;
         for (var i = 0; i < count; i++)
         {
             if (ResultList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement box) continue;
             if (box.ActualWidth <= 0 || box.ActualHeight <= 0) continue;
-            // 上一次换列还没播完就再换：先收掉残留位移，否则量到的是"动画中的位置"，会越算越偏。
-            if (box.RenderTransform is TransformGroup) box.RenderTransform = null;
             map[box] = SlotOf(box);
         }
         return map;
+    }
+
+    void ClearStoreSlotTransforms()
+    {
+        if (ResultList is null) return;
+        var count = ResultList.Items.Count;
+        for (var i = 0; i < count; i++)
+        {
+            if (ResultList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement box) continue;
+            box.BeginAnimation(UIElement.OpacityProperty, null);
+            if (box.RenderTransform is TransformGroup)
+                box.RenderTransform = null;
+        }
     }
 
     Rect SlotOf(FrameworkElement box)
@@ -97,47 +111,94 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     /// <summary>
-    /// 3 列切 4 列：旧格子大、新格子小。每张卡先在旧位置/旧尺寸上画着（FLIP），
-    /// 再用 320ms 收进新格子——第一行整体缩小，第二行第一个因此滑上来，不是跳。
+    /// 正向 FLIP：先量出新列真实槽位，再在旧布局上只缩宽度、平移到新槽；高度保持 1，
+    /// 避免「等比缩完高度变矮 → Commit 后弹回」的跳动。
     /// </summary>
-    void AnimateStoreSlots(Dictionary<FrameworkElement, Rect> before)
+    void AnimateStoreColumnsForward(Dictionary<FrameworkElement, Rect> before, int cols)
     {
-        if (before.Count == 0 || ResultList is null) return;
+        if (ResultList is null)
+        {
+            ApplyStoreColumns();
+            return;
+        }
+        if (before.Count == 0 || !Fx.Animated)
+        {
+            ApplyStoreColumns();
+            ResultList.UpdateLayout();
+            ClearStoreSlotTransforms();
+            return;
+        }
+
+        var grid = FindChild<System.Windows.Controls.Primitives.UniformGrid>(ResultList);
+        var oldCols = grid?.Columns ?? _storeColumns;
+        if (grid is null || ResultList.ActualWidth < 1)
+        {
+            ApplyStoreColumns();
+            return;
+        }
+
+        // 先提交新列并量真实目标槽，再改回旧列——动画期间布局仍是旧的，结束时才真正换列。
+        grid.Columns = cols;
+        grid.InvalidateMeasure();
+        ResultList.UpdateLayout();
+        var after = new Dictionary<FrameworkElement, Rect>();
+        var count = ResultList.Items.Count;
+        for (var i = 0; i < count; i++)
+        {
+            if (ResultList.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement box) continue;
+            if (box.ActualWidth <= 0 || box.ActualHeight <= 0) continue;
+            after[box] = SlotOf(box);
+        }
+        grid.Columns = oldCols;
+        grid.InvalidateMeasure();
         ResultList.UpdateLayout();
 
-        var span = Fx.Span(320);
+        var gen = ++_colAnimGen;
+        var span = Fx.Span(340);
         var ease = EaseInOut;
+        var pending = 0;
+
         foreach (var (box, old) in before)
         {
-            if (!box.IsLoaded) continue;
-            var now = SlotOf(box);
-            if (now.Width <= 1 || now.Height <= 1) continue;
-            var dx = old.X - now.X;
-            var dy = old.Y - now.Y;
-            var sx = old.Width / now.Width;
-            var sy = old.Height / now.Height;
-            if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5
-                && Math.Abs(sx - 1) < 0.004 && Math.Abs(sy - 1) < 0.004) continue;
+            if (!after.TryGetValue(box, out var now) || old.Width <= 1 || now.Width <= 1) continue;
+            var sx = now.Width / old.Width;
+            var dx = now.X - old.X;
+            var dy = now.Y - old.Y;
+            // 卡片固定高度：ScaleY 必须保持 1，否则播完 Commit 会从「视觉变矮」弹回真高度。
+            if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5 && Math.Abs(sx - 1) < 0.004) continue;
 
-            var scale = new ScaleTransform(sx, sy);
-            var shift = new TranslateTransform(dx, dy);
+            var scale = new ScaleTransform(1, 1);
+            var shift = new TranslateTransform(0, 0);
             var group = new TransformGroup();
             group.Children.Add(scale);
             group.Children.Add(shift);
             box.RenderTransformOrigin = new Point(0, 0);
             box.RenderTransform = group;
 
+            pending++;
             scale.BeginAnimation(ScaleTransform.ScaleXProperty,
-                new System.Windows.Media.Animation.DoubleAnimation(1, span) { EasingFunction = ease });
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty,
-                new System.Windows.Media.Animation.DoubleAnimation(1, span) { EasingFunction = ease });
+                new System.Windows.Media.Animation.DoubleAnimation(1, sx, span) { EasingFunction = ease });
             shift.BeginAnimation(TranslateTransform.XProperty,
-                new System.Windows.Media.Animation.DoubleAnimation(0, span) { EasingFunction = ease });
-            var slide = new System.Windows.Media.Animation.DoubleAnimation(0, span) { EasingFunction = ease };
-            var done = box;
-            slide.Completed += (_, _) => done.RenderTransform = null;
+                new System.Windows.Media.Animation.DoubleAnimation(0, dx, span) { EasingFunction = ease });
+            var slide = new System.Windows.Media.Animation.DoubleAnimation(0, dy, span) { EasingFunction = ease };
+            slide.Completed += (_, _) =>
+            {
+                pending--;
+                if (pending > 0 || gen != _colAnimGen) return;
+                CommitStoreColumns();
+            };
             shift.BeginAnimation(TranslateTransform.YProperty, slide);
         }
+
+        if (pending == 0)
+            CommitStoreColumns();
+    }
+
+    void CommitStoreColumns()
+    {
+        ApplyStoreColumns();
+        if (ResultList is not null) ResultList.UpdateLayout();
+        ClearStoreSlotTransforms();
     }
 
     void QueueShelfPill(bool animate) =>
@@ -300,13 +361,13 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     /// <summary>一层上浮出现，或下沉消失。lift 为假时只改透明度。</summary>
-    static Task FloatLayer(FrameworkElement el, bool up, int delayMs, bool lift = true)
+    static Task FloatLayer(FrameworkElement el, bool up, int delayMs, bool lift = true, int? ms = null)
     {
         var shift = LayerShift(el);
         shift.BeginAnimation(TranslateTransform.YProperty, null);
         el.BeginAnimation(UIElement.OpacityProperty, null);
-        var fromY = lift ? (up ? 22 : shift.Y) : 0;
-        var toY = lift ? (up ? 0 : 16) : 0;
+        var fromY = lift ? (up ? 14 : shift.Y) : 0;
+        var toY = lift ? (up ? 0 : 12) : 0;
         var fromO = up ? 0 : (el.Opacity < 0.02 ? 1 : el.Opacity);
         var toO = up ? 1.0 : 0;
         shift.Y = fromY;
@@ -317,15 +378,15 @@ public partial class DownloadView : UserControl, IRefreshable
             el.Opacity = toO;
             return Task.CompletedTask;
         }
-        var ms = up ? 480 : 400;
+        var dur = ms ?? (up ? 360 : 320);
         var delay = TimeSpan.FromMilliseconds(Fx.Span(delayMs).TotalMilliseconds);
-        var done = new TaskCompletionSource();
-        var move = new System.Windows.Media.Animation.DoubleAnimation(fromY, toY, Fx.Span(ms))
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var move = new System.Windows.Media.Animation.DoubleAnimation(fromY, toY, Fx.Span(dur))
         {
             BeginTime = delay,
             EasingFunction = EaseInOut,
         };
-        var fade = new System.Windows.Media.Animation.DoubleAnimation(fromO, toO, Fx.Span(ms))
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(fromO, toO, Fx.Span(dur))
         {
             BeginTime = delay,
             EasingFunction = EaseInOut,
@@ -370,7 +431,7 @@ public partial class DownloadView : UserControl, IRefreshable
 
     int _busyGen;
 
-    /// <summary>加载态缓入：透明度 + 轻微上浮，EaseInOut。</summary>
+    /// <summary>加载态缓入：透明度 + 轻微上浮。</summary>
     Task ShowStoreBusy(string text)
     {
         if (StoreBusyText is not null) StoreBusyText.Text = text;
@@ -386,7 +447,7 @@ public partial class DownloadView : UserControl, IRefreshable
             return Task.CompletedTask;
         }
         // 已在场上就只改文案，避免切换货架时反复闪。
-        if (StoreBusy.Visibility == Visibility.Visible && StoreBusy.Opacity > 0.9)
+        if (StoreBusy.Visibility == Visibility.Visible && StoreBusy.Opacity > 0.85)
         {
             shift.Y = 0;
             StoreBusy.Opacity = 1;
@@ -394,14 +455,14 @@ public partial class DownloadView : UserControl, IRefreshable
         }
         StoreBusy.Visibility = Visibility.Visible;
         StoreBusy.Opacity = 0;
-        shift.Y = 12;
-        var done = new TaskCompletionSource();
-        var span = Fx.Span(300);
+        shift.Y = 10;
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var span = Fx.Span(280);
         var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, span)
         {
             EasingFunction = EaseInOut,
         };
-        var move = new System.Windows.Media.Animation.DoubleAnimation(12, 0, span)
+        var move = new System.Windows.Media.Animation.DoubleAnimation(10, 0, span)
         {
             EasingFunction = EaseInOut,
         };
@@ -419,7 +480,7 @@ public partial class DownloadView : UserControl, IRefreshable
         return done.Task;
     }
 
-    /// <summary>加载态缓出：透明度 + 轻微下沉，EaseInOut。</summary>
+    /// <summary>加载态缓出：透明度 + 轻微下沉。</summary>
     Task HideStoreBusy()
     {
         var gen = ++_busyGen;
@@ -434,13 +495,13 @@ public partial class DownloadView : UserControl, IRefreshable
             return Task.CompletedTask;
         }
         var from = StoreBusy.Opacity;
-        var done = new TaskCompletionSource();
-        var span = Fx.Span(260);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var span = Fx.Span(220);
         var fade = new System.Windows.Media.Animation.DoubleAnimation(from, 0, span)
         {
             EasingFunction = EaseInOut,
         };
-        var move = new System.Windows.Media.Animation.DoubleAnimation(shift.Y, 10, span)
+        var move = new System.Windows.Media.Animation.DoubleAnimation(shift.Y, 8, span)
         {
             EasingFunction = EaseInOut,
         };
@@ -461,26 +522,26 @@ public partial class DownloadView : UserControl, IRefreshable
 
     int _fillGen;
 
-    /// <summary>
-    /// 一次塞进几十张带阴影的卡片会占住界面线程几百毫秒（转圈冻住、渐显被吃掉）。
-    /// 第一行同步放入，其余每帧补一行。
-    /// </summary>
-    /// <summary>等这一页的图标都取完；网络死了也别把加载态挂太久，最多 2.5 秒。</summary>
+    /// <summary>等这一页的图标都取完；网络死了也别把加载态挂太久，最多 2 秒。</summary>
     static async Task WaitStoreIcons(Task? icons)
     {
         if (icons is null) return;
-        try { await Task.WhenAny(icons, Task.Delay(2500)); }
+        try { await Task.WhenAny(icons, Task.Delay(2000)); }
         catch { /* 图标失败不算加载失败 */ }
     }
 
-    void FillResults(IReadOnlyList<MarketRow> rows)
+    /// <summary>
+    /// 一次塞进几十张带阴影的卡片会占住界面线程。第一行同步放入，其余每帧补一行；
+    /// 返回的任务在整页塞完时结束，加载态要等它。
+    /// </summary>
+    Task FillResults(IReadOnlyList<MarketRow> rows)
     {
         var gen = ++_fillGen;
         var per = Math.Max(1, _storeColumns);
         var shown = new System.Collections.ObjectModel.ObservableCollection<MarketRow>(rows.Take(per));
         ResultList.ItemsSource = shown;
-        if (rows.Count <= per) return;
-        _ = Rest();
+        if (rows.Count <= per) return Task.CompletedTask;
+        return Rest();
 
         async Task Rest()
         {
@@ -508,10 +569,9 @@ public partial class DownloadView : UserControl, IRefreshable
     }
 
     /// <summary>
-    /// 新卡片第一次排版/绘制会占住界面线程几百毫秒。先让它们在透明状态下画完，
-    /// 再开始渐显；否则动画时钟在卡顿里走完，看起来就是直接出现。
+    /// 等内容（含卡片行 + 图标）都落定后，加载态渐隐，内容马上渐显——中间几乎不空档。
     /// </summary>
-    async Task ArriveStorePage(Task? icons = null)
+    async Task ArriveStorePage(Task? icons = null, Task? fill = null)
     {
         ApplyStoreColumns();
         Fx.SetShown(LoadCard, false);
@@ -519,35 +579,39 @@ public partial class DownloadView : UserControl, IRefreshable
         foreach (var el in parts)
         {
             el.BeginAnimation(UIElement.OpacityProperty, null);
-            el.Opacity = Fx.Animated ? 0 : 1;
+            el.Opacity = 0;
         }
+
+        var gen = _storeGen;
+        if (fill is not null) await fill;
+        if (gen != _storeGen) return;
+        await WaitStoreIcons(icons);
+        if (gen != _storeGen) return;
+
+        // 让透明内容先排一帧，避免渐显时才首次 measure 卡顿把淡出吃掉。
+        await NextFrame();
+        if (gen != _storeGen) return;
+
         if (!Fx.Animated)
         {
-            await WaitStoreIcons(icons);
+            foreach (var el in parts)
+                if (el.Visibility == Visibility.Visible) el.Opacity = 1;
             await HideStoreBusy();
             return;
         }
-        var gen = _storeGen;
-        await NextFrame();
-        await NextFrame();
+
+        // 加载态开始淡出后立刻让内容上来（约 40ms 错开），不要等淡出播完再空等。
+        var hide = HideStoreBusy();
+        await Task.Delay(Fx.Span(40));
         if (gen != _storeGen) return;
-        // 图标是异步一个个取的：这一页等它们落定再收加载态，否则会先看到一排骨架再闪成图。
-        await WaitStoreIcons(icons);
-        if (gen != _storeGen) return;
-        // 加载态淡出的同时就让卡片浮上来——两段动画并行，收完再出现中间会空一拍。
-        _ = HideStoreBusy();
-        var jobs = new List<Task>();
+
+        var jobs = new List<Task> { hide };
         FrameworkElement[] layers = [GrowthHero, ResultCard, PagerCard];
         var live = layers.Where(el => el.Visibility == Visibility.Visible).ToArray();
         for (var i = 0; i < live.Length; i++)
-            jobs.Add(FloatLayer(live[i], up: true, delayMs: i * 80));
-        jobs.Add(FloatLayer(StoreSectionHead, up: true, delayMs: 0, lift: false));
-        if (Fx.Animated) await Task.WhenAll(jobs);
-        else
-        {
-            foreach (var el in live) el.Opacity = 1;
-            StoreSectionHead.Opacity = 1;
-        }
+            jobs.Add(FloatLayer(live[i], up: true, delayMs: i * 35, ms: 320));
+        jobs.Add(FloatLayer(StoreSectionHead, up: true, delayMs: 0, lift: false, ms: 280));
+        await Task.WhenAll(jobs);
     }
     string _storeMode = "downloads";
     MarketRow? _heroRow;
@@ -1462,8 +1526,8 @@ public partial class DownloadView : UserControl, IRefreshable
             if (live.IsCancellationRequested || gen != _storeGen) return;
             _pinyin = found.Pinyin;
             var page = found.Page;
-            var icons = Paint(page);
-            await ArriveStorePage(icons);
+            var (icons, fill) = Paint(page);
+            await ArriveStorePage(icons, fill);
             PrefetchNext(page);
             MarketPinyinIndex.Prewarm(_state.Launcher);
             if (App.ShotPage == "market-more")
@@ -1638,8 +1702,8 @@ public partial class DownloadView : UserControl, IRefreshable
         return text.Contains("dsh") || text.Contains("deepseek");
     }
 
-    /// <summary>绑定这一页的卡片；返回"图标都取完"的任务，加载态要等它才收。</summary>
-    Task Paint(MarketPage page)
+    /// <summary>绑定这一页的卡片；返回图标任务 + 填行任务，加载态要等它们才收。</summary>
+    (Task Icons, Task Fill) Paint(MarketPage page)
     {
         _from = page.From;
         _lastPage = page;
@@ -1653,7 +1717,7 @@ public partial class DownloadView : UserControl, IRefreshable
             shown = Market.RankForQuery(shown, text);
             best = shown.Count == 0 ? 0 : shown.Max(r => Market.QueryScore(r, text));
         }
-        FillResults(shown);
+        var fill = FillResults(shown);
         var icons = LoadMarketIcons(page.Rows);
         _ = EnrichStoreAsync(shown);   // 星数/下载数是次要信息，不挡加载态
         GrowthHero.Visibility = Visibility.Collapsed;
@@ -1690,7 +1754,7 @@ public partial class DownloadView : UserControl, IRefreshable
         PagerCard.BeginAnimation(UIElement.OpacityProperty, null);
         PagerCard.Visibility = showPager ? Visibility.Visible : Visibility.Collapsed;
         if (showPager) PagerCard.Opacity = 0;
-        return icons;
+        return (icons, fill);
     }
 
     /// <summary>
@@ -1853,7 +1917,7 @@ public partial class DownloadView : UserControl, IRefreshable
                 GrowthSign = m.GrowthSign,
             }).ToList();
             foreach (var r in rows) r.Favorite = Favorites.IsFavorite(_state.Launcher.Root, r.Name);
-            FillResults(rows);
+            var fill = FillResults(rows);
             StoreSectionTitle.Text = "推荐";
             StoreModeLink.Content = "浏览全部插件 ›";
             StoreSectionSub.Text = $"{board?.Label ?? ""} · Top {rows.Count}";
@@ -1880,7 +1944,7 @@ public partial class DownloadView : UserControl, IRefreshable
                 GrowthHero.Visibility = Visibility.Visible;
                 icons = ShowHeroIcon(rows);
             }
-            await ArriveStorePage(icons);
+            await ArriveStorePage(icons, fill);
         }
         catch (Exception ex)
         {

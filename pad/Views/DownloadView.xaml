@@ -641,123 +641,133 @@
             </Grid>
           </Border>
 
-          <Grid>
-          <Border x:Name="ResultCard" Padding="0" Background="Transparent" Visibility="Collapsed">
-            <ItemsControl x:Name="ResultList">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                  <UniformGrid Columns="3" />
-                </ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
-                  <Grid Margin="7">
-                  <Border MinHeight="188" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
-                          Cursor="Hand" Background="{StaticResource BgCard}"
-                          BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
-                          Tag="{Binding}" MouseLeftButtonUp="Row_OpenDetail">
-                    <Border.Effect>
-                      <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.07"
-                                        Color="#101820" />
-                    </Border.Effect>
-                    <Grid Margin="16,15,16,13">
-                      <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                      </Grid.RowDefinitions>
-                      <Grid>
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="Auto" />
-                          <ColumnDefinition Width="*" />
-                          <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <v:PluginMark Grid.Column="0" Width="52" Height="52" Size="52"
-                                      IconPath="{Binding IconPath}" Pending="{Binding IconPending}"
-                                      Spec="{Binding Name}" VerticalAlignment="Top" Margin="0,0,12,0" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,6,0">
-                          <TextBlock Text="{Binding Title}" FontSize="14.5" FontWeight="Bold"
-                                     Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"
-                                     MaxHeight="40" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Text="{Binding Publisher}" FontSize="10.5"
-                                     Foreground="{StaticResource TextMuted}" Margin="0,3,0,0"
-                                     TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Border Grid.Column="2" MinWidth="24" Height="24" CornerRadius="12"
-                                Background="{StaticResource AccentWash}" VerticalAlignment="Top"
-                                Visibility="{Binding HasRank, Converter={StaticResource B2V}}">
-                          <TextBlock Text="{Binding Rank}" FontSize="11" FontWeight="Bold"
-                                     Foreground="{StaticResource Accent}"
-                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                      </Grid>
-                      <TextBlock Grid.Row="1" Text="{Binding DescriptionText}" FontSize="12"
-                                 Foreground="{StaticResource TextSecondary}" Margin="0,11,0,0"
-                                 TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"
-                                 ToolTip="{Binding DescriptionText}" />
-                      <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
-                                  Visibility="{Binding HasStats, Converter={StaticResource B2V}}">
-                        <TextBlock Text="{Binding StarsText}" FontSize="10.5" Margin="0,0,12,0"
-                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding DownloadsText}" FontSize="10.5" Margin="0,0,12,0"
-                                   Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
-                        <Border CornerRadius="6" Padding="5,1" Background="{StaticResource SuccessWash}"
-                                Visibility="{Binding IsCompatible, Converter={StaticResource B2V}}">
-                          <TextBlock Text="兼容" FontSize="10" Foreground="{StaticResource SuccessText}" />
-                        </Border>
-                        <Border CornerRadius="6" Padding="5,1" Background="{StaticResource DangerWash}"
-                                Visibility="{Binding IsIncompatible, Converter={StaticResource B2V}}">
-                          <TextBlock Text="不兼容" FontSize="10" Foreground="{StaticResource DangerText}" />
-                        </Border>
-                      </StackPanel>
-                      <Grid Grid.Row="3" Margin="0,11,0,0">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                          <Border BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
-                                  CornerRadius="6" Padding="6,1" Margin="0,0,8,0">
-                            <TextBlock Text="{Binding VersionText}" FontSize="10.5"
-                                       Foreground="{StaticResource TextMuted}" />
+          <!-- Results + busy overlay share one slot so the spinner is not pushed off-screen
+               when ResultCard becomes Visible at Opacity 0. -->
+          <Grid MinHeight="180" Margin="0,8,0,0">
+            <Border x:Name="ResultCard" Padding="0" Background="Transparent" Visibility="Collapsed">
+              <ItemsControl x:Name="ResultList">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <UniformGrid Columns="3" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <!-- Outer grid owns the staggered enter; inner border owns hover lift. -->
+                    <Grid Margin="7">
+                    <!-- Fixed height: UniformGrid shares one cell size; auto-height + late stats/enrich
+                         made the whole grid jump after first layout. -->
+                    <Border Height="188" CornerRadius="{StaticResource RadCard}" local:Fx.Hover="lift"
+                            Cursor="Hand" Background="{StaticResource BgCard}"
+                            BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
+                            Tag="{Binding}" MouseLeftButtonUp="Row_OpenDetail">
+                      <Border.Effect>
+                        <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.07"
+                                          Color="#101820" />
+                      </Border.Effect>
+                      <Grid Margin="16,15,16,13">
+                        <Grid.RowDefinitions>
+                          <RowDefinition Height="Auto" />
+                          <RowDefinition Height="*" />
+                          <RowDefinition Height="18" />
+                          <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
+                          <v:PluginMark Grid.Column="0" Width="52" Height="52" Size="52"
+                                        IconPath="{Binding IconPath}" Pending="{Binding IconPending}"
+                                        Spec="{Binding Name}" VerticalAlignment="Top" Margin="0,0,12,0" />
+                          <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,6,0">
+                            <TextBlock Text="{Binding Title}" FontSize="14.5" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"
+                                       MaxHeight="40" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Publisher}" FontSize="10.5"
+                                       Foreground="{StaticResource TextMuted}" Margin="0,3,0,0"
+                                       TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <Border Grid.Column="2" MinWidth="24" Height="24" CornerRadius="12"
+                                  Background="{StaticResource AccentWash}" VerticalAlignment="Top"
+                                  Visibility="{Binding HasRank, Converter={StaticResource B2V}}">
+                            <TextBlock Text="{Binding Rank}" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource Accent}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
                           </Border>
-                          <TextBlock Text="{Binding DateText}" FontSize="10.5"
-                                     Foreground="{StaticResource TextMuted}" />
+                        </Grid>
+                        <TextBlock Grid.Row="1" Text="{Binding DescriptionText}" FontSize="12"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,10,0,0"
+                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Top"
+                                   ToolTip="{Binding DescriptionText}" />
+                        <!-- RowDefinition height keeps the slot even when stats are still loading. -->
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                    Visibility="{Binding HasStats, Converter={StaticResource B2V}}">
+                          <TextBlock Text="{Binding StarsText}" FontSize="10.5" Margin="0,0,12,0"
+                                     Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+                          <TextBlock Text="{Binding DownloadsText}" FontSize="10.5" Margin="0,0,12,0"
+                                     Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+                          <Border CornerRadius="6" Padding="5,1" Background="{StaticResource SuccessWash}"
+                                  Visibility="{Binding IsCompatible, Converter={StaticResource B2V}}">
+                            <TextBlock Text="兼容" FontSize="10" Foreground="{StaticResource SuccessText}" />
+                          </Border>
+                          <Border CornerRadius="6" Padding="5,1" Background="{StaticResource DangerWash}"
+                                  Visibility="{Binding IsIncompatible, Converter={StaticResource B2V}}">
+                            <TextBlock Text="不兼容" FontSize="10" Foreground="{StaticResource DangerText}" />
+                          </Border>
                         </StackPanel>
-                        <TextBlock Text="{Binding GrowthBadge}" FontSize="14" FontWeight="Bold"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   Visibility="{Binding HasGrowth, Converter={StaticResource B2V}}">
-                          <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                              <Setter Property="Foreground" Value="{StaticResource Success}" />
-                              <Style.Triggers>
-                                <DataTrigger Binding="{Binding GrowthSign}" Value="neg">
-                                  <Setter Property="Foreground" Value="{StaticResource Danger}" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding GrowthSign}" Value="zero">
-                                  <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                                </DataTrigger>
-                              </Style.Triggers>
-                            </Style>
-                          </TextBlock.Style>
-                        </TextBlock>
+                        <Grid Grid.Row="3" Margin="0,8,0,0">
+                          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border BorderBrush="{StaticResource LineBorder}" BorderThickness="1"
+                                    CornerRadius="6" Padding="6,1" Margin="0,0,8,0">
+                              <TextBlock Text="{Binding VersionText}" FontSize="10.5"
+                                         Foreground="{StaticResource TextMuted}" />
+                            </Border>
+                            <TextBlock Text="{Binding DateText}" FontSize="10.5"
+                                       Foreground="{StaticResource TextMuted}" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding GrowthBadge}" FontSize="14" FontWeight="Bold"
+                                     HorizontalAlignment="Right" VerticalAlignment="Center"
+                                     Visibility="{Binding HasGrowth, Converter={StaticResource B2V}}">
+                            <TextBlock.Style>
+                              <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource Success}" />
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding GrowthSign}" Value="neg">
+                                    <Setter Property="Foreground" Value="{StaticResource Danger}" />
+                                  </DataTrigger>
+                                  <DataTrigger Binding="{Binding GrowthSign}" Value="zero">
+                                    <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </TextBlock.Style>
+                          </TextBlock>
+                        </Grid>
                       </Grid>
+                    </Border>
                     </Grid>
-                  </Border>
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </Border>
-          </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Border>
 
-          <Border x:Name="StoreBusy" Visibility="Collapsed" MinHeight="180"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,28,0,0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-              <ContentControl Style="{StaticResource Spinner}" VerticalAlignment="Center" />
-              <TextBlock x:Name="StoreBusyText" Text="正在加载" Style="{StaticResource Muted}"
-                         Margin="12,0,0,0" VerticalAlignment="Center" />
-            </StackPanel>
-          </Border>
+            <Border x:Name="StoreBusy" Visibility="Collapsed" MinHeight="180"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+              <Border.RenderTransform>
+                <TranslateTransform />
+              </Border.RenderTransform>
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
+                          VerticalAlignment="Center">
+                <ContentControl Style="{StaticResource Spinner}" VerticalAlignment="Center" />
+                <TextBlock x:Name="StoreBusyText" Text="正在加载" Style="{StaticResource Muted}"
+                           Margin="12,0,0,0" VerticalAlignment="Center" />
+              </StackPanel>
+            </Border>
+          </Grid>
 
           <Border x:Name="LoadCard" Style="{StaticResource Slab}" Padding="40,30"
                   HorizontalAlignment="Center" Margin="0,40,0,0" Visibility="Collapsed">
