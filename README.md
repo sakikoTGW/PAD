@@ -2,7 +2,7 @@
 
 DeepSeek Harness 的启动器。装 DSH 版本、建隔离实例、点一下启动。
 
-[下载 Windows 版](https://github.com/sakikoTGW/pack-agent/releases/download/v0.4.5/pack-agent-for-DSH.exe) · [发行说明](https://github.com/sakikoTGW/pack-agent/releases/tag/v0.4.5)
+[下载 Windows 版](https://github.com/sakikoTGW/PAD/releases/latest/download/pack-agent-for-DSH.exe) · [发行说明](https://github.com/sakikoTGW/PAD/releases)
 
 双击 `pack-agent-for DSH.exe`。第一次：
 
